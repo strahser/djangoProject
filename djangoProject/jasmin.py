@@ -44,7 +44,7 @@ JAZZMIN_SETTINGS = {
     "topmenu_links": [
 
         # Url that gets reversed (Permissions can be added)
-        {"name": "Home", "url": "admin:index", "permissions": ["auth.view_user"]},
+        {"name": "Главная", "url": "home", "permissions": ["auth.view_user"]},
 
         # external url that opens in a new window (Permissions can be added)
         # {"name": "Support", "url": "https://github.com/farridav/django-jazzmin/issues", "new_window": True},
@@ -53,7 +53,7 @@ JAZZMIN_SETTINGS = {
         {"model": "auth.User"},
 
         # App with dropdown menu to all its models pages (Permissions checked against models)
-        {"app": "ProjectTDL"},
+        {"app": "StaticData"},
     ],
 
     #############
@@ -80,10 +80,11 @@ JAZZMIN_SETTINGS = {
     "hide_apps": ['StaticData'],
 
     # Hide these models when generating side menu (e.g auth.user)
-    "hide_models": ["auth.user", "auth.Group",'ProjectTDL.Notes', 'ProjectContract.ContractPayments'],
+    "hide_models": ["auth.user", "auth.Group",'ProjectTDL.SubTask','ProjectTDL.URLLink',
+                    'ProjectContract.ContractPayments'],
 
     # List of apps (and/or models) to base side menu ordering off of (does not need to contain all apps/models)
-    "order_with_respect_to": ['ProjectTDL'],
+    "order_with_respect_to": ['ProjectTDL.Task'],
 
     # Custom links to append to app groups, keyed on app name
     # "custom_links": {
@@ -110,14 +111,14 @@ JAZZMIN_SETTINGS = {
     # Related Modal #
     #################
     # Use modals instead of popups
-    "related_modal_active": False,
+    "related_modal_active": True,
 
     #############
     # UI Tweaks #
     #############
     # Relative paths to custom CSS/JS scripts (must be present in static files)
     "custom_css": None,
-    "custom_js": 'js/jquery-3.7.1.min.js',
+    "custom_js": 'jquery-3.7.1.min.js',
     # Whether to link font from fonts.googleapis.com (use custom_css to supply font otherwise)
     "use_google_fonts_cdn": True,
     # Whether to show the UI customizer on the sidebar

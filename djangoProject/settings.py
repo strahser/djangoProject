@@ -31,15 +31,21 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'jazzmin',
+    'import_export',
+    # 'mptt',
+    # 'django_mptt_admin',
     # 'grappelli',
     # 'grappelli.dashboard',
-    'jazzmin',
-    'mptt',
-    'django_mptt_admin',
-    'import_export',
-    "bootstrap4",
-    "bootstrap_datepicker_plus",
+    # "bootstrap4",
+    # "bootstrap_datepicker_plus",
+    # 'django_filters',
+    # 'advanced_filters',
+    'bootstrapsidebar',
     'crispy_forms',
+    'crispy_bootstrap5',
+    'more_admin_filters',
+    'tinymce',
 
     'django.contrib.admin',
     'django.contrib.auth',
@@ -62,9 +68,10 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
-
+CRISPY_ALLOWED_TEMPLATE_PACKS = ('Bootstrap5',)
+CRISPY_TEMPLATE_PACK = "Bootstrap5"
 ROOT_URLCONF = 'djangoProject.urls'
-
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -120,8 +127,9 @@ THOUSAND_SEPARATOR = ' '
 NUMBER_GROUPING = 3
 
 LANGUAGE_CODE = 'ru'
+from django.utils import timezone
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Europe/Moscow'
 
 USE_I18N = True
 
@@ -132,7 +140,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "static"),
+    BASE_DIR / 'static/',
 ]
 
 # Default primary key field type
@@ -142,4 +150,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 JAZZMIN_SETTINGS = JAZZMIN_SETTINGS
 IMPORT_EXPORT_ESCAPE_HTML_ON_EXPORT = True
 IMPORT_EXPORT_FORMATS = [XLSX, JSON, HTML]
-CRISPY_TEMPLATE_PACK = 'bootstrap4'
+FILE_UPLOAD_HANDLERS = ("django_excel.ExcelMemoryFileUploadHandler",
+                        "django_excel.TemporaryExcelFileUploadHandler")
+

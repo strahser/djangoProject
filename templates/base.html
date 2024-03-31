@@ -1,0 +1,166 @@
+<!doctype html>
+{% load static %}
+{% load i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+<html lang="{{ LANGUAGE_CODE }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+    <meta http-equiv="x-ua-compatible" content="ie=edge" />
+
+    <link href="{% static 'bootstrap/sidebar-bootstrap.min.css' %}" rel="stylesheet">
+    <link href="{% static 'fonts.css' %}" rel="stylesheet">
+    <link href="{% static 'layout.css' %}" rel="stylesheet">
+
+
+    {% block custom-css %}{% endblock %}
+    {% block head %}
+    <title>{% block title %}Bootstrap template{% endblock %}</title>
+    {% endblock %}
+  </head>
+
+  <body>
+  <div class="page-wrapper">
+  {% block page-wrapper %}
+
+  {% block sidebar %}
+
+  <nav id="sidebar">
+     <div class="text-center">
+            <div class="mb-4">
+                <img id="logo" class="rounded mt-4"
+                    src="{% static 'img/cc-logo.svg' %}" alt="">
+            </div>
+            <h3>Sidebar header</h3>
+            <p>{{ user.last_name|default:"Last Name" }}, {{ user.first_name|default:"First name" }}
+                <br />
+            &lt;{{user.username|default:"anonuser"}}&gt;</p>
+      </div>
+    <hr />
+      <ul class="list-unstyled components">
+                <li>
+        <a href="{% url 'admin:index' %}">Панель Администратора</a>
+    </li>
+          </ul>
+    <ul class="list-unstyled components">
+
+
+        <li>
+        <a href="{% url 'home' %}">Главное</a>
+    </li>
+    <li class="active">
+        <a href="#homeSubmenu"
+            data-bs-toggle="collapse"
+            aria-expanded="false"
+            role="button"
+            class="dropdown-toggle">Главные Ссылки</a>
+            <ul class="collapse list-unstyled"
+                id="homeSubmenu">
+                <li>
+                    <a href="#">Home 1</a>
+                </li>
+            </ul>
+    </li>
+
+    </ul>
+
+    {% if user.is_authenticated %}
+      <ul class="list-unstyled " >
+        <li>
+        <a href="#">Logout</a>
+        </li>
+      </ul>
+    {% endif %}
+  </nav>
+  {% endblock %}
+
+  <div id="content">
+    {% block navbar %}
+    <nav id="navbar-top" class="navbar navbar-expand-sm navbar-light ">
+        <div class="container-fluid">
+
+            <button type="button" id="sidebarCollapse" class="btn btn-primary">
+                <img class="mdi-svg" src="{% static 'mdi/menu.svg' %}" type="image/svg+xml" />
+            </button>
+
+            <button class="btn btn-dark d-inline-block d-sm-none ms-auto"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#navbarTop"
+                    aria-controls="navbarTop"
+                    aria-expanded="false" aria-label="Toggle navigation">
+                <img class="mdi-svg" src="{% static 'mdi/menu.svg' %}" type="image/svg+xml" />
+            </button>
+            {% block navbar-links %}
+            <div class="collapse navbar-collapse" id="navbarTop">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarAdmin" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                          Menu
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="navbarAdmin">
+                          <li><a class="dropdown-item" href="#">
+                              Item</a></li>
+                          <li><hr class="dropdown-divider"></li>
+                          <li><a class="dropdown-item" href="#">Item</a></li>
+                        </ul>
+                      </li>
+                      <li class="nav-item active">
+                        <a class="nav-link" href="{% url 'admin:index' %}">Администратор</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'e_mail_add' %}">E-mail</a>
+                    </li>
+                </ul>
+            </div>
+            {% endblock %}
+        </div>
+    </nav>
+    {% endblock %}
+
+    {% block messages %}
+        {% include 'snippets/show_messages.html' %}
+    {% endblock %}
+    <div id="content-wrapper">
+        {% block content %}
+            <h2>Collapsible Sidebar Using Bootstrap
+                <span id="bootstrap-version"></span></h2>
+            <script>
+                window.onload = function() {
+                    document.getElementById("bootstrap-version").innerHTML = bootstrap.Tooltip.VERSION
+                }
+            </script>
+            <p> Example of <a href="#" class="download-icon"> download link
+            </a> and an <a href="" class="link-icon" >External link</a></p>
+            <p>Lorem ipsum dolor
+            sit amet, consectetur adipisicing elit, sed do eiusmod tempor
+
+        {% endblock %}
+        {% block footer %}
+        <div class="contanier" >
+            <footer class="text-end text-secondary fst-italic mt-5">
+            <p>&copy; 2024 HVACBIMSOLUTION </p>
+            </footer>
+        </div>
+        {% endblock %}
+    </div>
+  </div>
+
+{% endblock %}
+</div>
+
+<script src="{% static 'bootstrap/bootstrap.bundle.min.js' %}"></script>
+<script type="text/javascript">
+document.addEventListener("DOMContentLoaded", function(event) {
+    document.getElementById("sidebarCollapse").onclick = function () {
+        document.getElementById("sidebar").classList.toggle("active");
+        document.getElementById("content").classList.toggle("active");
+        }
+    });
+</script>
+{% block after-bootstrap-js %}
+
+{% endblock %}
+  </body>
+</html>

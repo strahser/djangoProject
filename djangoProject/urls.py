@@ -15,9 +15,19 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.template.defaulttags import url
+from django.urls import path, include, re_path
+from django.views.generic import TemplateView
+from django.contrib.auth import views as auth_views
 
 urlpatterns = [
-    path('grappelli/', include('grappelli.urls')),  # grappelli URLS
+    path("", include('ProjectTDL.urls')),
     path('admin/', admin.site.urls),
+    path('tinymce/', include('tinymce.urls')),
+    path('advanced_filters/', include('advanced_filters.urls')),
+
+    path('demo', TemplateView.as_view(template_name="bootstrap_base.html"), name='demo'),
+    path('popovers', TemplateView.as_view(template_name="bootstrap_popovers.html"), name="popovers"),
+    path('login', auth_views.LoginView.as_view(), name="login"),
+
 ]
