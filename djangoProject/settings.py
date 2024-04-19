@@ -8,6 +8,8 @@ https://docs.djangoproject.com/en/5.0/topics/settings/
 
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
+charting
+https://github.com/zostera/django-charting
 """
 import os
 from pathlib import Path
@@ -31,21 +33,32 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
-    'jazzmin',
-    'import_export',
-    # 'mptt',
     # 'django_mptt_admin',
     # 'grappelli',
     # 'grappelli.dashboard',
-    # "bootstrap4",
     # "bootstrap_datepicker_plus",
     # 'django_filters',
     # 'advanced_filters',
+    # 'more_admin_filters',
+    # "django_charting",
+    # 'mptt',
+    'django_tables2',
+    'django_admin_filters',
+    "django_bootstrap5",
+    'jazzmin',
+    'import_export',
     'bootstrapsidebar',
     'crispy_forms',
     'crispy_bootstrap5',
-    'more_admin_filters',
+    'crispy_tailwind',
     'tinymce',
+    'django_htmx',
+    # 'admin_action_tools',
+    # 'widget_tweaks',
+    # 'admin_confirm',
+    # 'slick_reporting',
+    'admin_form_action',
+    'adminactions',
 
     'django.contrib.admin',
     'django.contrib.auth',
@@ -54,9 +67,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
+
     'ProjectTDL',
     'StaticData',
     'ProjectContract',
+    # 'timeline',https://github.com/andywar65/timeline
+    'rest_framework',
+
+
 ]
 
 MIDDLEWARE = [
@@ -67,6 +85,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+'django_htmx.middleware.HtmxMiddleware',
 ]
 CRISPY_ALLOWED_TEMPLATE_PACKS = ('Bootstrap5',)
 CRISPY_TEMPLATE_PACK = "Bootstrap5"
@@ -153,3 +172,36 @@ IMPORT_EXPORT_FORMATS = [XLSX, JSON, HTML]
 FILE_UPLOAD_HANDLERS = ("django_excel.ExcelMemoryFileUploadHandler",
                         "django_excel.TemporaryExcelFileUploadHandler")
 
+DJANGO_TABLES2_TABLE_ATTRS = {
+    'class': 'table table-striped table-bordered',
+    'thead': {
+        'class': 'table-light',
+    },
+}
+
+TINYMCE_DEFAULT_CONFIG = {
+    'cleanup_on_startup': True,
+    'custom_undo_redo_levels': 20,
+    'selector': 'textarea',
+    'theme': 'silver',
+    'plugins': '''
+            textcolor save link image media preview codesample contextmenu
+            table code lists fullscreen  insertdatetime  nonbreaking
+            contextmenu directionality searchreplace wordcount visualblocks
+            visualchars code fullscreen autolink lists  charmap print  hr
+            anchor pagebreak
+            ''',
+    'toolbar1': '''
+            fullscreen preview bold italic underline | fontselect,
+            fontsizeselect  | forecolor backcolor | alignleft alignright |
+            aligncenter alignjustify | indent outdent | bullist numlist table |
+            | link image media | codesample |
+            ''',
+    'toolbar2': '''
+            visualblocks visualchars |
+            charmap hr pagebreak nonbreaking anchor |  code |
+            ''',
+    'contextmenu': 'formats | link image',
+    'menubar': True,
+    'statusbar': True,
+}

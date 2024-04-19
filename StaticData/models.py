@@ -1,6 +1,17 @@
 from django.db import models
 
 
+class Category(models.Model):
+	name = models.CharField(max_length=20, null=False, verbose_name='Категория')
+
+	def __str__(self):
+		return self.name
+
+	class Meta:
+		verbose_name = 'Категория'
+		verbose_name_plural = 'Категории'
+
+
 class ProjectSite(models.Model):
 	name = models.CharField(max_length=100, null=False, verbose_name='Наименование Проекта')
 
@@ -37,14 +48,14 @@ class BuildingType(models.Model):
 class BuildingNumber(models.Model):
 	name = models.ForeignKey('StaticData.BuildingType', verbose_name='Тип здания', null=True, blank=True,
 	                         on_delete=models.SET_NULL)
-	building_number = models.CharField(max_length=20, null=True, verbose_name='Номер Здания')
+	building_number = models.CharField(max_length=20, null=True, blank=True, verbose_name='Номер Здания')
 
 	class Meta:
 		verbose_name = 'Здание Номер'
 		verbose_name_plural = 'Здания Номер'
 
 	def __str__(self):
-		return f'{self.name.name} {self.building_number}'
+		return f'{self.name.name}- {self.building_number}'
 
 
 class DesignChapter(models.Model):

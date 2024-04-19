@@ -8,11 +8,9 @@
     <meta name="viewport"
       content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
     <meta http-equiv="x-ua-compatible" content="ie=edge" />
-
     <link href="{% static 'bootstrap/sidebar-bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'fonts.css' %}" rel="stylesheet">
     <link href="{% static 'layout.css' %}" rel="stylesheet">
-
 
     {% block custom-css %}{% endblock %}
     {% block head %}
@@ -20,7 +18,7 @@
     {% endblock %}
   </head>
 
-  <body>
+  <body  >
   <div class="page-wrapper">
   {% block page-wrapper %}
 
@@ -149,8 +147,14 @@
 
 {% endblock %}
 </div>
-
+    <script src="{% static 'jquery-3.7.1.min.js'%}"></script>
 <script src="{% static 'bootstrap/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'htmx/htmx.min.js' %}"></script>
+      <script>
+      document.body.addEventListener('htmx:configRequest', (event) => {
+        event.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+      })
+    </script>
 <script type="text/javascript">
 document.addEventListener("DOMContentLoaded", function(event) {
     document.getElementById("sidebarCollapse").onclick = function () {
@@ -159,8 +163,6 @@ document.addEventListener("DOMContentLoaded", function(event) {
         }
     });
 </script>
-{% block after-bootstrap-js %}
-
-{% endblock %}
+{% block custom-js %}{% endblock %}
   </body>
 </html>

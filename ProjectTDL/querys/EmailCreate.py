@@ -54,16 +54,16 @@ class SaveAttached:
                 _type_: _description_
             """
         message_name = self.message().subject
-        message_name = str(message_name)[0:30] if len(str(message_name)) > 30 else str(message_name)
-        message_name = text_replace(message_name)  # replace wrong symbols
-        msg_ext = f"{message_name}.msg"
-        return msg_ext
+        if message_name:
+            message_name = str(message_name)[0:30] if len(str(message_name)) > 30 else str(message_name)
+            message_name = text_replace(message_name)  # replace wrong symbols
+            msg_ext = f"{message_name}.msg"
+            return msg_ext
+        else:
+            return 'Без темы'
 
     def save_message(self):
-        self.message().SaveAs(
-            os.path.join(
-                self.folder_path, self.get_message_save_name()
-            ))
+        self.message().SaveAs(self.folder_path, self.get_message_save_name())
 
     def _get_link_path(self):
         link_body = f"files wer saved to \n {self.folder_path} "
@@ -102,7 +102,6 @@ class SaveAttached:
         return self.message().Body
 
     def delete_attachments(self):
-
         attachments = self.message().Attachments
         attachments_number = attachments.Count
         if attachments_number:
@@ -123,7 +122,8 @@ def make_folder(_data_path: str):
         copy_to_clipboard(_data_path)
 
 
-def parsing_form(_form: forms.ModelForm) -> forms.ModelForm:
+def parsing_form_for_e_mail_path(_form: forms.ModelForm) -> forms.ModelForm:
+    """создаем данные для пути к файлу project_site,contractor,contractor,email_type,name,today"""
     project_site = _form.cleaned_data['project_site'].name
     contractor = _form.cleaned_data['contractor'].name
     email_type = getattr(EmailType, _form.cleaned_data['email_type']).value
@@ -132,19 +132,23 @@ def parsing_form(_form: forms.ModelForm) -> forms.ModelForm:
     year = str(datetime.now().year)
     today = datetime.today().strftime('%Y_%m_%d')
     _data_path = os.path.join(
-        'C:\\', 'Bitrix 24', 'Переписка', project_site, contractor, email_type, year, f'{today}_{name}'
+        'C:\\', 'Bitrix 24', 'Переписка', project_site, contractor, email_type, year, f'{today}_{name}\\',
     )
     _form.cleaned_data['link'] = _data_path
     return _form
 
 
-def parsing_email_data_to_form(_form: forms.ModelForm, request) -> forms.ModelForm:
+def process_e_mail(_form: forms.ModelForm, request) -> forms.ModelForm:
+    """забираем данные из е-мэйла subject,body,sender,сохраняем е-мэйл"""
     try:
         email = SaveAttached(_form.cleaned_data['link'])
-        email.saved_attached_files()
         _form.cleaned_data['subject'] = email.message().Subject
-        _form.cleaned_data['body'] = get_body_text(email)
+        _form.cleaned_data['body'] = email.get_old_body_text()
         _form.cleaned_data['sender'] = email.message().Sender
+        # email.delete_attachments()
+        # email.change_mail_body()
+        email.saved_attached_files()
+        # email.save_message()
         messages.success(request, f'E mail {email.message().Subject} parsing ok')
         return _form
     except Exception as e:
@@ -154,6 +158,7 @@ def parsing_email_data_to_form(_form: forms.ModelForm, request) -> forms.ModelFo
 
 
 def add_form_data_to_data_base(_form: forms.ModelForm, request):
+    """записываем данные из формы в базу данных"""
     try:
         Email.objects.create(**_form.cleaned_data)
         messages.success(request, 'Добавление данных прошло успешно')
