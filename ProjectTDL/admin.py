@@ -1,6 +1,6 @@
 from django.contrib import admin
 from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
-from ProjectTDL.forms import EmailForm, TaskAdminUpdate, TaskAdminUpdateDate
+from ProjectTDL.forms import EmailForm, TaskAdminUpdate, TaskAdminUpdateDate, TaskUpdateValuesForm
 from ProjectTDL.models import *
 from ProjectContract.models import *
 from import_export import resources
@@ -8,6 +8,7 @@ from import_export.admin import ImportExportModelAdmin
 from import_export.fields import Field
 from StaticData.models import DesignChapter
 from admin_form_action import form_action
+from django.contrib import messages
 
 
 class DesignChapterResource(resources.ModelResource):
@@ -77,35 +78,48 @@ class UniversalAdmin(admin.ModelAdmin):
 
 @admin.register(Task)
 class TaskAdmin(ImportExportModelAdmin):
-	actions = [duplicate_event, 'update_price', 'update_due_date']
-	list_display_links = ('id','name',)
+	actions = [duplicate_event, 'update_data']
+	list_display_links = ('id', 'name',)
 	list_display = get_standard_display_list(Task, additional_list=[],
-	                                         excluding_list=['description', 'parent', 'owner',])
-	list_editable = ('status',  'price', 'due_date',)#удалил 'category', 'contractor','contract',
-	list_filter = ['project_site__name', 'sub_project', 'building_number', 'status', 'category', 'contractor','contract',]
+	                                         excluding_list=['description', 'parent', 'owner', ])
+	list_editable = ('status', 'price', 'due_date',)  # удалил 'category', 'contractor','contract',
+	list_filter = ['project_site__name', 'sub_project', 'building_number', 'status', 'category', 'contractor',
+	               'contract', ]
 	search_fields = ['name', 'project_site__name']
 	inlines = [TaskInline, EmailInline]
 	resource_classes = [TaskResource]
 	list_per_page = 10
 	actions_on_bottom = True
 
-	@form_action(TaskAdminUpdateDate)
-	@admin.action(description='Обновить дату')
-	def update_due_date(self, request, queryset):
+	@form_action(TaskUpdateValuesForm)
+	@admin.action(description='Обновить Данные')
+	def update_data(self, request, queryset):
 		_form = request.form
-		for task in queryset:
-			_form.update_due_date(task)
+		pks = [val.id for val in queryset]
+		if pks:
+			request.session['pks'] = pks
+		if request.session.get('pks', None):
+			all_fields = [f.name for f in Task._meta.fields]
+			update_dict = {}
+			for k, v in _form.data.items():
+				if k in all_fields and v:
+					update_dict[k] = v
+			if update_dict:
+				try:
+					selected_objects = Task.objects.filter(pk__in=request.session.get('pks'))
+					selected_objects.update(**update_dict)
+					request.session['pks'] = None
+					for data in selected_objects:
+						messages.success(request, data)
+				except Exception as e:
+					messages.error(request, e)
+			else:
+				messages.error(request, "Нет данных")
 
-	@form_action(TaskAdminUpdate)
-	@admin.action(description='Обновить Цену')
-	def update_price(self, request, queryset):
-		price_form = request.form
-		for task in queryset:
-			price_form.update_price(task)
 
 	class Media(object):
 		js = ('admin/js/admin.js',)
-		# css = {"all": ("admin/admin_css.css",)}
+	# css = {"all": ("admin/admin_css.css",)}
 
 
 @admin.register(Contract)

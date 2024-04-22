@@ -58,7 +58,7 @@ INSTALLED_APPS = [
     # 'admin_confirm',
     # 'slick_reporting',
     'admin_form_action',
-    'adminactions',
+    # 'adminactions',
 
     'django.contrib.admin',
     'django.contrib.auth',
