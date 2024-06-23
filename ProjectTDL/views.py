@@ -15,6 +15,19 @@ from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord
 	create_group_button, HTML_DF_PROPERTY
 from django_tables2 import RequestConfig, TemplateColumn
 
+from django.core.mail import EmailMessage
+
+
+def handle_incoming_email(request):
+	# get the email data from the request
+	email = EmailMessage()
+	email.subject = "TEST"
+	email.body = "HELLO WORLD"
+	email.from_email = 'strakhov.s@cimrus.com'
+	email.to = ['strakhov.s@cimrus.com']
+	email.send()
+	return HttpResponse('Email received and processed successfully.')
+
 
 def task_action(request):
 	if request.method == "POST":
@@ -69,8 +82,11 @@ def index(request):
 		# df = create_df_from_model(Task, qs)
 		# _pivot_ui = pivot_ui(df, rows=['contractor'], cols=['category'],
 		#                      outfile_path="templates/ProjectTDL/pivottablejs.html")
+
 		if 'save_attachments' in request.POST and _form.is_valid():
-			return TaskTable.Save_table_django(Task, qs, excluding_list=StaticFilterSettings.export_excluding_list)
+			export_table =TaskTable.Save_table_django(Task, qs, excluding_list=StaticFilterSettings.export_excluding_list)
+			messages.success(request,f"успешно экспортировано {export_table.shape[0]} строк {export_table.shape[1]} столбцов")
+			return redirect('home')
 	else:
 		_form = TaskFilterForm()
 		table = TaskTable(qs)

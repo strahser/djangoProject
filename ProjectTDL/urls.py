@@ -9,6 +9,7 @@ urlpatterns = [
     path("TaskDeleteView/<int:pk>", TaskDeleteView.as_view(), name='TaskDeleteView'),
     path("TaskCloneView/<int:pk>", views.TaskCloneView, name='TaskCloneView'),
     path("task_action", views.task_action, name='task_action'),
+    path('handle_incoming_email/',views.handle_incoming_email,name='handle_incoming_email'),
 
 
     path("SubTaskUpdateView/<int:pk>", SubTaskUpdateView.as_view(), name='SubTaskUpdateView'),

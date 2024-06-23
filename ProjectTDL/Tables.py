@@ -3,6 +3,7 @@ from pprint import pprint
 import pandas as pd
 import datetime
 import django_tables2 as tables
+from django.db.models import QuerySet
 from django.http import HttpResponse
 from django.urls import reverse_lazy, reverse
 from django.utils.safestring import mark_safe
@@ -25,9 +26,9 @@ class StaticFilterSettings:
 	export_excluding_list = ['price', 'contract', 'owner']
 
 
-def create_filter_qs(request, filtered_value_list, additional_forigen_keys_list=None):
-	if additional_forigen_keys_list:
-		full_list = filtered_value_list + additional_forigen_keys_list
+def create_filter_qs(request, filtered_value_list, additional_foreign_keys_list=None) -> QuerySet[Task]:
+	if additional_foreign_keys_list:
+		full_list = filtered_value_list + additional_foreign_keys_list
 		all_object = Task.objects.select_related(*full_list)
 	else:
 		all_object = Task.objects.select_related(*filtered_value_list)
@@ -151,7 +152,7 @@ def create_cash_flow_chart(qs, freq: str = 'd') -> str:
 
 
 # endregion
-def rows_higlighter(**kwargs):
+def rows_highlighter(**kwargs):
 	# Add highlight class to rows
 	# when the product is recently updated.
 	# Recently updated rows are in the table
@@ -198,19 +199,25 @@ class TaskTable(tables.Table):
                          ''')
 
 	@staticmethod
-	def Save_table_django(model, qs, excluding_list=None):
+	def Save_table_django(model, qs, excluding_list=None) -> pd.DataFrame:
+		def save_excel_file() -> HttpResponse:
+			_buffer = df_to_excel_in_memory([df_export], ['analytics_data'])
+			filename = f"Задачи.xlsx"
+			res = HttpResponse(
+				_buffer.getvalue(),  # Gives the Byte string of the Byte Buffer object
+				content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+			)
+			res['Content-Disposition'] = f'attachment; filename={filename}'  # сохраняем файл и возвращаем данные
+			return res
+
 		df_initial = create_df_from_model(model, qs)
+		df_initial['project_site'] = df_initial['project_site'].apply(lambda x: getattr(x, 'name'))
+		df_initial = df_initial.sort_values('project_site')
 		df_export = df_initial \
 			.filter(get_standard_display_list(model, excluding_list)) \
 			.rename(renamed_dict(Task), axis='columns') \
 			.fillna('')
-		_buffer = df_to_excel_in_memory([df_export], ['analytics_data'])
-		filename = f"Задачи.xlsx"
-		res = HttpResponse(
-			_buffer.getvalue(),  # Gives the Byte string of the Byte Buffer object
-			content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-		)
-		res['Content-Disposition'] = f'attachment; filename={filename}'
+
 		# https://likegeeks.com/pandas-to-html-table-styling-css-styler/#Table_Borders_and_Spacing
 		desktop = os.path.normpath(os.path.expanduser("~/Desktop"))
 		file_path = os.path.join(desktop, 'Задачи.html')
@@ -219,7 +226,7 @@ class TaskTable(tables.Table):
 		# Save to html file
 		with open(file_path, 'w') as f:
 			f.write(html_table_blue_light)
-		return res
+		return df_export
 
 	class Meta:
 		model = Task

@@ -26,14 +26,18 @@
 </form>
     {{ gant_table|safe }}
     {{ timeser|safe }}
-  <div class="row">
+
       {% for pivot_table in pivot_table_list %}
-    <div class="col-lg-4">
-         <h4 style="text-align: center;">{{ pivot_table.name }}</h4>
+  <div class="container boards" >
+          <button type="button" class="btn btn-primary w-100" data-bs-toggle="collapse" data-bs-target="#{{ pivot_table.name }}">{{ pivot_table.name }}</button>
+    <div class="collapse show" id="{{ pivot_table.name }}">
+    <div class="card card-body">
     {{ pivot_table.table|safe }}
     </div>
+          </div>
+          </div>
       {% endfor %}
-    </div>
+
 
 {% endblock %}
 {% block custom-js %}

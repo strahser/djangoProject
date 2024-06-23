@@ -1,0 +1,49 @@
+{% extends "admin/change_list.html" %}
+
+{% block content_title %}
+    <h1> Задачи </h1>
+{% endblock %}
+
+{% block result_list %}
+    {{ block.super }}
+<div class="results">
+    <table>
+        <thead>
+      <tr>
+      <th>
+          <div class="text">
+            <a href="#">Подрядчик</a>
+          </div>
+      </th>
+      <th>
+          <div class="text">
+            <a href="#">Кол-во Задач</a>
+          </div>
+      </th>
+          <th>
+          <div class="text">
+            <a href="#">Сумма</a>
+          </div>
+      </th>
+      </thead>
+            <tbody>
+      {% for row in summary %}
+      <tr class="{% cycle 'row1' 'row2' %}">
+        <td> {{ row.contractor__name }} </td>
+        <td> {{ row.total }} </td>
+        <td>
+          <strong>
+          {{ row.total_sales | default:0 }}
+          </strong>
+        </td>
+      </tr>
+      {% endfor %}
+        <tr style="font-weight:bold; border-top:2px solid #DDDDDD;">
+            <td> Итого </td>
+            <td> {{ summary_total.total  }} </td>
+            <td> {{ summary_total.total_sales | default:0 }}руб. </td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}

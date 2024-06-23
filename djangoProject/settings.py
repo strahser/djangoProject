@@ -42,10 +42,11 @@ INSTALLED_APPS = [
     # 'more_admin_filters',
     # "django_charting",
     # 'mptt',
+    'adminactions',
     'django_tables2',
     'django_admin_filters',
     "django_bootstrap5",
-    'jazzmin',
+
     'import_export',
     'bootstrapsidebar',
     'crispy_forms',
@@ -53,13 +54,14 @@ INSTALLED_APPS = [
     'crispy_tailwind',
     'tinymce',
     'django_htmx',
+    # "admin_interface",
+    # "colorfield",
+    'jazzmin',
     # 'admin_action_tools',
     # 'widget_tweaks',
     # 'admin_confirm',
     # 'slick_reporting',
     'admin_form_action',
-    # 'adminactions',
-
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -67,15 +69,22 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-
     'ProjectTDL',
     'StaticData',
     'ProjectContract',
     # 'timeline',https://github.com/andywar65/timeline
     'rest_framework',
 
-
 ]
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'imap.yandex.ru'
+EMAIL_PORT = 993
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'strakhov.s@cimrus.com'
+EMAIL_HOST_PASSWORD = 'mircxhzbiwryssjp'
+
+X_FRAME_OPTIONS = "SAMEORIGIN"
+SILENCED_SYSTEM_CHECKS = ["security.W019"]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -85,7 +94,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-'django_htmx.middleware.HtmxMiddleware',
+    'django_htmx.middleware.HtmxMiddleware',
 ]
 CRISPY_ALLOWED_TEMPLATE_PACKS = ('Bootstrap5',)
 CRISPY_TEMPLATE_PACK = "Bootstrap5"
