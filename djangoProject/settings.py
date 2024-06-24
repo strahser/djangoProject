@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     # 'widget_tweaks',
     # 'admin_confirm',
     # 'slick_reporting',
+
     'admin_form_action',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -72,6 +73,8 @@ INSTALLED_APPS = [
     'ProjectTDL',
     'StaticData',
     'ProjectContract',
+    'PersonalData',
+
     # 'timeline',https://github.com/andywar65/timeline
     'rest_framework',
 
@@ -82,9 +85,7 @@ EMAIL_PORT = 993
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'strakhov.s@cimrus.com'
 EMAIL_HOST_PASSWORD = 'mircxhzbiwryssjp'
-
-X_FRAME_OPTIONS = "SAMEORIGIN"
-SILENCED_SYSTEM_CHECKS = ["security.W019"]
+AUTOSAVE_PERIOD =120#minutes
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -125,9 +126,14 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+    },
+    'personal_db': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'personal_db.sqlite3',
     }
-}
 
+}
+DATABASE_ROUTERS = ['PersonalData.DbRouter.PersonalDataRouter',]
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 
