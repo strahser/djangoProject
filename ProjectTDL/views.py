@@ -1,9 +1,13 @@
+import os
 from urllib.parse import urlparse
 from django.http import HttpResponseRedirect
 from django.shortcuts import render, redirect, HttpResponse
 from django.urls import reverse_lazy
 from django.views.generic import UpdateView, DeleteView
 from django.contrib import messages
+
+from ProjectTDL.EmailImapParser import ParsingImapEmailToDB
+from ProjectTDL.StaticData import EmailType
 from ProjectTDL.Tables import TaskTable, create_filter_qs, data_filter_qs, StaticFilterSettings
 from ProjectTDL.forms import EmailForm, TaskFilterForm, TaskUpdateForm, TaskAdminUpdateDate, TaskAdminUpdate, \
 	TaskUpdateValuesForm
@@ -14,19 +18,19 @@ from ProjectTDL.querys.EmailCreate import parsing_form_for_e_mail_path, process_
 from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord, create_df_from_model, ButtonData, \
 	create_group_button, HTML_DF_PROPERTY
 from django_tables2 import RequestConfig, TemplateColumn
-
 from django.core.mail import EmailMessage
 
 
 def handle_incoming_email(request):
-	# get the email data from the request
-	email = EmailMessage()
-	email.subject = "TEST"
-	email.body = "HELLO WORLD"
-	email.from_email = 'strakhov.s@cimrus.com'
-	email.to = ['strakhov.s@cimrus.com']
-	email.send()
-	return HttpResponse('Email received and processed successfully.')
+	initial_folder_list = {'INBOX': EmailType.IN.name,
+	                       'Отправленные': EmailType.OUT.name
+	                       }
+	directory = os.path.join('e:\Проекты Симрус', 'Переписка', 'imap_attachments')
+	for folder, folder_db_name in initial_folder_list.items():
+		root_path = os.path.join(directory, folder)
+		_parser = ParsingImapEmailToDB(root_path)
+		_parser.main(folder_db_name, folder, limit=10)
+	return HttpResponse('<h1>Почта получена и обработана успешно.</h1>')
 
 
 def task_action(request):
@@ -84,8 +88,10 @@ def index(request):
 		#                      outfile_path="templates/ProjectTDL/pivottablejs.html")
 
 		if 'save_attachments' in request.POST and _form.is_valid():
-			export_table =TaskTable.Save_table_django(Task, qs, excluding_list=StaticFilterSettings.export_excluding_list)
-			messages.success(request,f"успешно экспортировано {export_table.shape[0]} строк {export_table.shape[1]} столбцов")
+			export_table = TaskTable.Save_table_django(Task, qs,
+			                                           excluding_list=StaticFilterSettings.export_excluding_list)
+			messages.success(request,
+			                 f"успешно экспортировано {export_table.shape[0]} строк {export_table.shape[1]} столбцов")
 			return redirect('home')
 	else:
 		_form = TaskFilterForm()

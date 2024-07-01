@@ -57,10 +57,12 @@ INSTALLED_APPS = [
     # "admin_interface",
     # "colorfield",
     'jazzmin',
+    'django_mailbox',
     # 'admin_action_tools',
     # 'widget_tweaks',
     # 'admin_confirm',
     # 'slick_reporting',
+    # 'django_admin_row_actions',
 
     'admin_form_action',
     'django.contrib.admin',
@@ -86,7 +88,7 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'strakhov.s@cimrus.com'
 EMAIL_HOST_PASSWORD = 'mircxhzbiwryssjp'
 AUTOSAVE_PERIOD =120#minutes
-
+MEDIA_ROOT =r"e:\Проекты Симрус\Переписка"
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

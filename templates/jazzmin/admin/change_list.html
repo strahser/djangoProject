@@ -1,10 +1,15 @@
 {% extends "admin/change_list.html" %}
 
-{% block content_title %}
-    <h1> Задачи </h1>
+{% block breadcrumbs %}
+{{ block.super }}
+        <a target="_blank"
+    class="btn btn-info pull-right"
+    href="{% url 'handle_incoming_email' %}">
+    Получить ПОЧТУ
+</a>
 {% endblock %}
-
 {% block result_list %}
+
     {{ block.super }}
 <div class="results">
     <table>

@@ -1,7 +1,12 @@
+import os
+from datetime import datetime
+
 from django.contrib import admin
 from django.db.models import Sum, Count
+from django.urls import reverse
 
 from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
+from ProjectTDL.EmailImapParser import clean
 from ProjectTDL.forms import EmailForm, TaskAdminUpdate, TaskAdminUpdateDate, TaskUpdateValuesForm
 from ProjectTDL.models import *
 from ProjectContract.models import *
@@ -11,6 +16,26 @@ from import_export.fields import Field
 from StaticData.models import DesignChapter
 from admin_form_action import form_action
 from django.contrib import messages
+import os, shutil
+import win32clipboard  # pip install pywin32
+
+
+
+def copy_to_clipboard(text):
+	win32clipboard.OpenClipboard()
+	win32clipboard.EmptyClipboard()
+	win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+	win32clipboard.CloseClipboard()
+
+
+def copytree(src, dst, symlinks=False, ignore=None):
+	for item in os.listdir(src):
+		s = os.path.join(src, item)
+		d = os.path.join(dst, item)
+		if os.path.isdir(s):
+			shutil.copytree(s, d, symlinks, ignore)
+		else:
+			shutil.copy2(s, d)
 
 
 class DesignChapterResource(resources.ModelResource):
@@ -179,9 +204,34 @@ class ContractAdmin(ImportExportModelAdmin):
 
 @admin.register(Email)
 class EmailAdmin(ImportExportModelAdmin):
-	list_display = get_standard_display_list(Email, excluding_list=['body'],
-	                                         additional_list=['create_admin_link', 'creation_stamp'])
+	list_display = ['id', 'email_type', 'project_site','building_type','category', 'contractor', 'name',
+	                'subject', 'sender', 'email_stamp','create_admin_link']
+	# list_editable = ['project_site', 'contractor']
+	list_filter = ['email_type', 'project_site', 'contractor', 'sender']
+	search_fields = ['name', 'subject', 'sender']
+	list_display_links = ['id', 'name', 'subject']
+	change_list_template = 'jazzmin/admin/change_list.html'
+	actions = ("copy_e_mail",)
 
-	list_filter = ['project_site', 'contractor', 'sender']
-	list_display_links = ['name']
-	form = EmailForm
+	@admin.action(description='Скопировать E-mail')
+	def copy_e_mail(modeladmin, request, queryset):
+		for obj in queryset:
+			try:
+				email_type = getattr(EmailType, obj.email_type).value
+				year = str(datetime.now().year)
+				today = datetime.today().strftime('%Y_%m_%d')
+				folder_name = obj.name if obj.name else clean(obj.subject)
+				_directory = os.path.join(
+					'C:\\', 'Bitrix 24', 'Переписка',  obj.project_site.name,
+					obj.contractor.name, email_type, year, f'{today}_{folder_name}\\'
+				)
+				os.makedirs(_directory, exist_ok=True)
+				copytree(obj.link, _directory)
+				if os.path.isdir(_directory):
+					copy_to_clipboard(_directory)
+				messages.success(request, f"файлы скопированы в папку {_directory}")
+			except Exception as e:
+				messages.error(request, f"ошибки при копировании {e}")
+
+
+# form = EmailForm
