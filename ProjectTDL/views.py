@@ -5,8 +5,6 @@ from django.shortcuts import render, redirect, HttpResponse
 from django.urls import reverse_lazy
 from django.views.generic import UpdateView, DeleteView
 from django.contrib import messages
-
-from ProjectTDL.EmailImapParser import ParsingImapEmailToDB
 from ProjectTDL.StaticData import EmailType
 from ProjectTDL.Tables import TaskTable, create_filter_qs, data_filter_qs, StaticFilterSettings
 from ProjectTDL.forms import EmailForm, TaskFilterForm, TaskUpdateForm, TaskAdminUpdateDate, TaskAdminUpdate, \
@@ -14,11 +12,11 @@ from ProjectTDL.forms import EmailForm, TaskFilterForm, TaskUpdateForm, TaskAdmi
 from ProjectTDL.models import Task, SubTask
 from ProjectTDL.querys.EmailCreate import parsing_form_for_e_mail_path, process_e_mail, add_form_data_to_data_base, \
 	make_folder
+from ProjectTDL.ЕmailParser.ParsingImapEmailToDB import ParsingImapEmailToDB
 
 from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord, create_df_from_model, ButtonData, \
 	create_group_button, HTML_DF_PROPERTY
 from django_tables2 import RequestConfig, TemplateColumn
-from django.core.mail import EmailMessage
 
 
 def handle_incoming_email(request):
@@ -86,7 +84,6 @@ def index(request):
 		# df = create_df_from_model(Task, qs)
 		# _pivot_ui = pivot_ui(df, rows=['contractor'], cols=['category'],
 		#                      outfile_path="templates/ProjectTDL/pivottablejs.html")
-
 		if 'save_attachments' in request.POST and _form.is_valid():
 			export_table = TaskTable.Save_table_django(Task, qs,
 			                                           excluding_list=StaticFilterSettings.export_excluding_list)

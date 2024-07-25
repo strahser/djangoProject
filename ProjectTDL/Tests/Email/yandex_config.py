@@ -6,10 +6,6 @@ from django.test import TestCase
 
 import imaplib
 import email
-from email.header import decode_header
-import base64
-# from bs4 import BeautifulSoup
-import re
 
 
 YA_HOST = "imap.yandex.ru"
@@ -41,7 +37,6 @@ for email_id in id_list:
         if part.get('Content-Disposition') is None:
             # Skip parts with no filename
             continue
-
         filename = part.get_filename()
         try:
             filepath = os.path.join(r'/ProjectTDL/temp', filename)

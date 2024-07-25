@@ -26,19 +26,16 @@
 </form>
     {{ gant_table|safe }}
     {{ timeser|safe }}
-
-      {% for pivot_table in pivot_table_list %}
+    {% for pivot_table in pivot_table_list %}
   <div class="container boards" >
           <button type="button" class="btn btn-primary w-100" data-bs-toggle="collapse" data-bs-target="#{{ pivot_table.name }}">{{ pivot_table.name }}</button>
     <div class="collapse show" id="{{ pivot_table.name }}">
     <div class="card card-body">
     {{ pivot_table.table|safe }}
     </div>
-          </div>
-          </div>
+    </div>
+  </div>
       {% endfor %}
-
-
 {% endblock %}
 {% block custom-js %}
 {#    Data Table#}

@@ -6,19 +6,36 @@ from django.db.models import Sum, Count
 from django.urls import reverse
 
 from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
-from ProjectTDL.EmailImapParser import clean
+from ProjectTDL.Tables import create_filter_qs, data_filter_qs, StaticFilterSettings
 from ProjectTDL.forms import EmailForm, TaskAdminUpdate, TaskAdminUpdateDate, TaskUpdateValuesForm
 from ProjectTDL.models import *
 from ProjectContract.models import *
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
 from import_export.fields import Field
+
+from ProjectTDL.ЕmailParser.EmailFunctions import clean
 from StaticData.models import DesignChapter
 from admin_form_action import form_action
 from django.contrib import messages
 import os, shutil
 import win32clipboard  # pip install pywin32
+from html.parser import HTMLParser
 
+
+def html_convert(data):
+	class HTMLFilter(HTMLParser):
+		text = ""
+
+		def handle_data(self, data):
+			self.text += data
+
+	if data:
+		f = HTMLFilter()
+		f.feed(data)
+		return f.text
+	else:
+		return ""
 
 
 def copy_to_clipboard(text):
@@ -46,16 +63,17 @@ class DesignChapterResource(resources.ModelResource):
 
 class TaskResource(resources.ModelResource):
 	id = Field(attribute='id')
-	project_site__name = Field(attribute='project_site__name')
-	sub_project__name = Field(attribute='sub_project__name')
-	building_number__name__name = Field(attribute='building_number__name__name')
+	project_site__name = Field(attribute='project_site__name', column_name='project site')
+	sub_project__name = Field(attribute='sub_project__name', column_name='sub project site')
+	building_number__name__name = Field(attribute='building_number__name__name', column_name='building')
 	building_number__building_number = Field(attribute='building_number__building_number')
-	design_chapter__short_name = Field(attribute='design_chapter__short_name')
+	design_chapter__short_name = Field(attribute='design_chapter__short_name', column_name='design chapter')
+	design_chapter__full_name = Field(attribute='design_chapter__name', column_name='design chapter')
 	name = Field(attribute='name')
 	description = Field(attribute='description')
 	status__name = Field(attribute='status__name')
 	due_date = Field(attribute='due_date')
-	subtask_sum = Field(attribute='subtask_sum')
+	price = Field(attribute='price')
 
 	class Meta:
 		model = Task
@@ -107,9 +125,10 @@ class UniversalAdmin(admin.ModelAdmin):
 @admin.register(Task)
 class TaskAdmin(ImportExportModelAdmin):
 	excluding_list = ['description', 'parent', 'owner', ]
-	actions = [duplicate_event, 'update_data']
+	additional_list = []
+	actions = [duplicate_event, 'update_data', 'html_replace']
 	list_display_links = ('id', 'name',)
-	list_display = get_standard_display_list(Task, excluding_list=excluding_list)
+	list_display = get_standard_display_list(Task, excluding_list=excluding_list, additional_list=additional_list)
 	list_editable = ('status', 'price', 'due_date',)  # удалил 'category', 'contractor','contract',
 	list_filter = ['project_site__name', 'sub_project', 'building_number', 'status', 'category', 'contractor',
 	               'contract', ]
@@ -120,6 +139,20 @@ class TaskAdmin(ImportExportModelAdmin):
 	actions_on_bottom = True
 	list_footer = True
 	change_list_template = 'jazzmin/admin/change_list.html'
+
+	@admin.display(description=" Раздел наименование", ordering='design_chapter')
+	def chapter_full_name(self, obj: Task):
+		return obj.design_chapter.name
+
+	@admin.action(description='Заменить HTML текст')
+	def html_replace(modeladmin, request, queryset):
+		for object in queryset:
+			try:
+				object.description = html_convert(object.description)
+				object.save()
+				messages.success(request, f'данные записи {object.id} обновлены')
+			except Exception as e:
+				messages.error(request, f'данные записи {object.id} не обновлены {e}')
 
 	def changelist_view(self, request, extra_context=None):
 		response = super().changelist_view(
@@ -149,7 +182,18 @@ class TaskAdmin(ImportExportModelAdmin):
 		                                        .values('contractor__name')
 		                                        .annotate(total_sales=Sum('price'))
 		                                        )
-
+		qs = create_filter_qs(request, StaticFilterSettings.filtered_value_list).filter(
+			**data_filter_qs(request, 'due_date'))
+		table = None
+		_pivot_ui = None
+		pivot_table_list = []
+		gant_table = ''
+		for name, _column in zip(StaticFilterSettings.pivot_columns_names,
+		                         StaticFilterSettings.pivot_columns_values):
+			pivot_table1 = {"name": name,
+			                'table': Task.create_pivot_table(qs, StaticFilterSettings.replaced_list, _column)}
+			pivot_table_list.append(pivot_table1)
+		response.context_data['pivot_table_list']=pivot_table_list
 		return response
 
 	class Media(object):
@@ -204,8 +248,8 @@ class ContractAdmin(ImportExportModelAdmin):
 
 @admin.register(Email)
 class EmailAdmin(ImportExportModelAdmin):
-	list_display = ['id', 'email_type', 'project_site','building_type','category', 'contractor', 'name',
-	                'subject', 'sender', 'email_stamp','create_admin_link']
+	list_display = ['id', 'email_type', 'project_site', 'building_type', 'category', 'contractor', 'name',
+	                'subject', 'sender', 'email_stamp', 'create_admin_link']
 	# list_editable = ['project_site', 'contractor']
 	list_filter = ['email_type', 'project_site', 'contractor', 'sender']
 	search_fields = ['name', 'subject', 'sender']
@@ -222,7 +266,7 @@ class EmailAdmin(ImportExportModelAdmin):
 				today = datetime.today().strftime('%Y_%m_%d')
 				folder_name = obj.name if obj.name else clean(obj.subject)
 				_directory = os.path.join(
-					'C:\\', 'Bitrix 24', 'Переписка',  obj.project_site.name,
+					'C:\\', 'Bitrix 24', 'Переписка', obj.project_site.name,
 					obj.contractor.name, email_type, year, f'{today}_{folder_name}\\'
 				)
 				os.makedirs(_directory, exist_ok=True)
@@ -232,6 +276,5 @@ class EmailAdmin(ImportExportModelAdmin):
 				messages.success(request, f"файлы скопированы в папку {_directory}")
 			except Exception as e:
 				messages.error(request, f"ошибки при копировании {e}")
-
 
 # form = EmailForm
