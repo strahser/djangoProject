@@ -1,8 +1,10 @@
 import os
 from urllib.parse import urlparse
+
+from adminactions.utils import flatten
 from django.http import HttpResponseRedirect
 from django.shortcuts import render, redirect, HttpResponse
-from django.urls import reverse_lazy
+from django.urls import reverse_lazy, reverse
 from django.views.generic import UpdateView, DeleteView
 from django.contrib import messages
 from ProjectTDL.StaticData import EmailType
@@ -20,15 +22,33 @@ from django_tables2 import RequestConfig, TemplateColumn
 
 
 def handle_incoming_email(request):
-	initial_folder_list = {'INBOX': EmailType.IN.name,
-	                       'Отправленные': EmailType.OUT.name
-	                       }
-	directory = os.path.join('e:\Проекты Симрус', 'Переписка', 'imap_attachments')
-	for folder, folder_db_name in initial_folder_list.items():
-		root_path = os.path.join(directory, folder)
-		_parser = ParsingImapEmailToDB(root_path)
-		_parser.main(folder_db_name, folder, limit=10)
-	return HttpResponse('<h1>Почта получена и обработана успешно.</h1>')
+	# url_redirect = reverse('admin/ProjectTDL/email/')
+	if request.method == 'POST':
+		email_limit = int(request.POST.get('mail_count'))
+		initial_folder_list = {'INBOX': EmailType.IN.name,
+		                       'Отправленные': EmailType.OUT.name
+		                       }
+		actions_list = []
+		scip_list =[]
+		directory = os.path.join('e:\Проекты Симрус', 'Переписка', 'imap_attachments')
+		for folder, folder_db_name in initial_folder_list.items():
+			root_path = os.path.join(directory, folder)
+			_parser = ParsingImapEmailToDB(root_path)
+			_parser.main(folder_db_name, folder, limit=email_limit)
+			actions_list.append(_parser.create_action_list)
+			scip_list.append(_parser.skip_action_list)
+		actions_list = flatten(actions_list)
+		scip_list = flatten(scip_list)
+		if actions_list:
+			res_list =[str(val) for val in actions_list]
+			messages.success(request, f"Почта сохранена Для следующих позиций {res_list}")
+		else:
+			res_list = [str(val) for val in scip_list]
+			messages.info(request, f"Нечего обновлять")
+		return redirect('admin:ProjectTDL_email_changelist')
+	else:
+		messages.error(request, "Возникли ошибки")
+		return redirect('admin:ProjectTDL_email_changelist')
 
 
 def task_action(request):

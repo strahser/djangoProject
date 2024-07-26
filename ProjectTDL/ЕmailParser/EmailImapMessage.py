@@ -33,14 +33,5 @@ class EmailImapMessage:
 			for att in self.msg.attachments:
 				att_list.append(att.filename)
 			body = EmailBody(self.msg, f" Вложения:{','.join(att_list)}")
-			from_ = f"Отправитель:{self.msg.from_}<br>"
-			to = f" Получатель:{','.join(self.msg.to)}<br>"
-			date_str = f" Дата:{self.msg.date_str}<br>"
-			subject = f" Тема Письма:{self.msg.subject}<br>"
-			attachment_list = f" Вложения:{','.join(att_list)}<br>"
 			f.write(body.created_body)
-		try:
-			with open(f"{self.folder_path_name}/email.eml", "w", encoding="utf-8") as f:
-				f.write(self.msg.text)
-		except Exception as e:
-			print(e)
+

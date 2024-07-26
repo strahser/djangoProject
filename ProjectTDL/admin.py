@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 
+import numpy as np
 from django.contrib import admin
 from django.db.models import Sum, Count
 from django.urls import reverse
@@ -21,6 +22,11 @@ from django.contrib import messages
 import os, shutil
 import win32clipboard  # pip install pywin32
 from html.parser import HTMLParser
+from django_pandas.io import read_frame
+
+from services.DataFrameRender.RenderDfFromModel import create_pivot_table, PIVOT_HTML_PROPERTY
+from mptt.admin import MPTTModelAdmin
+from mptt.admin import DraggableMPTTAdmin
 
 
 def html_convert(data):
@@ -107,7 +113,7 @@ class ContractPaymentsInline(admin.TabularInline):
 	extra = 0
 
 
-excluding_list = [Task, Contract, DesignChapter, Email]
+excluding_list = [Task, Contract, DesignChapter, Email, ContractPayments]
 
 
 @admin.register(*get_filtered_registered_models('ProjectContract', excluding_list))
@@ -120,6 +126,11 @@ class UniversalAdmin(admin.ModelAdmin):
 
 	def get_list_display(self, request):
 		return get_standard_display_list(self.model, excluding_list=['creation_stamp', 'update_stamp', 'link', 'body'])
+
+
+@admin.register(ContractPayments)
+class ContractPaymentsAdmin(DraggableMPTTAdmin):
+	mptt_indent_field = ["name", 'contract']  # This will show the name of the task indented based on its level
 
 
 @admin.register(Task)
@@ -159,41 +170,18 @@ class TaskAdmin(ImportExportModelAdmin):
 			request,
 			extra_context=extra_context,
 		)
-
 		try:
 			qs = response.context_data['cl'].queryset
 		except (AttributeError, KeyError):
 			return response
-		qs_filter = qs.filter(status__name='Открыто')
-		metrics = {
-			'total': Count('id'),
-			'total_sales': Sum('price'),
-		}
-		qs_summary = (
-			qs
-			.filter(price__gt=0)
-			.values('contractor__name')
-			.annotate(**metrics)
-			.order_by('-total_sales')
-		)
-		response.context_data['summary'] = list(qs_summary)
-		response.context_data['summary_total'] = dict(qs.aggregate(**metrics))
-		response.context_data['filter_data'] = (qs_filter
-		                                        .values('contractor__name')
-		                                        .annotate(total_sales=Sum('price'))
-		                                        )
-		qs = create_filter_qs(request, StaticFilterSettings.filtered_value_list).filter(
-			**data_filter_qs(request, 'due_date'))
-		table = None
 		_pivot_ui = None
 		pivot_table_list = []
-		gant_table = ''
 		for name, _column in zip(StaticFilterSettings.pivot_columns_names,
 		                         StaticFilterSettings.pivot_columns_values):
 			pivot_table1 = {"name": name,
-			                'table': Task.create_pivot_table(qs, StaticFilterSettings.replaced_list, _column)}
+			                'table': create_pivot_table(Task, qs, StaticFilterSettings.replaced_list, _column)}
 			pivot_table_list.append(pivot_table1)
-		response.context_data['pivot_table_list']=pivot_table_list
+		response.context_data['pivot_table_list'] = pivot_table_list
 		return response
 
 	class Media(object):
@@ -205,37 +193,48 @@ class TaskAdmin(ImportExportModelAdmin):
 
 @admin.register(Contract)
 class ContractAdmin(admin.ModelAdmin):
-	list_editable = get_standard_display_list(Contract, excluding_list=['id'])
-	list_display = get_standard_display_list(Contract)
+	excluding_list = ['id', 'start_date', 'due_date', 'duration']
+	list_display = get_standard_display_list(Contract, excluding_list=excluding_list)
 	list_filter = get_standard_display_list(Contract, excluding_list=['id', 'proposal_number', 'price', 'name'])
 	actions = [duplicate_event]
 	inlines = (ContractPaymentsInline,)
-	change_list_template = 'jazzmin/admin/change_list.html'
+	change_list_template = 'jazzmin/admin/change_list_contract.html'
 
 	def changelist_view(self, request, extra_context=None):
 		response = super().changelist_view(
 			request,
 			extra_context=extra_context,
 		)
-
 		try:
 			qs = response.context_data['cl'].queryset
 		except (AttributeError, KeyError):
 			return response
+		pivot_rows = ['name']
+		values = ['price']
+		try:
+			_renamed_dict = renamed_dict(Contract)
+			df = read_frame(qs)
+			df_total = df['price'].sum()
+			df_pivot = (
+				df.groupby(['contractor'])
+				.apply(lambda sub_df:
+				       sub_df.pivot_table(index=pivot_rows,
+				                          values=values,
+				                          aggfunc=np.sum,
+				                          margins=True,
+				                          margins_name='Итого', )
+				       )
+				.map(lambda x: humanize.intcomma(x).replace(',', ' '))
+			)
 
-		metrics = {
-			'total': Count('id'),
-			'total_sales': Sum('price'),
-		}
-		qs_summary = (
-			qs
-			.filter(price__gt=0)
-			.values('contractor__name')
-			.annotate(**metrics)
-			.order_by('-total_sales')
-		)
-		response.context_data['summary'] = list(qs_summary)
-		response.context_data['summary_total'] = dict(qs.aggregate(**metrics))
+			df_html = df_pivot \
+				.rename(_renamed_dict, axis='columns') \
+				.rename_axis(index=_renamed_dict) \
+				.to_html(**PIVOT_HTML_PROPERTY)
+			response.context_data['pivot_table'] = df_html
+			response.context_data['df_total'] = df_total
+		except Exception as e:
+			print("Создание сводной таблицы Contract.changelist_view", e)
 		return response
 
 

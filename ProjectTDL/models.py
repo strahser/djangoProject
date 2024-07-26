@@ -77,40 +77,6 @@ class Task(models.Model):
 
 	subtask_sum.fget.short_description = 'Стоим.подзадачи'
 
-	@staticmethod
-	def create_pivot_table(qs, _replaced_list: list[str],
-	                       columns_name: str = 'contract',
-	                       index_name: list[str] = None
-	                       ) -> str:
-		index_name = index_name if index_name else ['contractor']
-		pivot_table = create_df_from_model(Task, qs)
-		pivot_table = pivot_table[pivot_table['price'] > 0]
-		for col_name in _replaced_list:
-			pivot_table[col_name] = pivot_table[col_name].apply(
-				lambda x: x.name if x else None
-			)
-		pivot_table = pivot_table.pivot_table(
-			values='price',
-			index=index_name,
-			columns=[columns_name],
-			aggfunc='sum',
-			margins=True,
-			margins_name="ИТОГО"
-		)
-		_renamed_dict = renamed_dict(Task)
-		pivot_table.index.name = _renamed_dict.get('contractor')
-		pivot_table.columns.name = ""
-		pivot_table = pivot_table.map(lambda x: humanize.intcomma(x).replace(',', ' '))
-		pivot_table = pivot_table.to_html(classes="table table-striped table-bordered",
-		                                  table_id='TaskTable',
-		                                  index=True,
-		                                  show_dimensions=False,
-		                                  render_links=True,
-		                                  justify='center',
-		                                  escape=False,
-		                                  na_rep='-',
-		                                  )
-		return pivot_table
 
 	@staticmethod
 	def get_df_render_from_qs() -> pd.DataFrame:

@@ -33,7 +33,6 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
-    # 'django_mptt_admin',
     # 'grappelli',
     # 'grappelli.dashboard',
     # "bootstrap_datepicker_plus",
@@ -41,7 +40,8 @@ INSTALLED_APPS = [
     # 'advanced_filters',
     # 'more_admin_filters',
     # "django_charting",
-    # 'mptt',
+    'django_mptt_admin',
+    'mptt',
     'adminactions',
     'django_tables2',
     'django_admin_filters',
