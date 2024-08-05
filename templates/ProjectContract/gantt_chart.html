@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'gantt/jquery.gantt.css' %}" />
+    <script src="https://ajax.OpenAIapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery.gantt/dist/jquery.gantt.min.js"></script>  <!-- Измененная строка -->
+</head>
+<body>
+    <div id="gantt"></div>
+    <script>
+        $(function() {
+            $("#gantt").gantt({
+                source: "/data/",
+                // Настройки jQuery.Gantt
+                // ...
+                onAfterLoad: function() {
+                    // Сортировка задач после загрузки
+                    this.sortTasks("sort_order");
+                },
+                onAfterTaskUpdate: function() {
+                    // Обновление порядка задач после перетаскивания
+                    this.sortTasks("sort_order");
+                },
+                onBeforeCreate: function(task) {
+                    // Установка начального порядка задач при добавлении
+                    task.sort_order = task.id;
+                    return true;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

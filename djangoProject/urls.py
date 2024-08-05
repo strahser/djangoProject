@@ -35,6 +35,8 @@ urlpatterns = [
     path('tinymce/', include('tinymce.urls')),
     path('advanced_filters/', include('advanced_filters.urls')),
     path('adminactions/', include('adminactions.urls')),
+    path('ProjectContract/', include('ProjectContract.urls')),
+
 
     path('demo', TemplateView.as_view(template_name="bootstrap_base.html"), name='demo'),
     path('popovers', TemplateView.as_view(template_name="bootstrap_popovers.html"), name="popovers"),

@@ -164,3 +164,15 @@ class TaskUpdateForm(forms.ModelForm):
     class Meta:
         model = Task
         fields = '__all__'
+
+
+class ScaleForm(forms.Form):
+    scale = forms.ChoiceField(
+        choices=[
+            ('day', 'День'),
+            ('week', 'Неделя'),
+            ('month', 'Месяц'),
+            ('quarter', 'Квартал'),
+        ],
+        initial='day',
+    )

@@ -1,23 +1,5 @@
 {% extends "admin/change_list.html" %}
 {% block result_list %}
     {{ block.super }}
-{% for pivot_table in pivot_table_list %}
-  <div class="container-fluid" >
-      <div class="card card-body">
-  <details>
-  <summary>{{ pivot_table.name }}</summary>
-  {{ pivot_table.table|safe }}
-</details>
-{% endfor %}
-  </div>
-     </div>
-      <div class="container-fluid" >
-      <div class="card card-body">
-  <details>
-  <summary>Суммарные данные</summary>
-  {{ pivot_table|safe }}
-     <h5> Итого: {{ df_total }} </h5>
-</details>
-  </div>
- </div>
+    {% include 'jazzmin/admin/PaymentInclude.html' %}
 {% endblock %}

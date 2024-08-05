@@ -25,12 +25,12 @@ rJLS = gantt.Resource('JLS')
 
 # Add vacations for one lucky resource
 rANO.add_vacations(
-	dfrom=datetime.date(2014, 12, 29),
-	dto=datetime.date(2015, 1, 4)
+    dfrom=datetime.date(2014, 12, 29),
+    dto=datetime.date(2015, 1, 4)
 )
 rANO.add_vacations(
-	dfrom=datetime.date(2015, 1, 6),
-	dto=datetime.date(2015, 1, 8)
+    dfrom=datetime.date(2015, 1, 6),
+    dto=datetime.date(2015, 1, 8)
 )
 
 # Test if this resource is  avalaible for some dates
