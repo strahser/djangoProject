@@ -1,0 +1,52 @@
+# Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.egg-info
+.venv
+venv/
+env/
+
+# Django
+*.sqlite3
+db.sqlite3
+media/
+static/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+*.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.komodo/
+
+# Secret files
+*.key
+*.pem
+*.config
+.env
+settings_local.py
+
+# Other files
+.mypy_cache/
+.pytest_cache/
+__pycache__
+*.zip
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+
+# Windows files
+ehthumbs.db
+[Dd]esktop.ini
