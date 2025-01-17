@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load crispy_forms_tags %}
+{% block content %}
+
+
+  <div class="tab-content" id="content-1">
+   <div class="heading mb-4 mt-3"  > {{ Name }}  </div>
+    <div class="row">
+    <div class="col-6 mb-4">
+      <div class="card border-0 shadow components-section">
+        <div class="card-body">
+            <div class="form-check form-check-inline">
+              <!-- Form -->
+                <form method="post" class="form-control">
+                    {% csrf_token %}
+                     {% crispy form %}
+                    {{ form.media }}
+</form>
+              <!-- End of Form -->
+</div>
+        </div>
+     </div>
+    </div>
+  </div>
+  </div>
+{% endblock content %}

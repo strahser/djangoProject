@@ -1,0 +1,99 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+
+{% block result_list %}
+  <div class="custom-filters">
+     <select id="contract-filter">
+         <option value="">Все контракты</option>
+           {% for contract in all_contracts %}
+              <option value="{{ contract.id }}" {% if request.GET.contract|stringformat:"s" == contract.id|stringformat:"s" %}selected{% endif %}>{{ contract.name }}</option>
+            {% endfor %}
+     </select>
+
+     <select id="project-site-filter">
+          <option value="">Все объекты</option>
+           {% for site in all_project_sites %}
+                <option value="{{ site }}" {% if request.GET.contract__project_site == site %}selected{% endif %}>{{ site }}</option>
+            {% endfor %}
+     </select>
+
+      <select id="contractor-filter">
+          <option value="">Все контрагенты</option>
+            {% for contractor in all_contractors %}
+             <option value="{{ contractor }}" {% if request.GET.contract__contractor__name == contractor %}selected{% endif %}>{{ contractor }}</option>
+              {% endfor %}
+       </select>
+
+       <select id="payment-type-filter">
+            <option value="">Все типы оплат</option>
+             {% for payment_type in all_payment_types %}
+              <option value="{{ payment_type }}" {% if request.GET.payment_type == payment_type %}selected{% endif %}>{{ payment_type }}</option>
+              {% endfor %}
+       </select>
+
+       <select id="made-payment-filter">
+            <option value="">Все</option>
+            <option value="True" {% if request.GET.made_payment == "True" %}selected{% endif %}>Оплачено</option>
+           <option value="False" {% if request.GET.made_payment == "False" %}selected{% endif %}>Не Оплачено</option>
+      </select>
+
+  </div>
+
+    {{ block.super }}
+{% endblock %}
+
+
+{% block pagination %}
+    {{ block.super }}
+{% endblock %}
+
+
+{% block extrahead %}
+   {{ block.super }}
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const contractFilter = document.getElementById('contract-filter');
+            const projectSiteFilter = document.getElementById('project-site-filter');
+            const contractorFilter = document.getElementById('contractor-filter');
+            const paymentTypeFilter = document.getElementById('payment-type-filter');
+            const madePaymentFilter = document.getElementById('made-payment-filter');
+
+
+            const updateFilters = () => {
+                const params = new URLSearchParams();
+                if (contractFilter.value) params.set('contract', contractFilter.value);
+                if (projectSiteFilter.value) params.set('contract__project_site', projectSiteFilter.value);
+                if (contractorFilter.value) params.set('contract__contractor__name', contractorFilter.value);
+                 if (paymentTypeFilter.value) params.set('payment_type', paymentTypeFilter.value);
+                if (madePaymentFilter.value) params.set('made_payment', madePaymentFilter.value);
+
+                const url = window.location.pathname + '?' + params.toString();
+                window.location.href = url;
+
+            };
+
+            contractFilter.addEventListener('change', updateFilters);
+            projectSiteFilter.addEventListener('change', updateFilters);
+            contractorFilter.addEventListener('change', updateFilters);
+            paymentTypeFilter.addEventListener('change', updateFilters);
+            madePaymentFilter.addEventListener('change', updateFilters);
+        });
+    </script>
+
+  <style>
+      .custom-filters {
+            margin-bottom: 15px;
+           display: flex;
+            flex-wrap: wrap;
+             gap: 10px;
+        }
+
+      .custom-filters select {
+           padding: 5px;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+        }
+  </style>
+
+{% endblock %}

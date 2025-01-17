@@ -1,0 +1,57 @@
+ <form method="GET"  class="form-inline">
+    <label for="scale">Масштаб:</label>
+    <select name="scale" id="scale">
+        <option value="day" {% if scale == 'day' %}selected{% endif %}>День</option>
+        <option value="week" {% if scale == 'week' %}selected{% endif %}>Неделя</option>
+        <option value="month" {% if scale == 'month' %}selected{% endif %}>Месяц</option>
+        <option value="quarter" {% if scale == 'quarter' %}selected{% endif %}>Квартал</option>
+    </select>
+  <button type="submit">Показать</button>
+    </form>
+<div class="tabbable">
+        <ul class="nav nav-tabs">
+            <li class="nav-item">
+                <a class="nav-link active" data-toggle="tab" href="#calendar-tab">Календарь</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-toggle="tab" href="#schedule-tab">График платежей</a>
+            </li>
+
+            {% if pivot_table %}
+            <li class="nav-item">
+                <a class="nav-link " data-toggle="tab" href="#pivot-tab">Сумма Контрактов</a>
+            </li>
+            {% endif %}
+        </ul>
+        <div class="tab-content">
+            <div id="calendar-tab" class="tab-pane active">
+                <div id="calendar-table">
+                    {{ calendar_table|safe }}
+                </div>
+            </div>
+            <div id="schedule-tab" class="tab-pane">
+                <div class="flex-column">
+                    {{ schedule_table|safe }}
+                </div>
+            </div>
+            <div id="pivot-tab" class="tab-pane">
+            {% include 'jazzmin/admin/ContractInclude.html' %}
+            </div>
+        </div>
+    </div>
+
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const scaleSelect = document.getElementById('scale');
+        // Загрузка сохраненного значения из localStorage
+        const savedScale = localStorage.getItem('selectedScale');
+        if (savedScale) {
+            scaleSelect.value = savedScale;
+        }
+        // Сохранение выбранного значения в localStorage
+        scaleSelect.addEventListener('change', function() {
+            localStorage.setItem('selectedScale', this.value);
+        });
+    });
+</script>

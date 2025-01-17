@@ -1,0 +1,12 @@
+<!-- templates/post_delete.html -->
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1>Удаление объекта {{ task.name }} </h1>
+    <form action="" method="post">{% csrf_token %}
+      <p>Уверен что хочешь удалить "{{ task.name }}"?</p>
+      <input type="submit" value="Подтвердить Удаление" class="btn btn-danger" />
+        <input type="hidden" name="__next__" value="{{ i__next__ }}">
+        <a class="btn btn-secondary" href="{{ i__next__ }}"> Отмена </a>
+    </form>
+{% endblock content %}

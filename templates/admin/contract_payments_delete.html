@@ -1,0 +1,16 @@
+ {% extends "admin/base_site.html" %}
+ {% load i18n admin_urls static %}
+ 
+ {% block content %}
+   <div id="content-main" class="col-md-8">
+       <div class="module">
+           <h1>{{ title }}</h1>
+           <p>Вы уверены, что хотите удалить платеж "{{ payment.name }}"?</p>
+           <form method="post">
+               {% csrf_token %}
+               <button type="submit" class="button" style="background-color: #dc3545; color: white;">Удалить</button>
+               <a href="{{ request.META.HTTP_REFERER }}" class="button" style="margin-left: 10px;">Отмена</a>
+           </form>
+       </div>
+   </div>
+ {% endblock %}

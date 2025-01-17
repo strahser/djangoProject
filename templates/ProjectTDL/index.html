@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load crispy_forms_tags %}
+{% load render_table from django_tables2 %}
+{% load django_tables2 %}
+{% block head %}
+    <style>
+        a {
+          text-decoration: None;color:#007bff;font-weight:normal;
+        }
+    </style>
+{% endblock %}
+{% block content %}
+
+<button type="button" class="btn btn-primary w-100" data-bs-toggle="collapse" data-bs-target="#FilterCollapse">Фильтра</button>
+    <!-- Collapsible Element HTML -->
+<div class="collapse show" id="FilterCollapse">
+    <div class="card card-body">
+            {% crispy form %}
+    </div>
+</div>
+    <form action="{% url 'task_action' %}" method="post">
+     {% csrf_token %}
+            {% render_table table %}
+        <button type="submit" class="btn btn-warning" >Изменить выбранные записи</button>
+</form>
+    {{ gant_table|safe }}
+    {{ timeser|safe }}
+    {% for pivot_table in pivot_table_list %}
+  <div class="container boards" >
+          <button type="button" class="btn btn-primary w-100" data-bs-toggle="collapse" data-bs-target="#{{ pivot_table.name }}">{{ pivot_table.name }}</button>
+    <div class="collapse show" id="{{ pivot_table.name }}">
+    <div class="card card-body">
+    {{ pivot_table.table|safe }}
+    </div>
+    </div>
+  </div>
+      {% endfor %}
+{% endblock %}
+{% block custom-js %}
+{#    Data Table#}
+<link rel="stylesheet" href="https://cdn.datatables.net/2.0.3/css/dataTables.dataTables.css" />
+<script src="https://cdn.datatables.net/2.0.3/js/dataTables.js"></script>
+<script>
+$( document ).ready(
+    nl2br());
+
+let table = new DataTable('#TaskTable', {
+
+
+    language: {
+        url: src="{% static 'DataTables/ru.json' %}",
+    },
+
+    columnDefs: [
+        {
+            orderable: false,
+            targets: [0]
+        }
+    ],
+        layout: {
+        top2Start: 'pageLength',
+        {#top2End: 'search',#}
+        topStart: 'info',
+        {#topEnd: 'paging',#}
+        {#bottomStart: 'pageLength',#}
+        {#bottomEnd: 'search',#}
+        {#bottom2Start: 'info',#}
+        {#bottom2End: 'paging'#}
+    },
+        lengthMenu: [
+        [10, 15, 20,50, -1],
+        [10, 15, 20,50, 'Все']
+    ]
+
+});
+$(function() {
+    const table_data = '#TaskTable input:checkbox'
+    $('#checkAll').click(function() {
+        // toggle between check/uncheck
+        var isChecked = !$(table_data).prop('checked');
+        $(table_data).prop('checked', isChecked);
+    });
+});
+
+function nl2br (str, is_xhtml) {
+var breakTag = (is_xhtml || typeof is_xhtml === 'undefined') ? '<br />' : '<br>';
+return (str + '').replace(/([^>\r\n]?)(\r\n|\n\r|\r|\n)/g, '$1' + breakTag + '$2');}
+</script>
+
+
+
+
+{% endblock %}

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="PYTHON_MODULE" version="4">
+  <component name="FacetManager">
+    <facet type="django" name="Django">
+      <configuration>
+        <option name="rootFolder" value="$MODULE_DIR$" />
+        <option name="settingsModule" value="djangoProject/settings.py" />
+        <option name="manageScript" value="$MODULE_DIR$/manage.py" />
+        <option name="environment" value="&lt;map/&gt;" />
+        <option name="doNotUseTestRunner" value="false" />
+        <option name="trackFilePattern" value="migrations" />
+      </configuration>
+    </facet>
+  </component>
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$" />
+    <orderEntry type="jdk" jdkName="Python 3.11 virtualenv at E:\Venvs\djangoProject" jdkType="Python SDK" />
+    <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" name="bootstrap" level="application" />
+    <orderEntry type="library" name="dataTables.dataTables" level="application" />
+    <orderEntry type="library" name="dataTables" level="application" />
+    <orderEntry type="library" name="buttons.dataTables" level="application" />
+    <orderEntry type="library" name="dataTables.buttons" level="application" />
+    <orderEntry type="library" name="select2" level="application" />
+    <orderEntry type="library" name="dataTables.dataTables" level="application" />
+    <orderEntry type="library" name="dataTables" level="application" />
+    <orderEntry type="library" name="dataTables.buttons" level="application" />
+    <orderEntry type="library" name="buttons.dataTables" level="application" />
+    <orderEntry type="library" name="select2" level="application" />
+    <orderEntry type="library" name="bootstrap-icons" level="application" />
+    <orderEntry type="library" name="bootstrap-icons" level="application" />
+    <orderEntry type="library" name="tailwindcss" level="application" />
+    <orderEntry type="library" name="line" level="application" />
+    <orderEntry type="library" name="axios" level="application" />
+    <orderEntry type="library" name="alpinejs" level="application" />
+    <orderEntry type="library" name="alpinejs" level="application" />
+    <orderEntry type="library" name="axios" level="application" />
+    <orderEntry type="library" name="line" level="application" />
+    <orderEntry type="library" name="tailwindcss" level="application" />
+  </component>
+  <component name="TemplatesService">
+    <option name="TEMPLATE_CONFIGURATION" value="Django" />
+    <option name="TEMPLATE_FOLDERS">
+      <list>
+        <option value="$MODULE_DIR$/../djangoProject\templates" />
+      </list>
+    </option>
+  </component>
+</module>

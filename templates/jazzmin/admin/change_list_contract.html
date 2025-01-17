@@ -1,0 +1,41 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls %}
+{% block object-tools-items %}
+    {{ block.super }}
+    <div class="col-12 col-md-auto d-flex align-items-center justify-content-end page-actions">
+        <form action="{% url 'export_contracts_excel' %}" method="get" class="d-inline-block">
+          {% for key, value in request.GET.items %}
+              <input type="hidden" name="{{ key }}" value="{{ value }}" />
+          {% endfor %}
+         <button type="submit" class="btn btn-secondary float-right">Скачать Excel</button>
+        </form>
+    </div>
+{% endblock %}
+{% block result_list %}
+    <div class="tabbable">
+        <ul class="nav nav-tabs">
+            <li class="nav-item">
+                <a class="nav-link active" data-toggle="tab" href="#contracts-tab">Контракты</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-toggle="tab" href="#payment-tab">Настройки отчета</a>
+            </li>
+        </ul>
+        <div class="tab-content">
+            <div id="contracts-tab" class="tab-pane active">
+                {{ block.super }}
+                <br>
+                <h6> По договорам <b>{{ total_price|default:"" }}</b> </h6>
+                <h6> Оплачено <b>{{ total_paid|default:"" }}</b></h6>
+                <h6> Не оплачено <b>{{ total_unpaid|default:"" }}</b></h6>
+                <h6> Не распределено <b>{{ total_status|default:"" }}</b></h6>
+                <br>
+            </div>
+            <div id="payment-tab" class="tab-pane">
+                {% include 'jazzmin/admin/PaymentInclude.html' %}
+            </div>
+        </div>
+    </div>
+
+
+{% endblock %}
