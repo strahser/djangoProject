@@ -90,7 +90,7 @@ for i in range(messages, messages-N, -1):
                 if not os.path.isdir(folder_name):
                     # make a folder for this email (named after the subject)
                     os.mkdir(folder_name)
-                filename = "index.html"
+                filename = "custom_table_view.html"
                 filepath = os.path.join(folder_name, filename)
                 # write the file
                 open(filepath, "w").write(body)

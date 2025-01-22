@@ -1,0 +1,105 @@
+{% extends 'admin/base_site.html' %}
+{% load crispy_forms_tags %}
+{% block content %}
+    <h1>Редактирование Email</h1>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-group">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" value="True"
+                       id="project_site_checkbox" name="project_site_checkbox">
+                <label class="form-check-label" for="project_site_checkbox">Проект</label>
+                <select class="form-control" id="edit-project_site" name="project_site" disabled>
+                    <option value="" selected>---------</option>
+                    {% for project_site in form.fields.project_site.queryset %}
+                        <option value="{{ project_site.pk }}">{{ project_site.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" value="True"
+                       id="contractor_checkbox" name="contractor_checkbox">
+                <label class="form-check-label" for="contractor_checkbox">Контрактор</label>
+                <select class="form-control" id="edit-contractor" name="contractor" disabled>
+                    <option value="" selected>---------</option>
+                    {% for contractor in form.fields.contractor.queryset %}
+                        <option value="{{ contractor.pk }}">{{ contractor.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" value="True"
+                       id="email_type_checkbox" name="email_type_checkbox">
+                <label class="form-check-label" for="email_type_checkbox">Тип</label>
+                <select class="form-control" id="edit-email_type" name="email_type" disabled>
+                    <option value="" selected>---------</option>
+                    {% for email_type_choice, email_type_label in form.fields.email_type.choices %}
+                        <option value="{{ email_type_choice }}">{{ email_type_label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" value="True"
+                       id="name_checkbox" name="name_checkbox">
+                <label class="form-check-label" for="name_checkbox">Наименование</label>
+                <input type="text" class="form-control" id="edit-name" name="name" disabled>
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" value="True"
+                       id="subject_checkbox" name="subject_checkbox">
+                <label class="form-check-label" for="subject_checkbox">Тема</label>
+                <input type="text" class="form-control" id="edit-subject" name="subject" disabled>
+            </div>
+        </div>
+         <div class="form-group">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" value="True"
+                       id="sender_checkbox" name="sender_checkbox">
+                <label class="form-check-label" for="sender_checkbox">Отправитель</label>
+                 <select class="form-control" id="edit-sender" name="sender" disabled>
+                     <option value="" selected>---------</option>
+                        {% for sender in senders %}
+                            <option value="{{ sender }}">{{sender}}</option>
+                        {% endfor %}
+                  </select>
+            </div>
+         </div>
+        <div class="form-group">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" value="True"
+                       id="receiver_checkbox" name="receiver_checkbox">
+                <label class="form-check-label" for="receiver_checkbox">Получатель</label>
+                <input type="text" class="form-control" id="edit-receiver" name="receiver" disabled>
+            </div>
+        </div>
+        {% for email in emails %}
+            <input type="hidden" name="selected_emails" value="{{email.id}}">
+        {% endfor %}
+         <input type="hidden" name="task_id" value="{{task_id}}">
+        <button type="submit" class="btn btn-primary mt-2">Сохранить</button>
+    </form>
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet"/>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script>
+        $(document).ready(function () {
+            $('input[type="checkbox"]').on('change', function () {
+                const checkboxId = $(this).attr('id');
+                const inputId = checkboxId.replace('_checkbox', '');
+                if ($(this).is(':checked')) {
+                    $('#edit-' + inputId).prop('disabled', false);
+                } else {
+                    $('#edit-' + inputId).prop('disabled', true);
+                }
+            });
+        });
+    </script>
+{% endblock %}

@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load crispy_forms_tags %}
+{% load render_table from django_tables2 %}
+{% load django_tables2 %}
+{% block head %} <style> a { text-decoration: None;color:#007bff;font-weight:normal; } </style> {% endblock %}
+
+{% block content %}
+<div id="main-container">
+    <form action="{% url 'handle_incoming_email' %}" method="post">
+         {% csrf_token %}
+        <label for="mail_count">Кол-во писем: </label>
+        <input id="mail_count" type="number" min="1" step="1"  name="mail_count" value="10">
+        <input class="btn btn-info pull-right" type="submit" value="Получить ПОЧТУ">
+    </form>
+
+<br>
+<button type="button" class="btn btn-primary w-100" data-bs-toggle="collapse" data-bs-target="#FilterCollapse">Фильтра</button>
+    <!-- Collapsible Element HTML -->
+<div class="collapse show" id="FilterCollapse">
+    <div class="card card-body">
+        <form action="{% url 'custom_task_view' %}" method="post">
+            {% crispy form %}
+        </form>
+    </div>
+
+</div>
+    <form method="post" action="{% url 'custom_task_view' %}">
+        {% csrf_token %}
+         <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+        <div class="card">
+            <div class="card-header">
+                  <ul class="nav nav-tabs card-header-tabs" id="myTab" role="tablist">
+                      <li class="nav-item" role="presentation">
+                         <button class="nav-link active" id="table-tab" data-bs-toggle="tab" data-bs-target="#table" type="button" role="tab" aria-controls="table" aria-selected="true">Задачи</button>
+                      </li>
+                      {% for pivot_table in pivot_table_list %}
+                      <li class="nav-item" role="presentation">
+                         <button class="nav-link" id="pivot-tab-{{ forloop.counter }}" data-bs-toggle="tab" data-bs-target="#pivot-{{ forloop.counter }}" type="button" role="tab" aria-controls="pivot-{{ forloop.counter }}" aria-selected="false">{{ pivot_table.name }}</button>
+                      </li>
+                      {% endfor %}
+                  </ul>
+            </div>
+            <div class="card-body">
+                  <div class="tab-content" id="myTabContent">
+                       <div class="tab-pane fade show active" id="table" role="tabpanel" aria-labelledby="table-tab">
+                           {% render_table table %}
+                       </div>
+                       {% for pivot_table in pivot_table_list %}
+                         <div class="tab-pane fade" id="pivot-{{ forloop.counter }}" role="tabpanel" aria-labelledby="pivot-tab-{{ forloop.counter }}">
+                             {{ pivot_table.table | safe }}
+                         </div>
+                      {% endfor %}
+                  </div>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+{% block custom-js %}
+
+{# Data Table#}
+<link rel="stylesheet" href="https://cdn.datatables.net/2.0.3/css/dataTables.dataTables.css" />
+<script src="https://cdn.datatables.net/2.0.3/js/dataTables.js"></script>
+<script>
+$(document).ready(function() {
+
+    nl2br();
+
+    let table = new DataTable('#TaskTable', {
+        language: {
+            url: "{% static 'DataTables/ru.json' %}",
+        },
+        columnDefs: [
+            {
+                orderable: false,
+                targets: [0]
+            }
+        ],
+        layout: {
+            top2Start: 'pageLength',
+            topStart: 'info',
+        },
+        lengthMenu: [
+            [10, 15, 20, 50, -1],
+            [10, 15, 20, 50, 'Все']
+        ]
+    });
+
+
+     $('#TaskTable').on('change', '.action-select', function () {
+                const selectedValue = this.value;
+                if (selectedValue) {
+                      if (selectedValue.includes("TaskCloneView")) {
+                                    if (confirm("Действительно клонировать?")) {
+                                        window.location.href = selectedValue;
+                                    }
+                        } else {
+                                 window.location.href = selectedValue;
+                            }
+                }
+        });
+
+    const table_data = '#TaskTable input:checkbox';
+    $('#checkAll').click(function() {
+        var isChecked = !$(table_data).prop('checked');
+        $(table_data).prop('checked', isChecked);
+    });
+      function getCsrfToken() {
+            return $('[name="csrfmiddlewaretoken"]').val();
+        }
+    $('#TaskTable').on('change', '.contractor-select, .status-select, .due-date-picker, .price-input', function() {
+       const taskId = $(this).data('task-id');
+       const field = $(this).data('field');
+       const value = $(this).val();
+       const csrfToken = getCsrfToken();
+       $.ajax({
+            type: 'POST',
+            url: '{% url "update_task_field" %}',
+           data:{
+                task_id: taskId,
+                field: field,
+                value: value,
+                csrfmiddlewaretoken: csrfToken
+                },
+            success: function(response) {
+                    console.log('Field updated:', response);
+                    if (response.html) {
+                        $('#main-container').html(response.html);
+                        let table = new DataTable('#TaskTable', {
+                    language: {
+                    url: "{% static 'DataTables/ru.json' %}",
+                       },
+                    columnDefs: [
+                        {
+                           orderable: false,
+                            targets: [0]
+                       }
+                    ],
+                      layout: {
+                        top2Start: 'pageLength',
+                        topStart: 'info',
+                       },
+                    lengthMenu: [
+                         [10, 15, 20, 50, -1],
+                         [10, 15, 20, 50, 'Все']
+                        ]
+                        });
+                    }
+                 },
+             error: function(xhr, status, error) {
+                   console.error('AJAX error:', error);
+             }
+           });
+    });
+
+
+    function nl2br (str, is_xhtml) {
+        var breakTag = (is_xhtml || typeof is_xhtml === 'undefined') ? '<br />' : '<br>';
+        return (str + '').replace(/([^>\r\n]?)(\r\n|\n\r|\r|\n)/g, '$1' + breakTag + '$2');
+    }
+});
+</script>
+{% endblock %}

@@ -6,10 +6,13 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Submit, HTML, Button, Row, Field, Column
 from crispy_forms.bootstrap import AppendedText, PrependedText, FormActions
 from django.forms import DateTimeField, DateInput, ChoiceField, ModelForm
+from loguru import logger
 
+from ProjectContract.models import Contractor
+from ProjectTDL.StaticData import EmailType
 from ProjectTDL.models import Task, SubTask, Email
-from StaticData.models import Category
-
+from StaticData.models import Category, ProjectSite
+from django_select2 import forms as s2forms
 
 class TaskForm(forms.ModelForm):
     class Meta:
@@ -28,6 +31,43 @@ class TaskForm(forms.ModelForm):
         }
 
 
+class EmailFilterForm(forms.Form):
+    project_site = forms.ModelChoiceField(
+        queryset=ProjectSite.objects.all(),
+        required=False,
+        label='Проект',
+        empty_label="Все"
+    )
+    contractor = forms.ModelChoiceField(
+        queryset=Contractor.objects.all(),
+        required=False,
+        label='Подрядчик',
+        empty_label="Все"
+    )
+    email_type = forms.ChoiceField(
+        choices=[('', 'Все')] + list(EmailType.choices()),
+        required=False,
+        label='Тип'
+    )
+    sender_choices = forms.MultipleChoiceField(
+        required=False,
+        label='Отправитель',
+        widget=forms.SelectMultiple(attrs={'class':'form-control multi-select'})
+
+    )
+
+
+    search_query = forms.CharField(required=False, label='Поиск')
+
+
+
+    def __init__(self, *args, **kwargs):
+        sender_choices = kwargs.pop('sender_choices', [])
+        super().__init__(*args, **kwargs)
+        self.fields['sender_choices'].choices = sender_choices
+
+
+
 class EmailForm(forms.ModelForm):
     helper = FormHelper()
     helper.form_method = 'POST'
@@ -38,23 +78,6 @@ class EmailForm(forms.ModelForm):
         model = Email
         fields = ['project_site', 'contractor', 'email_type', 'name', 'parent']
 
-
-def select_default_widget(qs, label: str, field_name, _choices=None):
-    _choices_list = []
-    if not _choices:
-        for val in qs:
-            try:
-                temp = getattr(val, field_name).pk, getattr(val, field_name).name
-                _choices_list.append(temp)
-            except Exception as e:
-                print(e)
-    else:
-        _choices_list = _choices
-    return forms.MultipleChoiceField(widget=forms.CheckboxSelectMultiple(),
-                                     label=label,
-                                     choices=set(_choices_list),
-                                     required=False,
-                                     )
 
 
 class TaskAdminUpdateDate(forms.Form):
@@ -106,6 +129,26 @@ class TaskAdminUpdate(forms.Form):
         task.price = self.cleaned_data['price']
         task.save()
 
+def select_default_widget(qs, label: str, field_name:str, _choices=None):
+    """возвращает MultipleChoiceField для заданного qs field_name возвращает pk, label для выбора  """
+    _choices_list = []
+    if not _choices:
+        for val in qs:
+            try:
+                field_value = getattr(val, field_name)
+                if field_value:
+                    temp = field_value.pk, field_value.name
+                    _choices_list.append(temp)
+            except Exception as e:
+                logger.exception(e)
+    else:
+        _choices_list = _choices
+    return forms.MultipleChoiceField(widget=forms.CheckboxSelectMultiple(),
+                                     label=label,
+                                     choices=set(_choices_list),
+                                     required=False,
+                                     )
+
 
 class TaskFilterForm(forms.Form):
     qs = Task.objects.all()
@@ -126,11 +169,10 @@ class TaskFilterForm(forms.Form):
         label="Окончание",
     )
     helper = FormHelper()
-    helper.form_method = 'POST'
     helper.form_class = 'form-vertical'
-    helper.label_class = 'col-lg-6'
-    helper.field_class = 'col-lg-6'
-    helper.add_input(Submit('submit', 'Подтвердить', css_class='btn-success'))
+    helper.label_class = 'col-lg-7'
+    helper.field_class = 'col-lg-7'
+    helper.add_input(Submit('submit', 'Обновить', css_class='btn-success'))
     helper.add_input(Submit('save_attachments', 'Экспорт в ексель', css_class='btn-primary'))
     helper.layout = Layout(
         Row(
@@ -154,6 +196,7 @@ class TaskFilterForm(forms.Form):
                                                )
         _filter_form.fields["contractor"] = contractor
         return _filter_form
+
 
 
 class TaskUpdateForm(forms.ModelForm):

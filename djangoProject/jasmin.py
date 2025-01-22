@@ -44,16 +44,17 @@ JAZZMIN_SETTINGS = {
 	"topmenu_links": [
 
 		# Url that gets reversed (Permissions can be added)
-		{"name": "Главная", "url": "home", "permissions": ["auth.view_user"]},
+		{"name": "Задачи", "url": "custom_task_view", "permissions": ["auth.view_user"]},
 
 		# external url that opens in a new window (Permissions can be added)
 		# {"name": "Support", "url": "https://github.com/farridav/django-jazzmin/issues", "new_window": True},
 
 		# model admin to link to (Permissions checked against model)
-		{"model": "auth.User"},
+		# {"model": "auth.User"},
 
 		# App with dropdown menu to all its models pages (Permissions checked against models)
-		{"app": "StaticData"}, {'app': 'ProjectTDL'}
+		{"app": "StaticData"},
+		{'app': 'PersonalData'}
 	],
 
 	#############
@@ -77,7 +78,7 @@ JAZZMIN_SETTINGS = {
 	"navigation_expanded": False,
 
 	# Hide these apps when generating side menu e.g (auth)
-	"hide_apps": ['StaticData'],
+	"hide_apps": ['StaticData','PersonalData'],
 
 	# Hide these models when generating side menu (e.g auth.user)
 	"hide_models": ["auth.user", "auth.Group", 'ProjectTDL.SubTask',  'ProjectTDL.URLLink',

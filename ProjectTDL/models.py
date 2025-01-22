@@ -8,21 +8,20 @@ from services.DataFrameRender.RenderDfFromModel import create_df_from_model, cre
 import humanize
 
 _t = humanize.activate("ru_RU")
-
+FILTERED_COLUMNS = {
+	'id': 'id',
+	'project_site__name': "Площадка",
+	'sub_project__name': "Проект",
+	'building_number__name__name': "Здание",
+	'design_chapter__short_name': "Раздел",
+	'name': "Описание Задачи",
+	'contractor__name': "Ответсвенный",
+	'status': "Статус",
+	'price': "Цена",
+	'due_date': "Окончание"
+}
 
 class Task(models.Model):
-	FILTERED_COLUMNS = {
-		'id': 'id',
-		'project_site__name': "Площадка",
-		'sub_project__name': "Проект",
-		'building_number__name__name': "Здание",
-		'design_chapter__short_name': "Раздел",
-		'name': "Описание Задачи",
-		'contractor__name': "Ответсвенный",
-		'status': "Статус",
-		'price': "Цена",
-		'due_date': "Окончание"
-	}
 
 	owner = models.ForeignKey('auth.User', on_delete=models.CASCADE,
 	                          related_name='tasks', verbose_name='Владелец')
@@ -95,7 +94,7 @@ class Task(models.Model):
 
 class SubTask(models.Model):
 	name = models.CharField(max_length=256, null=True, blank=True, verbose_name='Подзадача')
-	parent = models.ForeignKey('ProjectTDL.Task', on_delete=models.CASCADE, verbose_name='Наим. Задачи')
+	parent = models.ForeignKey('ProjectTDL.Task', on_delete=models.CASCADE, verbose_name='Род. Задача')
 	description = models.TextField(null=True, blank=True, verbose_name='Описание')
 	price = models.DecimalField(max_digits=12, decimal_places=3, verbose_name="цена", null=True, blank=True)
 	creation_stamp = models.DateTimeField(auto_now_add=True, verbose_name="дата создания")
@@ -113,7 +112,7 @@ class SubTask(models.Model):
 class Email(models.Model):
 	uid = models.CharField(max_length=200, null=True, blank=True, verbose_name='uid')
 	project_site = models.ForeignKey('StaticData.ProjectSite', verbose_name='Проект',
-	                                 null=True,
+	                                 null=True, blank=True,
 	                                 on_delete=models.CASCADE
 	                                 )
 	building_type = models.ForeignKey('StaticData.BuildingType', verbose_name='Здание', null=True, blank=True,

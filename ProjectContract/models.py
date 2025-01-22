@@ -45,6 +45,11 @@ class Contract(BaseModel):
 	                                 null=False,
 	                                 on_delete=models.CASCADE
 	                                 )
+	sub_project = models.ForeignKey('StaticData.SubProject', verbose_name='Подпроект',
+	                                null=True,
+	                                blank=True,
+	                                on_delete=models.DO_NOTHING,
+	                                )
 	contractor = models.ForeignKey('ProjectContract.Contractor', on_delete=models.CASCADE, verbose_name='Подрядчик')
 	name = models.CharField(max_length=200, null=True, verbose_name='Описание')
 	price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="цена договора", default=0)

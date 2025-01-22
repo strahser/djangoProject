@@ -1,15 +1,21 @@
 from datetime import datetime
+
+import pandas as pd
 from django.contrib import admin
+from django.urls import reverse
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
+from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar
+from ProjectTDL.StaticData import EmailType
 from ProjectTDL.Tables import StaticFilterSettings
-from ProjectTDL.forms import EmailForm
-from ProjectTDL.models import *
-from ProjectContract.models import *
+
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
 from import_export.fields import Field
 
+from ProjectTDL.models import Task, SubTask, Email
 from ProjectTDL.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
 from ProjectTDL.ЕmailParser.EmailFunctions import clean
 from StaticData.models import DesignChapter
@@ -21,8 +27,14 @@ from html.parser import HTMLParser
 from services.DataFrameRender.RenderDfFromModel import create_pivot_table
 from mptt.admin import MPTTModelAdmin
 from mptt.admin import DraggableMPTTAdmin
+from django.utils.http import urlencode
+from django.http import HttpResponseRedirect
+from django.http import HttpResponse
+import logging
 
+from services.Downloads.ExcelDownload import df_to_excel_in_memory
 
+logger = logging.getLogger(__name__)
 def html_convert(data):
     class HTMLFilter(HTMLParser):
         text = ""
@@ -97,16 +109,18 @@ class TaskInline(admin.TabularInline):
 class EmailInline(admin.TabularInline):
     model = Email
     extra = 0
-    fields = ['project_site', 'contractor', 'email_type', 'name', 'parent']
-    readonly_fields = ['create_admin_link']
-    form = EmailForm
+    fields = [ 'name','parent','subject','sender',]
+    readonly_fields = ['name','parent','subject','sender']
+    list_display_links = ('id', 'name',)
+    show_change_link = True
+    show_full_result_count = True
+    # form = EmailForm
 
 
 excluding_list = [Task, Contract, DesignChapter, Email, ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
 
 
 @admin.register(*get_filtered_registered_models('ProjectContract', excluding_list))
-@admin.register(*get_filtered_registered_models('StaticData', excluding_list))
 @admin.register(*get_filtered_registered_models('ProjectTDL', excluding_list))
 class UniversalAdmin(admin.ModelAdmin):
     actions = [duplicate_event]
@@ -119,14 +133,14 @@ class UniversalAdmin(admin.ModelAdmin):
 
 @admin.register(Task)
 class TaskAdmin(ImportExportModelAdmin):
-    excluding_list = ['description', 'parent', 'owner', ]
-    additional_list = []
+    excluding_list = ['description', 'parent', 'owner', 'contract', ]
+    additional_list = ['add_emails_button']
     actions = [duplicate_event, 'update_data', 'html_replace']
     list_display_links = ('id', 'name',)
     list_display = get_standard_display_list(Task, excluding_list=excluding_list, additional_list=additional_list)
     list_editable = ('status', 'price', 'due_date',)
-    list_filter = ['project_site__name', 'sub_project', 'building_number', 'status', 'category', 'contractor',
-                   'contract', ]
+    list_filter = ['project_site__name', 'sub_project', 'building_number',
+                   'status', 'category', 'contractor', 'contract', ]
     search_fields = ['name', 'project_site__name', 'sub_project__name', 'contractor__name']
     inlines = [TaskInline, EmailInline]
     resource_classes = [TaskResource]
@@ -134,6 +148,22 @@ class TaskAdmin(ImportExportModelAdmin):
     actions_on_bottom = True
     list_footer = True
     change_list_template = 'jazzmin/admin/change_list.html'
+
+    def add_emails_button(self, obj):
+        url = reverse('select_email', args=[obj.pk])
+        return format_html(f'<a href="{url}" class="button">✉️</a>')
+
+    add_emails_button.short_description = 'Email'
+
+    def email_list(self, obj):
+        emails = obj.email_set.all()
+        email_links = []
+        for email in emails:
+            link = reverse("admin:ProjectTDL_email_change", args=[email.id])
+            email_links.append(f'<a href="{link}">{email.subject}</a>')
+        return mark_safe(", ".join(email_links))
+
+    email_list.short_description = 'Список Email'
 
     @admin.display(description=" Раздел наименование", ordering='design_chapter')
     def chapter_full_name(self, obj: Task):
@@ -184,7 +214,7 @@ class ContractAdmin(ImportExportModelAdmin):
 
 @admin.register(Email)
 class EmailAdmin(ImportExportModelAdmin):
-    list_display = ['id', 'email_type', 'project_site', 'building_type', 'category', 'contractor', 'name',
+    list_display = ['id', 'parent','email_type', 'project_site', 'building_type', 'category', 'contractor', 'name',
                     'subject', 'sender', 'email_stamp', 'create_admin_link']
     # list_editable = ['project_site', 'contractor']
     list_filter = ['email_type', 'project_site', 'contractor', 'sender']
@@ -198,8 +228,8 @@ class EmailAdmin(ImportExportModelAdmin):
         for obj in queryset:
             try:
                 email_type = getattr(EmailType, obj.email_type).value
-                year = str(datetime.datetime.today().year)
-                today = datetime.datetime.today().strftime('%Y_%m_%d')
+                year = str(datetime.today().year)
+                today = datetime.today().strftime('%Y_%m_%d')
                 folder_name = obj.name if obj.name else clean(obj.subject)
                 _directory = os.path.join(E_MAIL_DIRECTORY, obj.project_site.name, obj.contractor.name, email_type, year, f'{today}_{folder_name}\\'
                 )
@@ -213,4 +243,3 @@ class EmailAdmin(ImportExportModelAdmin):
             except Exception as e:
                 messages.error(request, f"ошибки при копировании {e}")
 
-# form = EmailForm

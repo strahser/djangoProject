@@ -99,7 +99,7 @@ def create_filtered_df_html(model):
 
 
 def df_html_represented(request, model, df_initial, display_list, _filter_form):
-    return render(request, 'ProjectTDL/index.html',
+    return render(request, 'ProjectTDL/custom_table_view.html',
                   {
                       'df': df_initial.
                   filter(display_list)

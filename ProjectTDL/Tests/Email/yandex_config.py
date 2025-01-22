@@ -7,14 +7,7 @@ from django.test import TestCase
 import imaplib
 import email
 
-
-YA_HOST = "imap.yandex.ru"
-YA_PORT = 993
-YA_USER = "strakhov.s@cimrus.com"
-YA_PASSWORD = "mircxhzbiwryssjp"
-SENDER = "Yoba"
-
-
+from ProjectTDL.ЕmailParser.EmailConfig import YA_HOST, YA_PASSWORD, YA_USER
 
 mail = imaplib.IMAP4_SSL(YA_HOST)
 mail.login(YA_USER, YA_PASSWORD)

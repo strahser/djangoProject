@@ -1,6 +1,8 @@
 import io
 import pandas as pd
+import logging
 
+logger = logging.getLogger(__name__)
 
 def to_list(element) -> list:
 	if hasattr(element, "__iter__"):
@@ -52,14 +54,25 @@ def result_to_excel_add_table(df_dict: dict[str, pd.DataFrame],
 	writer = pd.ExcelWriter(excel_book_path, engine='xlsxwriter')
 	for sh_name in df_dict.keys():
 		if convert_to_table:
-			df_dict[sh_name].to_excel(
-				writer,
-				sheet_name=sh_name,
-				startrow=0, startcol=0,
-				header=True,
-				index=index,
-				freeze_panes=(1, 1),
-				float_format="%.2f")
+			try:
+				df_dict[sh_name].to_excel(
+					writer,
+					sheet_name=sh_name,
+					startrow=0, startcol=0,
+					header=True,
+					index=index,
+					freeze_panes=(1, 1),
+					float_format="%.2f")
+			except Exception as e:
+				logger.error(f"error in to_excel {e}")
+				df_dict[sh_name].to_excel(
+					writer,
+					sheet_name=sh_name,
+					startrow=0, startcol=0,
+					header=True,
+					index=index,
+					freeze_panes=(1, 1),
+					)
 			workbook = writer.book
 			worksheet = writer.sheets[sh_name]
 			column_settings = [{'header': column}  for column in df_dict[sh_name]]

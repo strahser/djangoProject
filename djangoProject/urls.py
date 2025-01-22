@@ -22,6 +22,7 @@ urlpatterns = [
     path('demo', TemplateView.as_view(template_name="bootstrap_base.html"), name='demo'),
     path('popovers', TemplateView.as_view(template_name="bootstrap_popovers.html"), name="popovers"),
     path('login', auth_views.LoginView.as_view(), name="login"),
+    path("select2/", include("django_select2.urls")),
 
 
 ]

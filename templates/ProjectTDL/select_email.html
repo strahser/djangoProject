@@ -1,0 +1,90 @@
+{% extends 'admin/base_site.html' %}
+{% load crispy_forms_tags %}
+{% block content %}
+    <h1>Выбор Email для задачи: {{ task.name }}</h1>
+    <div class="d-flex justify-content-between mb-3">
+        <form method="get" class="d-flex align-items-end">
+            <div class="row align-items-end">
+                <div class="col-auto">
+                    {{ form.project_site.label_tag }}
+                    {{ form.project_site }}
+                </div>
+                <div class="col-auto">
+                    {{ form.contractor.label_tag }}
+                    {{ form.contractor }}
+                </div>
+                <div class="col-auto">
+                    {{ form.email_type.label_tag }}
+                    {{ form.email_type }}
+                </div>
+                <div class="col-auto">
+                    {{ form.sender_choices.label_tag }}
+                     {{ form.sender_choices }}
+                </div>
+                <div class="col-auto">
+                    {{ form.search_query.label_tag }}
+                    {{ form.search_query }}
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary">Фильтр</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <form method="post">
+        <div class="d-flex justify-content-end mb-2">
+           <div class="d-flex flex-column">
+               <button type="submit" class="btn btn-secondary mb-2" name="edit_action">Изменить поля</button>
+               <button type="submit" class="btn btn-success">Добавить к задаче</button>
+           </div>
+        </div>
+        {% csrf_token %}
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>
+                        <input type="checkbox" id="select-all">
+                    </th>
+                    <th>Проект</th>
+                    <th>Подрядчик</th>
+                    <th>Тип</th>
+                    <th>Наименование</th>
+                    <th>Тема</th>
+                    <th>Отправитель</th>
+                    <th>Получатель</th>
+                    <th>Родительская задача</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for email in emails %}
+                    <tr>
+                        <td>
+                            <input type="checkbox" class="email-checkbox" name="selected_emails"
+                                   value="{{ email.id|stringformat:'s' }}">
+                        </td>
+                        <td>{{ email.project_site.name }}</td>
+                        <td>{{ email.contractor.name }}</td>
+                        <td>{{ email.get_email_type_display }}</td>
+                        <td>{{ email.name }}</td>
+                        <td>{{ email.subject }}</td>
+                        <td>{{ email.sender }}</td>
+                        <td>{{ email.receiver }}</td>
+                        <td>{{ email.parent.name|default:"-" }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="10">Нет email, соответствующих критериям.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </form>
+    <script>
+$(document).ready(function() {
+    $('#select-all').click(function(event) {
+        $('.email-checkbox').prop('checked', this.checked);
+    });
+});
+    </script>
+{% endblock %}

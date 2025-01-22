@@ -39,6 +39,8 @@ from import_export.formats.base_formats import XLSX, JSON, HTML
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Путь до папки с базами данных (на одном уровне с папкой проекта)
+DB_DIR = os.path.join(os.path.dirname(BASE_DIR), 'djangoProjectDB')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
@@ -55,13 +57,13 @@ ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
     # сторонние пакеты
-    # 'django_mptt_admin',
-    # 'mptt',
-    # 'adminactions',
-    # 'django_tables2',
-    # 'django_admin_filters',
-    # 'bootstrapsidebar',
-'django_translate_gettext',
+    'django_mptt_admin',
+    'mptt',
+    'adminactions',
+    'django_admin_filters',
+    'bootstrapsidebar',
+    'django_tables2',
+    'django_translate_gettext',
     "django_bootstrap5",
     'import_export',
     'crispy_forms',
@@ -72,6 +74,7 @@ INSTALLED_APPS = [
     'jazzmin',
     'admin_form_action',
     'rest_framework',
+    'django_select2',
     # пакеты Джанго
     'django.contrib.admin',
     'django.contrib.auth',
@@ -126,14 +129,14 @@ WSGI_APPLICATION = 'djangoProject.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': os.path.join(DB_DIR, 'db.sqlite3'),  # Полный путь к базе данных по умолчанию
     },
     'personal_db': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'personal_db.sqlite3',
+        'NAME': os.path.join(DB_DIR, 'personal_db.sqlite3'),  # Полный путь к personal_db
     }
-
 }
+
 DATABASE_ROUTERS = ['PersonalData.DbRouter.PersonalDataRouter',]
 
 

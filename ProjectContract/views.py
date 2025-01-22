@@ -1,4 +1,6 @@
 import json
+
+import pandas as pd
 from django.http import JsonResponse
 from django.http import HttpResponse
 from django.db.models import Sum, Value, DecimalField, Q, F
@@ -6,6 +8,7 @@ from django.db.models.functions import Coalesce
 
 from django_pandas.io import read_frame
 from django.contrib import admin, messages
+from loguru import logger
 
 from AdminUtils import duplicate_object
 from .admin import ContractAdmin
@@ -87,7 +90,7 @@ def export_contracts_excel(request):
     # Получаем отображаемые поля из list_display (как в ContractAdmin)
 
     modeladmin = ContractAdmin(Contract, admin.site)
-    list_display = modeladmin.list_display
+    list_display = [val for val in modeladmin.list_display if val!= 'actions_column']
 
     # Аннотируем queryset нужными полями
     queryset = queryset.annotate(
@@ -129,12 +132,21 @@ def export_contracts_excel(request):
     df.rename(columns=verbose_names, inplace=True)
 
     # Создаем HTTP-ответ с Excel-файлом
-    response = HttpResponse(content_type='application/ms-excel')
-    response['Content-Disposition'] = 'attachment; filename="contracts.xlsx"'
-
-    # Сохраняем DataFrame в Excel
-    df.to_excel(response, index=False,
-                engine='openpyxl')  # engine='openpyxl' чтобы pandas использовал openpyxl, а не xlsxwriter
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = 'attachment; filename="Контракты.xlsx"'
+    writer = pd.ExcelWriter(response, engine='xlsxwriter')
+    df.to_excel(writer, sheet_name='Задачи', index=False, freeze_panes=(1, 1))
+    workbook = writer.book
+    worksheet = writer.sheets['Задачи']
+    column_settings = [{'header': column} for column in df]
+    (max_row, max_col) = df.shape
+    worksheet.add_table(0, 0, max_row, max_col - 1,
+                        {'columns': column_settings,
+                         'banded_columns': True,
+                         'autofilter': True,
+                         'name': 'Задачи',
+                         'style': 'Table Style Light 8'})
+    writer.close()
     return response
 
 

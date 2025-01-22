@@ -1,7 +1,8 @@
 import shutil
 import datetime
-import os
 from apscheduler.schedulers.background import BackgroundScheduler
+from loguru import logger
+
 from djangoProject.settings import BASE_DIR, AUTOSAVE_PERIOD, BACKUP_PATH
 from pathlib import Path
 def make_db_backup():
@@ -11,7 +12,7 @@ def make_db_backup():
 	Path(BACKUP_PATH).mkdir(parents=True, exist_ok=True)
 	dest = f"{BACKUP_PATH}/{timestamp}_db_backup.sqlite3"
 	shutil.copy(src, dest)
-	print(f'copy successful to{dest}')
+	logger.info(f'copy successful to{dest}')
 def start_task():
 	scheduler = BackgroundScheduler()
 	scheduler.add_job(make_db_backup, 'interval', minutes=AUTOSAVE_PERIOD)

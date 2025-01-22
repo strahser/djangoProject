@@ -22,7 +22,7 @@ class EmailImapMessage:
 		self.msg = msg
 		self.clean_subject = clean(msg.subject[0:40])
 		self.clean_message_time_stamp = clean(msg.date.strftime("%Y_%m_%d_%H_%M_%S"))
-		self.html_message_name = 'index.html'
+		self.html_message_name = 'custom_table_view.html'
 		self.folder_path_name = os.path.join(root_path, f"{msg.uid}_{self.clean_subject}")
 		self.message_path_name = None
 
