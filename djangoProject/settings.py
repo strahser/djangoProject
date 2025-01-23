@@ -87,11 +87,13 @@ INSTALLED_APPS = [
     'StaticData',
     'ProjectContract',
     'PersonalData',
+    'Emails',
 ]
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 AUTOSAVE_PERIOD =120#minutes
 MEDIA_ROOT =r"e:\Проекты Симрус\Переписка"
 BACKUP_PATH = folder = os.path.join('e:\\','Проекты Симрус', 'backup')
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

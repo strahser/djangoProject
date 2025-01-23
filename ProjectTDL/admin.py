@@ -1,40 +1,26 @@
-from datetime import datetime
+import logging
+from html.parser import HTMLParser
 
-import pandas as pd
 from django.contrib import admin
+from django.contrib import messages
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
-
-from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
-from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar
-from ProjectTDL.StaticData import EmailType
-from ProjectTDL.Tables import StaticFilterSettings
-
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
 from import_export.fields import Field
 
-from ProjectTDL.models import Task, SubTask, Email
-from ProjectTDL.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
-from ProjectTDL.ЕmailParser.EmailFunctions import clean
+from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
+from Emails.models import Email
+from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar
+from ProjectTDL.Tables import StaticFilterSettings
+from ProjectTDL.models import Task, SubTask
 from StaticData.models import DesignChapter
-
-from django.contrib import messages
-import os, shutil
-import win32clipboard  # pip install pywin32
-from html.parser import HTMLParser
 from services.DataFrameRender.RenderDfFromModel import create_pivot_table
-from mptt.admin import MPTTModelAdmin
-from mptt.admin import DraggableMPTTAdmin
-from django.utils.http import urlencode
-from django.http import HttpResponseRedirect
-from django.http import HttpResponse
-import logging
-
-from services.Downloads.ExcelDownload import df_to_excel_in_memory
 
 logger = logging.getLogger(__name__)
+
+
 def html_convert(data):
     class HTMLFilter(HTMLParser):
         text = ""
@@ -48,23 +34,6 @@ def html_convert(data):
         return f.text
     else:
         return ""
-
-
-def copy_to_clipboard(text):
-    win32clipboard.OpenClipboard()
-    win32clipboard.EmptyClipboard()
-    win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
-    win32clipboard.CloseClipboard()
-
-
-def copytree(src, dst, symlinks=False, ignore=None):
-    for item in os.listdir(src):
-        s = os.path.join(src, item)
-        d = os.path.join(dst, item)
-        if os.path.isdir(s):
-            shutil.copytree(s, d, symlinks, ignore)
-        else:
-            shutil.copy2(s, d)
 
 
 class DesignChapterResource(resources.ModelResource):
@@ -109,15 +78,15 @@ class TaskInline(admin.TabularInline):
 class EmailInline(admin.TabularInline):
     model = Email
     extra = 0
-    fields = [ 'name','parent','subject','sender',]
-    readonly_fields = ['name','parent','subject','sender']
+    fields = ['name', 'parent', 'subject', 'sender', ]
+    readonly_fields = ['name', 'parent', 'subject', 'sender']
     list_display_links = ('id', 'name',)
     show_change_link = True
     show_full_result_count = True
     # form = EmailForm
 
 
-excluding_list = [Task, Contract, DesignChapter, Email, ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
+excluding_list = [Task, Contract, DesignChapter,  ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
 
 
 @admin.register(*get_filtered_registered_models('ProjectContract', excluding_list))
@@ -201,7 +170,6 @@ class TaskAdmin(ImportExportModelAdmin):
     class Media(object):
         js = ('admin/js/admin.js',)
 
-
 # css = {"all": ("admin/admin_css.css",)}
 
 
@@ -212,34 +180,4 @@ class ContractAdmin(ImportExportModelAdmin):
     list_display = get_standard_display_list(DesignChapter)
 
 
-@admin.register(Email)
-class EmailAdmin(ImportExportModelAdmin):
-    list_display = ['id', 'parent','email_type', 'project_site', 'building_type', 'category', 'contractor', 'name',
-                    'subject', 'sender', 'email_stamp', 'create_admin_link']
-    # list_editable = ['project_site', 'contractor']
-    list_filter = ['email_type', 'project_site', 'contractor', 'sender']
-    search_fields = ['name', 'subject', 'sender']
-    list_display_links = ['id', 'name', 'subject']
-    change_list_template = 'jazzmin/admin/change_list.html'
-    actions = ("copy_e_mail",)
-
-    @admin.action(description='Скопировать E-mail')
-    def copy_e_mail(modeladmin, request, queryset):
-        for obj in queryset:
-            try:
-                email_type = getattr(EmailType, obj.email_type).value
-                year = str(datetime.today().year)
-                today = datetime.today().strftime('%Y_%m_%d')
-                folder_name = obj.name if obj.name else clean(obj.subject)
-                _directory = os.path.join(E_MAIL_DIRECTORY, obj.project_site.name, obj.contractor.name, email_type, year, f'{today}_{folder_name}\\'
-                )
-                os.makedirs(_directory, exist_ok=True)
-                copytree(obj.link, _directory)
-                if os.path.exists(_directory):
-                    copy_to_clipboard(_directory)
-                    messages.success(request, f"файлы скопированы в папку {_directory}")
-                else:
-                    messages.error(request, f"директория не существует {_directory}")
-            except Exception as e:
-                messages.error(request, f"ошибки при копировании {e}")
 
