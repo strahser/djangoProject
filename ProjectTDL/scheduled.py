@@ -9,7 +9,8 @@ from pathlib import Path
 def make_db_backup():
 	now = datetime.datetime.now()
 	timestamp = str(now.strftime("%Y_%m_%d_%H_%M_%S"))
-	src = os.path.join(DB_DIR, 'db.sqlite3') / 'db.sqlite3'
+	src = os.path.join(DB_DIR, 'db.sqlite3')
+
 	Path(BACKUP_PATH).mkdir(parents=True, exist_ok=True)
 	dest = f"{BACKUP_PATH}/{timestamp}_db_backup.sqlite3"
 	shutil.copy(src, dest)
