@@ -124,6 +124,8 @@ JAZZMIN_SETTINGS = {
 	"use_google_fonts_cdn": True,
 	# Whether to show the UI customizer on the sidebar
 	"show_ui_builder": True,
+"theme": "darkly",
+
 
 	###############
 	# Change view #
