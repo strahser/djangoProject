@@ -1,6 +1,8 @@
 import pandas as pd
 from django.db import models
 from tinymce.models import HTMLField
+
+
 from services.DataFrameRender.RenderDfFromModel import create_df_from_model, create_group_button, ButtonData, \
 	renamed_dict
 import humanize
@@ -93,7 +95,7 @@ class Task(models.Model):
 class SubTask(models.Model):
 	name = models.CharField(max_length=256, null=True, blank=True, verbose_name='Подзадача')
 	parent = models.ForeignKey('ProjectTDL.Task', on_delete=models.CASCADE, verbose_name='Род. Задача')
-	description = models.TextField(null=True, blank=True, verbose_name='Описание')
+	description = HTMLField(null=True, blank=True, verbose_name='Описание')
 	price = models.DecimalField(max_digits=12, decimal_places=3, verbose_name="цена", null=True, blank=True)
 	creation_stamp = models.DateTimeField(auto_now_add=True, verbose_name="дата создания")
 	update_stamp = models.DateTimeField(auto_now=True, verbose_name="дата изменения")

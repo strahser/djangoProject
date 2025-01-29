@@ -68,7 +68,7 @@ class TaskResource(resources.ModelResource):
         export_order = ('id', 'project_site__name')
 
 
-class TaskInline(admin.TabularInline):
+class TaskInline(admin.StackedInline):
     model = SubTask
     extra = 0
     fields = get_standard_display_list(SubTask, additional_list=['creation_stamp'])

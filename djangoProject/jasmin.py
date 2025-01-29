@@ -54,7 +54,8 @@ JAZZMIN_SETTINGS = {
 
 		# App with dropdown menu to all its models pages (Permissions checked against models)
 		{"app": "StaticData"},
-		{'app': 'PersonalData'}
+		{'app': 'ProjectTDL'},
+		{'app': 'PersonalData'},
 	],
 
 	#############
