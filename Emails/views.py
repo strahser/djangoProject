@@ -112,7 +112,7 @@ class SelectEmailView(View):
             for email in emails:
                 email.parent = task
                 email.save()
-            return redirect('admin:Emails_task_change', task_id)
+            return redirect(reverse('admin:ProjectTDL_task_change', args=(task_id,)))
 
 
 class EditEmailFormView(View):
