@@ -31,10 +31,10 @@ def copytree(src, dst, symlinks=False, ignore=None):
 
 @admin.register(Email)
 class EmailAdmin(ImportExportModelAdmin):
-    list_display = ['id', 'parent', 'email_type', 'project_site', 'building_type', 'category', 'contractor', 'name',
+    list_display = ['id', 'parent', 'email_type', 'project_site', 'building_type', 'category','info', 'contractor', 'name',
                     'subject', 'sender', 'email_stamp', 'create_admin_link']
     # list_editable = ['project_site', 'contractor']
-    list_filter = ['email_type', 'project_site', 'contractor', 'sender']
+    list_filter = ['email_type', 'project_site','info', 'contractor', 'sender']
     search_fields = ['name', 'subject', 'sender']
     list_display_links = ['id', 'name', 'subject']
     change_list_template = 'jazzmin/admin/change_list.html'

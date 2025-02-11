@@ -14,6 +14,11 @@ class EmailType(Enum):
 		return [(i.name, i.value) for i in cls]
 
 
+class InfoChoices(models.TextChoices):
+	APPROVED = 'APPROVED', "Согласовано"
+	TASK = 'TASK', "Задача"
+	FINANCIAL = 'FINANCIAL', "Финансы"
+
 class Email(models.Model):
 	uid = models.CharField(max_length=200, null=True, blank=True, verbose_name='uid')
 	project_site = models.ForeignKey('StaticData.ProjectSite', verbose_name='Проект',
@@ -31,6 +36,13 @@ class Email(models.Model):
 	                              default=(EmailType.IN.name, EmailType.IN.value),
 	                              verbose_name='Тип Сообщения')
 	name = models.CharField(max_length=100, null=True, blank=True, verbose_name='Наименование')
+	info = models.CharField(
+		max_length=20,
+		choices=InfoChoices.choices,
+		default=InfoChoices.TASK,
+		verbose_name= "Тип информации",
+		null=True, blank=True,
+	)
 	parent = models.ForeignKey('ProjectTDL.Task', on_delete=models.CASCADE, verbose_name='Род. Задача', null=True,
 	                           blank=True)
 	link = models.CharField(max_length=300, null=True, blank=True, verbose_name='Ссылка')
@@ -44,10 +56,7 @@ class Email(models.Model):
 
 	@property
 	def create_admin_link(self):
-		return mark_safe(
-			f'<a href="file:///{self.link}">Ссылка</a>'
-		)
-
+		return mark_safe(f'<a href="file:///{self.link}">Ссылка</a>')
 	create_admin_link.fget.short_description = 'e-mail Данные'
 
 	def __str__(self):
