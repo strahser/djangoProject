@@ -103,7 +103,7 @@ class UniversalAdmin(admin.ModelAdmin):
 @admin.register(Task)
 class TaskAdmin(ImportExportModelAdmin):
     excluding_list = ['description', 'parent', 'owner', 'contract', ]
-    additional_list = ['add_emails_button']
+    additional_list = ['creation_stamp','add_emails_button']
     actions = [duplicate_event, 'update_data', 'html_replace']
     list_display_links = ('id', 'name',)
     list_display = get_standard_display_list(Task, excluding_list=excluding_list, additional_list=additional_list)
