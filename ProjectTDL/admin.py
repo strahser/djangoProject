@@ -107,7 +107,7 @@ class TaskAdmin(ImportExportModelAdmin):
     actions = [duplicate_event, 'update_data', 'html_replace']
     list_display_links = ('id', 'name',)
     list_display = get_standard_display_list(Task, excluding_list=excluding_list, additional_list=additional_list)
-    list_editable = ('status', 'price', 'due_date',)
+    list_editable = ('status','category', 'price', 'due_date',)
     list_filter = ['project_site__name', 'sub_project', 'building_number',
                    'status', 'category', 'contractor', 'contract', ]
     search_fields = ['name', 'project_site__name', 'sub_project__name', 'contractor__name']
