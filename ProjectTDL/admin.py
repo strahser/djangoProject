@@ -14,7 +14,7 @@ from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_
 from Emails.models import Email
 from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar
 from ProjectTDL.Tables import StaticFilterSettings
-from ProjectTDL.models import Task, SubTask
+from ProjectTDL.models import Task, SubTask, TaskDueDateHistory  # Добавляем импорт TaskDueDateHistory
 from StaticData.models import DesignChapter
 from services.DataFrameRender.RenderDfFromModel import create_pivot_table
 
@@ -68,6 +68,18 @@ class TaskResource(resources.ModelResource):
         export_order = ('id', 'project_site__name')
 
 
+class TaskDueDateHistoryInline(admin.StackedInline):
+    """Inline для отображения истории изменений сроков выполнения задачи"""
+    model = TaskDueDateHistory
+    extra = 0
+    max_num = 0  # Запрещаем добавление новых записей через админку
+    can_delete = False
+    readonly_fields = ['old_due_date', 'new_due_date', 'change_date', 'changed_by']
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 class TaskInline(admin.StackedInline):
     model = SubTask
     extra = 0
@@ -86,7 +98,7 @@ class EmailInline(admin.TabularInline):
     # form = EmailForm
 
 
-excluding_list = [Task, Contract, DesignChapter,  ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
+excluding_list = [Task, Contract, DesignChapter, ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
 
 
 @admin.register(*get_filtered_registered_models('ProjectContract', excluding_list))
@@ -103,15 +115,15 @@ class UniversalAdmin(admin.ModelAdmin):
 @admin.register(Task)
 class TaskAdmin(ImportExportModelAdmin):
     excluding_list = ['description', 'parent', 'owner', 'contract', ]
-    additional_list = ['creation_stamp','add_emails_button']
+    additional_list = ['creation_stamp', 'add_emails_button']
     actions = [duplicate_event, 'update_data', 'html_replace']
     list_display_links = ('id', 'name',)
     list_display = get_standard_display_list(Task, excluding_list=excluding_list, additional_list=additional_list)
-    list_editable = ('status','category', 'price', 'due_date',)
+    list_editable = ('status', 'category', 'price', 'due_date',)
     list_filter = ['project_site__name', 'sub_project', 'building_number',
                    'status', 'category', 'contractor', 'contract', ]
     search_fields = ['name', 'project_site__name', 'sub_project__name', 'contractor__name']
-    inlines = [TaskInline, EmailInline]
+    inlines = [TaskInline, EmailInline, TaskDueDateHistoryInline]  # Добавляем inline истории
     resource_classes = [TaskResource]
     list_per_page = 20
     actions_on_bottom = True
@@ -170,6 +182,7 @@ class TaskAdmin(ImportExportModelAdmin):
     class Media(object):
         js = ('admin/js/admin.js',)
 
+
 # css = {"all": ("admin/admin_css.css",)}
 
 
@@ -178,6 +191,3 @@ class ContractAdmin(ImportExportModelAdmin):
     actions = [duplicate_event]
     resource_classes = [DesignChapterResource]
     list_display = get_standard_display_list(DesignChapter)
-
-
-
