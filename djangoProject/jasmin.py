@@ -82,7 +82,8 @@ JAZZMIN_SETTINGS = {
 	"hide_apps": ['StaticData','PersonalData'],
 
 	# Hide these models when generating side menu (e.g auth.user)
-	"hide_models": ["auth.user", "auth.Group", 'ProjectTDL.SubTask',  'ProjectTDL.URLLink',
+	"hide_models": ["auth.user", "auth.Group", 'ProjectTDL.SubTask',
+					'ProjectTDL.URLLink','ProjectTDL.TaskDueDateHistory',
 	               ],
 
 	# List of apps (and/or models) to base side menu ordering off of (does not need to contain all apps/models)
