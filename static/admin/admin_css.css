@@ -1,4 +1,46 @@
-a {
-  text-decoration: None;color:#007bff;font-weight:normal;
+
+/* Исправление для combobox в темной теме */
+.select2-container--default .select2-selection--single {
+    background-color: #343a40 !important;
+    border-color: #6c757d !important;
+    color: #ffffff !important;
 }
-.related-widget-wrapper-link {display: none;}
+
+.select2-container--default .select2-selection--single .select2-selection__rendered {
+    color: #ffffff !important;
+}
+
+/* Для стандартных select элементов */
+select {
+    background-color: #343a40 !important;
+    color: #ffffff !important;
+    border-color: #6c757d !important;
+}
+
+select option {
+    background-color: #343a40 !important;
+    color: #ffffff !important;
+}
+
+/* Для related-widget-wrapper */
+.related-widget-wrapper select {
+    background-color: #343a40 !important;
+    color: #ffffff !important;
+    border-color: #6c757d !important;
+}
+
+.related-widget-wrapper select option {
+    background-color: #343a40 !important;
+    color: #ffffff !important;
+}
+
+/* При наведении */
+.select2-container--default .select2-results__option--highlighted[aria-selected] {
+    background-color: #007bff !important;
+    color: #ffffff !important;
+}
+
+.select2-container--default .select2-results__option[aria-selected=true] {
+    background-color: #495057 !important;
+    color: #ffffff !important;
+}
