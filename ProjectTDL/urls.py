@@ -1,8 +1,8 @@
 from django.urls import path, include, re_path
 
 from ProjectTDL import views
-from ProjectTDL.views import TaskUpdateView, TaskDeleteView, SubTaskDeleteView, SubTaskUpdateView
-
+from ProjectTDL.views import TaskUpdateView, TaskDeleteView, SubTaskDeleteView, SubTaskUpdateView, \
+    generate_custom_report
 
 urlpatterns = [
     path("", views.custom_task_view, name='custom_task_view'),
@@ -13,6 +13,7 @@ urlpatterns = [
     path("SubTaskDeleteView/<int:pk>", SubTaskDeleteView.as_view(), name='SubTaskDeleteView'),
     path("SubTaskCloneView/<int:pk>", views.SubTaskCloneView, name='SubTaskCloneView'),
     path('update_task_field/', views.update_task_field, name='update_task_field'),
+    path('reports/custom/', generate_custom_report, name='generate_custom_report'),
 
 ]
 

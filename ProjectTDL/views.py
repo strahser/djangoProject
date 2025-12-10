@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 
 import pandas as pd
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import render, redirect, HttpResponse, get_object_or_404
 from django.urls import reverse_lazy
@@ -15,6 +16,7 @@ from ProjectContract.models import Contractor
 from ProjectTDL.Tables import TaskTable, create_filter_qs, data_filter_qs, StaticFilterSettings
 from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm
 from ProjectTDL.models import Task, SubTask
+from ProjectTDL.reports import ReportGenerator
 from StaticData.models import Status
 from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord, create_df_from_model, ButtonData, \
     create_group_button, HTML_DF_PROPERTY, create_pivot_table
@@ -235,6 +237,29 @@ class SubTaskUpdateView(UpdateView):
 class SubTaskDeleteView(TaskDeleteView):
     model = SubTask
     template_name = 'ProjectTDL/Delete_Form.html'
+
+
+@login_required
+def generate_custom_report(request):
+    """View для генерации кастомного отчета"""
+    task_ids = request.GET.getlist('task_ids')
+
+    if not task_ids:
+        return HttpResponse("Не выбраны задачи для отчета")
+
+    # Получаем задачи
+    tasks = Task.objects.filter(id__in=task_ids).select_related(
+        'project_site', 'sub_project', 'building_number__name',
+        'design_chapter', 'contractor', 'status', 'category', 'contract'
+    ).prefetch_related('subtask_set', 'due_date_history')
+
+    # Генерируем отчет
+    html_report = ReportGenerator.generate_html_report(tasks)
+
+    response = HttpResponse(html_report, content_type='text/html')
+    response['Content-Disposition'] = 'inline; filename="custom_tasks_report.html"'
+
+    return response
 
 
 

@@ -1,0 +1,199 @@
+<!-- ProjectTDL/templates/ProjectTDL/report.html -->
+{% extends "ProjectTDL/base_report.html" %}
+{% load humanize %}
+
+{% block title %}Отчет по задачам{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1>📊 Отчет по задачам</h1>
+    <p>Сгенерирован: {{ current_date }} | Всего задач: {{ task_count }}</p>
+
+    <div class="controls-container">
+        <button onclick="printReport()" class="control-button" style="background-color: #3498db;">
+            🖨️ Печать
+        </button>
+        <button onclick="saveReport()" class="control-button" style="background-color: #2ecc71;">
+            💾 Сохранить HTML
+        </button>
+        <button onclick="expandAll()" class="control-button" style="background-color: #9b59b6;">
+            📖 Развернуть все
+        </button>
+        <button onclick="collapseAll()" class="control-button" style="background-color: #e74c3c;">
+            📕 Свернуть все
+        </button>
+        <button onclick="scrollToSummary()" class="control-button" style="background-color: #f39c12;">
+            📊 К сводной
+        </button>
+        {% if admin_url %}
+        <a href="{{ admin_url }}" class="admin-link-btn" title="Вернуться к списку задач в админке">
+            ← К админке
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Сводная статистика -->
+<div class="summary-stats">
+    <div class="stat-box">
+        <div class="stat-number">{{ task_count }}</div>
+        <div class="stat-label">Всего задач</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-number">{{ total_price_all|floatformat:2|intcomma }} руб.</div>
+        <div class="stat-label">Общая стоимость</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-number">{{ total_subtasks_all }}</div>
+        <div class="stat-label">Всего подзадач</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-number">{{ total_history_all }}</div>
+        <div class="stat-label">Изменений сроков</div>
+    </div>
+</div>
+
+{% include "ProjectTDL/summary_table.html" %}
+
+<h2 class="section-title" id="details-section">📝 Детали задач</h2>
+
+{% for content in html_content %}
+{% with task=content.task %}
+{% include "ProjectTDL/task_details.html" %}
+{% endwith %}
+{% endfor %}
+
+<div class="total">
+    <h3>📊 Итоговый отчет</h3>
+    <div style="display: flex; justify-content: space-between;">
+        <div>
+            <p><strong>Общая статистика:</strong></p>
+            <p>• Всего задач: {{ task_count }}</p>
+            <p>• Общая стоимость: {{ total_price_all|floatformat:2|intcomma }} руб.</p>
+            <p>• Всего подзадач: {{ total_subtasks_all }}</p>
+            <p>• Изменений сроков: {{ total_history_all }}</p>
+        </div>
+        <div>
+            <p><strong>Распределение по статусам:</strong></p>
+            <p>• Активные: {{ status_counts.active }}</p>
+            <p>• Завершенные: {{ status_counts.completed }}</p>
+            <p>• Просроченные: {{ status_counts.overdue }}</p>
+        </div>
+    </div>
+    <p style="margin-top: 15px; font-style: italic;">Отчет сгенерирован автоматически системой управления задачами</p>
+</div>
+{% endblock %}
+
+{% block javascript %}
+// Функция для переключения деталей задачи
+function toggleTaskDetails(taskId, event) {
+    if (event) event.stopPropagation();
+    const details = document.getElementById('details-' + taskId);
+    const toggleBtn = document.getElementById('toggle-btn-' + taskId);
+
+    if (details.classList.contains('expanded')) {
+        details.classList.remove('expanded');
+        toggleBtn.textContent = '▼ Развернуть';
+    } else {
+        details.classList.add('expanded');
+        toggleBtn.textContent = '▲ Свернуть';
+        // Прокручиваем к задаче
+        setTimeout(() => {
+            document.getElementById('task-details-' + taskId).scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+            });
+        }, 100);
+    }
+}
+
+// Функция для переключения текущей задачи
+function toggleThisTask(taskId) {
+    toggleTaskDetails(taskId, null);
+}
+
+// Функция прокрутки к деталям задачи
+function scrollToTaskDetails(taskId, event) {
+    if (event) event.stopPropagation();
+    document.getElementById('task-details-' + taskId).scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+    });
+    // Раскрываем детали
+    setTimeout(() => {
+        const details = document.getElementById('details-' + taskId);
+        const toggleBtn = document.getElementById('toggle-btn-' + taskId);
+        if (!details.classList.contains('expanded')) {
+            details.classList.add('expanded');
+            toggleBtn.textContent = '▲ Свернуть';
+        }
+    }, 300);
+}
+
+// Функция прокрутки к задаче (из сводной таблицы)
+function scrollToTask(taskId) {
+    scrollToTaskDetails(taskId, null);
+}
+
+// Функция прокрутки к сводной таблице
+function scrollToSummary() {
+    document.getElementById('summary-section').scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+    });
+}
+
+// Функция развернуть все задачи
+function expandAll() {
+    document.querySelectorAll('.task-details').forEach(details => {
+        details.classList.add('expanded');
+    });
+    document.querySelectorAll('.task-nav button.nav-button').forEach(btn => {
+        if (btn.textContent.includes('Развернуть')) {
+            btn.textContent = '▲ Свернуть';
+        }
+    });
+}
+
+// Функция свернуть все задачи
+function collapseAll() {
+    document.querySelectorAll('.task-details').forEach(details => {
+        details.classList.remove('expanded');
+    });
+    document.querySelectorAll('.task-nav button.nav-button').forEach(btn => {
+        if (btn.textContent.includes('Свернуть')) {
+            btn.textContent = '▼ Развернуть';
+        }
+    });
+}
+
+// Функция для печати отчета
+function printReport() {
+    window.print();
+}
+
+// Функция для сохранения отчета
+function saveReport() {
+    const htmlContent = document.documentElement.outerHTML;
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'отчет_задачи_{{ download_timestamp }}.html';
+    link.click();
+}
+
+// Добавляем подсветку строк сводной таблицы при наведении
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('#summary-table tbody tr').forEach(row => {
+        row.addEventListener('mouseenter', function() {
+            this.style.backgroundColor = '#e8f4fc';
+        });
+        row.addEventListener('mouseleave', function() {
+            this.style.backgroundColor = '';
+        });
+    });
+
+    // По умолчанию сворачиваем все детали задач
+    collapseAll();
+});
+{% endblock %}

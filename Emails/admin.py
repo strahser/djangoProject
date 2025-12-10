@@ -36,7 +36,7 @@ class EmailAdmin(ImportExportModelAdmin):
     # list_editable = ['project_site', 'contractor']
     list_filter = ['email_type', 'project_site','info', 'contractor', 'sender']
     search_fields = ['name', 'subject', 'sender']
-    list_display_links = ['id', 'name', 'subject']
+    list_display_links = ['id', ]
     change_list_template = 'jazzmin/admin/change_list.html'
     actions = ("copy_e_mail",)
 

@@ -10,7 +10,7 @@ from AdminUtils import get_standard_display_list, duplicate_event, duplicate_obj
 from ProjectContract.PivotTableUtility import create_calendar_list_view, create_payment_calendar
 
 from ProjectContract.form import ContractPaymentsAdminForm
-from ProjectContract.models import PaymentCalendar, Contract, ConcretePaymentCalendar, ContractPayments, Contractor
+from ProjectContract.models import ContractPayments, Contractor
 from django.db import models
 from django.db.models import Sum, Value, DecimalField, Count, Q
 from django.db.models.functions import Coalesce

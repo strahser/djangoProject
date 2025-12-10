@@ -1,0 +1,491 @@
+<!-- ProjectTDL/templates/ProjectTDL/report_content.html -->
+<div class="header">
+    <h1>📊 Отчет по задачам</h1>
+    <p>
+        Сгенерирован: {{ current_date }} |
+        Всего задач в отчете: {{ task_count }} |
+        {% if selected_task_ids and selected_task_count > task_count %}
+        Выбрано: {{ selected_task_count }} задач
+        {% endif %}
+    </p>
+
+    <div class="controls-container">
+        <button onclick="printReport()" class="control-button" style="background-color: #3498db;">
+            🖨️ Печать
+        </button>
+        <button onclick="saveReport()" class="control-button" style="background-color: #2ecc71;">
+            💾 Сохранить HTML
+        </button>
+        <button onclick="expandAll()" class="control-button" style="background-color: #9b59b6;">
+            📖 Развернуть все
+        </button>
+        <button onclick="collapseAll()" class="control-button" style="background-color: #e74c3c;">
+            📕 Свернуть все
+        </button>
+        <button onclick="scrollToSummary()" class="control-button" style="background-color: #f39c12;">
+            📊 К сводной
+        </button>
+
+        {% if admin_url %}
+        <a href="{{ admin_url }}" class="admin-link-btn" title="Вернуться к отфильтрованному списку задач в админке">
+            ← К админке
+        </a>
+        {% endif %}
+
+        {% if home_url %}
+        <a href="{{ home_url }}" class="home-link-btn" title="На главную">
+            🏠 На главную
+        </a>
+        {% endif %}
+    </div>
+
+    {% if selected_task_ids and selected_task_count > task_count %}
+    <div style="margin-top: 10px; padding: 10px; background-color: #e8f4fc; border-radius: 3px; font-size: 12px;">
+        <strong>Информация:</strong> Изначально выбрано {{ selected_task_count }} задач.
+        В отчет включено {{ task_count }} задач (остальные могли быть отфильтрованы).
+        {% if selected_task_count > 10 %}
+        <div style="margin-top: 5px;">
+            <small>ID выбранных задач: {{ selected_task_ids|slice:":10"|join:", " }}...</small>
+        </div>
+        {% endif %}
+    </div>
+    {% elif selected_task_ids %}
+    <div style="margin-top: 10px; padding: 10px; background-color: #e8f4fc; border-radius: 3px; font-size: 12px;">
+        <strong>Информация:</strong> Отчет сгенерирован для {{ task_count }} выбранных задач.
+    </div>
+    {% endif %}
+</div>
+
+<!-- Сводная статистика -->
+<div class="summary-stats">
+    <div class="stat-box">
+        <div class="stat-number">{{ task_count }}</div>
+        <div class="stat-label">Всего задач</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-number">{{ total_price_all_formatted }} руб.</div>
+        <div class="stat-label">Общая стоимость</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-number">{{ total_subtasks_all }}</div>
+        <div class="stat-label">Всего подзадач</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-number">{{ total_history_all }}</div>
+        <div class="stat-label">Изменений сроков</div>
+    </div>
+</div>
+
+<!-- Сводная таблица -->
+<div class="summary-section" id="summary-section">
+    <h2 class="section-title">📋 Сводная таблица задач</h2>
+    <div style="margin-bottom: 15px;">
+        <button onclick="expandAll()" class="expand-button">Развернуть все</button>
+        <button onclick="collapseAll()" class="collapse-button">Свернуть все</button>
+        <button onclick="scrollToTop()" class="nav-button">⬆ К началу</button>
+        <button onclick="window.location.reload()" class="nav-button" style="background-color: #9b59b6;">🔄 Обновить</button>
+    </div>
+
+    <table class="summary-table" id="summary-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название задачи</th>
+                <th>Проект</th>
+                <th>Статус</th>
+                <th>Ответственный</th>
+                <th>Срок</th>
+                <th>Стоимость</th>
+                <th>Подзадачи</th>
+                <th>Изменения</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for content in html_content %}
+            {% with task=content.task %}
+            <tr id="summary-row-{{ task.id }}" data-task-id="{{ task.id }}" onclick="scrollToTask({{ task.id }})" style="cursor: pointer;">
+                <td><strong>{{ task.id }}</strong></td>
+                <td>{{ task.name }}</td>
+                <td>{{ task.project }}</td>
+                <td class="status-{{ task.status_class }}">{{ task.status }}</td>
+                <td>{{ task.contractor }}</td>
+                <td>{{ task.due_date }}</td>
+                <td>{{ task.price_display }} руб.</td>
+                <td>{{ content.subtask_count }}</td>
+                <td>{{ content.history_count }}</td>
+                <td>
+                    <button onclick="toggleTaskDetails({{ task.id }}, event)" class="expand-button" id="summary-btn-{{ task.id }}">Подробнее</button>
+                    <span class="jump-to-task" onclick="scrollToTaskDetails({{ task.id }}, event)">↗</span>
+                </td>
+            </tr>
+            {% endwith %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="total">
+        <h3>📈 Итоги по сводной таблице</h3>
+        <p>• Всего задач: {{ task_count }}</p>
+        <p>• Общая стоимость: {{ total_price_all_formatted }} руб.</p>
+        <p>• Всего подзадач: {{ total_subtasks_all }}</p>
+        <p>• Всего изменений сроков: {{ total_history_all }}</p>
+        {% if admin_url %}
+        <p style="margin-top: 10px; color: #7f8c8d;">
+            <small>Для возврата к отфильтрованному списку нажмите "← К админке"</small>
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<h2 class="section-title" id="details-section">📝 Детали задач</h2>
+
+{% for content in html_content %}
+{% with task=content.task %}
+<div class="task-block" id="task-details-{{ task.id }}">
+    <div class="task-header">
+        <h3>Задача #{{ forloop.counter }}: {{ task.name }} <small>(ID: {{ task.id }})</small></h3>
+        <p><strong>Проект:</strong> {{ task.project }} |
+        <strong>Статус:</strong> <span class="status-{{ task.status_class }}">{{ task.status }}</span> |
+        <strong>Срок:</strong> {{ task.due_date }}</p>
+
+        <div class="task-nav">
+            <button onclick="toggleThisTask({{ task.id }})" class="nav-button" id="toggle-btn-{{ task.id }}">▼ Развернуть</button>
+            <button onclick="scrollToSummary()" class="nav-button">↑ К сводной</button>
+            <button onclick="scrollToTop()" class="nav-button">⬆ Наверх</button>
+            {% if admin_url %}
+            <a href="{{ admin_url }}#task-{{ task.id }}" class="nav-button" style="background-color: #34495e; text-decoration: none; color: white;">✏️ Редактировать</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="task-details" id="details-{{ task.id }}">
+        <div class="section">
+            <h4 class="section-title">📋 Основная информация</h4>
+            <table>
+                <tr><td><strong>ID задачи:</strong></td><td>{{ task.id }}</td></tr>
+                <tr><td><strong>Подпроект:</strong></td><td>{{ task.sub_project }}</td></tr>
+                <tr><td><strong>Здание:</strong></td><td>{{ task.building }}</td></tr>
+                <tr><td><strong>Раздел проектирования:</strong></td><td>{{ task.design_chapter }}</td></tr>
+                <tr><td><strong>Ответственный:</strong></td><td>{{ task.contractor }}</td></tr>
+                <tr><td><strong>Категория:</strong></td><td>{{ task.category }}</td></tr>
+                <tr><td><strong>Стоимость задачи:</strong></td><td>{{ task.price_display }} руб.</td></tr>
+                <tr><td><strong>Срок выполнения:</strong></td><td>{{ task.due_date }}</td></tr>
+                <tr><td><strong>Создана:</strong></td><td>{{ task.created }}</td></tr>
+                <tr><td><strong>Обновлена:</strong></td><td>{{ task.updated }}</td></tr>
+            </table>
+        </div>
+
+        <div class="section">
+            <h4 class="section-title">📝 Описание задачи</h4>
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 3px; border-left: 3px solid #3498db; min-height: 50px;">
+                {{ task.description|safe }}
+            </div>
+        </div>
+
+        <div class="section">
+            <h4 class="section-title">📝 Подзадачи ({{ content.subtask_count }})
+                {% if content.subtasks %}
+                <small style="font-weight: normal; color: #7f8c8d; margin-left: 10px;">
+                    (Общая стоимость: {{ content.subtask_total_formatted }} руб.)
+                </small>
+                {% endif %}
+            </h4>
+            {% if content.subtasks %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Наименование</th>
+                        <th>Описание</th>
+                        <th>Стоимость</th>
+                        <th>Срок</th>
+                        <th>Создана</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for subtask in content.subtasks %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ subtask.name }}</td>
+                        <td>{{ subtask.description|safe }}</td>
+                        <td>{{ subtask.price }} руб.</td>
+                        <td>{{ subtask.due_date }}</td>
+                        <td>{{ subtask.created }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div style="margin-top: 10px; padding: 10px; background-color: #e8f4fc; border-radius: 3px;">
+                <strong>Итого по подзадачам:</strong> {{ content.subtask_total_formatted }} руб.
+                <br>
+                <small>Общая стоимость (задача + подзадачи):
+                    {% with total=task.price|default:0|add:content.subtask_total %}
+                    {{ total|floatformat:2 }} руб.
+                    {% endwith %}
+                </small>
+            </div>
+            {% else %}
+            <p class="no-data">Нет подзадач</p>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <h4 class="section-title">🕐 История изменений сроков ({{ content.history_count }})</h4>
+            {% if content.history %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Предыдущая дата</th>
+                        <th>Новая дата</th>
+                        <th>Дата изменения</th>
+                        <th>Кто изменил</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in content.history %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ record.old_date }}</td>
+                        <td>{{ record.new_date }}</td>
+                        <td>{{ record.change_date }}</td>
+                        <td>{{ record.changed_by }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="no-data">Нет изменений сроков</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endwith %}
+{% endfor %}
+
+<div class="total">
+    <h3>📊 Итоговый отчет</h3>
+    <div style="display: flex; justify-content: space-between;">
+        <div style="flex: 1;">
+            <p><strong>Общая статистика:</strong></p>
+            <p>• Всего задач в отчете: {{ task_count }}</p>
+            <p>• Общая стоимость: {{ total_price_all_formatted }} руб.</p>
+            <p>• Всего подзадач: {{ total_subtasks_all }}</p>
+            <p>• Изменений сроков: {{ total_history_all }}</p>
+        </div>
+        <div style="flex: 1;">
+            <p><strong>Распределение по статусам:</strong></p>
+            <p>• Активные: {{ status_counts.active }}</p>
+            <p>• Завершенные: {{ status_counts.completed }}</p>
+            <p>• Просроченные: {{ status_counts.overdue }}</p>
+        </div>
+        <div style="flex: 1;">
+            <p><strong>Стоимостные показатели:</strong></p>
+            <p>• Средняя стоимость задачи:
+                {% if task_count > 0 %}
+                {{ total_price_all|floatformat:2 }} руб.
+                {% else %}
+                0 руб.
+                {% endif %}
+            </p>
+            <p>• Среднее подзадач на задачу:
+                {% if task_count > 0 %}
+                {{ total_subtasks_all|floatformat:1 }}
+                {% else %}
+                0
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    {% if admin_url %}
+    <div style="margin-top: 15px; padding: 15px; background-color: #f0f7ff; border-radius: 3px; border-left: 4px solid #3498db;">
+        <h4 style="margin-top: 0; color: #2c3e50;">🔗 Навигация</h4>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="{{ admin_url }}" class="nav-button" style="background-color: #34495e; text-decoration: none;">
+                ← Вернуться к отфильтрованной админке
+            </a>
+            <button onclick="window.print()" class="nav-button" style="background-color: #3498db;">
+                🖨️ Печать отчета
+            </button>
+            <button onclick="saveReport()" class="nav-button" style="background-color: #2ecc71;">
+                💾 Сохранить как HTML
+            </button>
+        </div>
+        <p style="margin-top: 10px; margin-bottom: 0; font-size: 13px; color: #7f8c8d;">
+            <strong>Важно:</strong> При возврате в админку будут сохранены все текущие фильтры, поиск и выбранные задачи.
+        </p>
+    </div>
+    {% endif %}
+
+    <p style="margin-top: 15px; font-style: italic; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 10px;">
+        Отчет сгенерирован автоматически системой управления задачами |
+        {% now "d.m.Y H:i" %} |
+        Пользователь: {{ request.user.username|default:"Система" }}
+    </p>
+</div>
+
+<script>
+    // Функция для печати отчета
+    function printReport() {
+        // Скрываем кнопки управления перед печатью
+        const controls = document.querySelector('.controls-container');
+        const originalDisplay = controls.style.display;
+        controls.style.display = 'none';
+
+        window.print();
+
+        // Восстанавливаем кнопки после печати
+        setTimeout(() => {
+            controls.style.display = originalDisplay;
+        }, 500);
+    }
+
+    // Функция для сохранения отчета
+    function saveReport() {
+        const htmlContent = document.documentElement.outerHTML;
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'отчет_задачи_{{ download_timestamp }}.html';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    // Функция развернуть все задачи
+    function expandAll() {
+        document.querySelectorAll('.task-details').forEach(details => {
+            details.classList.add('expanded');
+        });
+        document.querySelectorAll('.task-nav button.nav-button').forEach(btn => {
+            if (btn.textContent.includes('Развернуть')) {
+                btn.textContent = '▲ Свернуть';
+            }
+        });
+        document.querySelectorAll('#summary-table button.expand-button').forEach(btn => {
+            btn.textContent = '▲ Свернуть';
+        });
+    }
+
+    // Функция свернуть все задачи
+    function collapseAll() {
+        document.querySelectorAll('.task-details').forEach(details => {
+            details.classList.remove('expanded');
+        });
+        document.querySelectorAll('.task-nav button.nav-button').forEach(btn => {
+            if (btn.textContent.includes('Свернуть')) {
+                btn.textContent = '▼ Развернуть';
+            }
+        });
+        document.querySelectorAll('#summary-table button.expand-button').forEach(btn => {
+            btn.textContent = 'Подробнее';
+        });
+    }
+
+    // Функция прокрутки к сводной таблице
+    function scrollToSummary() {
+        document.getElementById('summary-section').scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+        });
+    }
+
+    // Функция прокрутки к деталям задачи
+    function scrollToTaskDetails(taskId, event) {
+        if (event) event.stopPropagation();
+        const element = document.getElementById('task-details-' + taskId);
+        if (element) {
+            element.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+            });
+            // Раскрываем детали если они свернуты
+            setTimeout(() => {
+                const details = document.getElementById('details-' + taskId);
+                const toggleBtn = document.getElementById('toggle-btn-' + taskId);
+                const summaryBtn = document.getElementById('summary-btn-' + taskId);
+                if (details && !details.classList.contains('expanded')) {
+                    details.classList.add('expanded');
+                    if (toggleBtn) toggleBtn.textContent = '▲ Свернуть';
+                    if (summaryBtn) summaryBtn.textContent = '▲ Свернуть';
+                }
+            }, 300);
+        }
+    }
+
+    // Функция прокрутки к задаче (из сводной таблицы)
+    function scrollToTask(taskId) {
+        scrollToTaskDetails(taskId, null);
+    }
+
+    // Функция для переключения деталей задачи
+    function toggleTaskDetails(taskId, event) {
+        if (event) event.stopPropagation();
+        const details = document.getElementById('details-' + taskId);
+        const toggleBtn = document.getElementById('toggle-btn-' + taskId);
+        const summaryBtn = document.getElementById('summary-btn-' + taskId);
+
+        if (details && details.classList.contains('expanded')) {
+            details.classList.remove('expanded');
+            if (toggleBtn) toggleBtn.textContent = '▼ Развернуть';
+            if (summaryBtn) summaryBtn.textContent = 'Подробнее';
+        } else {
+            details.classList.add('expanded');
+            if (toggleBtn) toggleBtn.textContent = '▲ Свернуть';
+            if (summaryBtn) summaryBtn.textContent = '▲ Свернуть';
+            // Прокручиваем к задаче
+            setTimeout(() => {
+                const taskElement = document.getElementById('task-details-' + taskId);
+                if (taskElement) {
+                    taskElement.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            }, 100);
+        }
+    }
+
+    // Функция для переключения текущей задачи
+    function toggleThisTask(taskId) {
+        toggleTaskDetails(taskId, null);
+    }
+
+    // Добавляем подсветку строк сводной таблицы при наведении
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('#summary-table tbody tr').forEach(row => {
+            row.addEventListener('mouseenter', function() {
+                this.style.backgroundColor = '#e8f4fc';
+            });
+            row.addEventListener('mouseleave', function() {
+                this.style.backgroundColor = '';
+            });
+        });
+
+        // По умолчанию сворачиваем все детали задач
+        collapseAll();
+
+        // Добавляем клавиатурную навигацию
+        document.addEventListener('keydown', function(event) {
+            // Ctrl+P для печати
+            if (event.ctrlKey && event.key === 'p') {
+                event.preventDefault();
+                printReport();
+            }
+            // Ctrl+S для сохранения
+            if (event.ctrlKey && event.key === 's') {
+                event.preventDefault();
+                saveReport();
+            }
+            // Escape для сворачивания всего
+            if (event.key === 'Escape') {
+                collapseAll();
+            }
+        });
+
+        // Показываем подсказку про горячие клавиши
+        console.log('Горячие клавиши отчета: Ctrl+P - печать, Ctrl+S - сохранить, Esc - свернуть все');
+    });
+</script>

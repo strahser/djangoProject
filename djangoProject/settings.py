@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'django_select2',
     # пакеты Джанго
+    'django.contrib.humanize',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

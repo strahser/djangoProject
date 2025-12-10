@@ -1,14 +1,12 @@
-import pandas as pd
+# models.py - ОКОНЧАТЕЛЬНАЯ ВЕРСИЯ (упрощенная)
+import humanize
 from django.db import models
 from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
 from tinymce.models import HTMLField
 
-from services.DataFrameRender.RenderDfFromModel import create_df_from_model, create_group_button, ButtonData, \
-    renamed_dict
-import humanize
-
 _t = humanize.activate("ru_RU")
+
 FILTERED_COLUMNS = {
     'id': 'id',
     'project_site__name': "Площадка",
@@ -22,13 +20,10 @@ FILTERED_COLUMNS = {
     'due_date': "Окончание"
 }
 
-
+# ОПРЕДЕЛЕНИЕ МОДЕЛЕЙ БЕЗ ИМПОРТОВ ИЗ ДРУГИХ МОДУЛЕЙ ПРОЕКТА
 class Task(models.Model):
     owner = models.ForeignKey('auth.User', on_delete=models.CASCADE,
                               related_name='tasks', verbose_name='Владелец')
-    # parent = models.ForeignKey('self', on_delete=models.SET_NULL,
-    #                            related_name='children_task', verbose_name='Родительская задача', null=True,
-    #                            blank=True)
     project_site = models.ForeignKey('StaticData.ProjectSite', verbose_name='Проект',
                                      null=False,
                                      on_delete=models.CASCADE
@@ -68,6 +63,7 @@ class Task(models.Model):
 
     @property
     def subtask_sum(self):
+        from .models import SubTask  # Локальный импорт для избежания цикла
         qs = SubTask.objects. \
             select_related('parent'). \
             filter(parent__id=self.id). \
@@ -77,20 +73,6 @@ class Task(models.Model):
 
     subtask_sum.fget.short_description = 'Стоим.подзадачи'
 
-    @staticmethod
-    def get_df_render_from_qs() -> pd.DataFrame:
-        qs = Task.objects.all().order_by('project_site')
-        df_initial = create_df_from_model(Task, qs)
-        button_data_copy = ButtonData('TaskCloneView', "pk", name='📄')
-        button_data_delete = ButtonData('TaskDeleteView', "pk", cls='danger', name='X')
-        button_data_update = ButtonData('TaskUpdateView', "pk")
-        # переопределяем название задачи - добавляем ссылку на update
-        df_initial['name'] = df_initial.apply(lambda x: button_data_update.create_text_link(x['id'], x['name']), axis=1)
-        button_copy = df_initial.apply(lambda x: button_data_copy.button_link(x['id']), axis=1)
-        button_delete = df_initial.apply(lambda x: button_data_delete.button_link(x['id']), axis=1)
-        df_initial['действия'] = create_group_button([button_copy, button_delete])
-        return df_initial
-
 
 class TaskDueDateHistory(models.Model):
     """Модель для хранения истории изменений сроков выполнения задачи"""
@@ -98,8 +80,7 @@ class TaskDueDateHistory(models.Model):
     old_due_date = models.DateField(verbose_name="Предыдущая дата", null=True, blank=True)
     new_due_date = models.DateField(verbose_name="Новая дата", null=True, blank=True)
     change_date = models.DateTimeField(auto_now_add=True, verbose_name="Дата изменения")
-    changed_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, verbose_name="Кто изменил",
-                                   null=True, blank=True)
+    changed_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, verbose_name="Кто изменил", null=True, blank=True)
 
     class Meta:
         verbose_name = 'История изменения срока задачи'
@@ -127,12 +108,11 @@ def track_due_date_change(sender, instance, **kwargs):
 def create_due_date_history(sender, instance, created, **kwargs):
     """Сигнал для создания записи в истории при изменении даты выполнения"""
     if not created and hasattr(instance, '_old_due_date'):
-        # Получаем текущего пользователя (нужно настроить в контексте запроса)
+        # Получаем текущего пользователя
         from django.contrib.auth import get_user_model
         User = get_user_model()
 
         # В реальном приложении нужно получить пользователя из request
-        # Для примера используем первого пользователя
         user = User.objects.first()
 
         TaskDueDateHistory.objects.create(

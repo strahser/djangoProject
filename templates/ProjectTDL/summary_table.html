@@ -1,0 +1,55 @@
+<!-- ProjectTDL/templates/ProjectTDL/summary_table.html -->
+<div class="summary-section" id="summary-section">
+    <h2 class="section-title">📋 Сводная таблица задач</h2>
+    <div style="margin-bottom: 15px;">
+        <button onclick="expandAll()" class="expand-button">Развернуть все</button>
+        <button onclick="collapseAll()" class="collapse-button">Свернуть все</button>
+        <button onclick="scrollToTop()" class="nav-button">⬆ К началу</button>
+    </div>
+
+    <table class="summary-table" id="summary-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название задачи</th>
+                <th>Проект</th>
+                <th>Статус</th>
+                <th>Ответственный</th>
+                <th>Срок</th>
+                <th>Стоимость</th>
+                <th>Подзадачи</th>
+                <th>Изменения</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for content in html_content %}
+            {% with task=content.task %}
+            <tr id="summary-row-{{ task.id }}" data-task-id="{{ task.id }}" onclick="scrollToTask({{ task.id }})" style="cursor: pointer;">
+                <td><strong>{{ task.id }}</strong></td>
+                <td>{{ task.name }}</td>
+                <td>{{ task.project }}</td>
+                <td class="status-{{ task.status_class }}">{{ task.status }}</td>
+                <td>{{ task.contractor }}</td>
+                <td>{{ task.due_date }}</td>
+                <td>{{ task.price_display }} руб.</td>
+                <td>{{ content.subtask_count }}</td>
+                <td>{{ content.history_count }}</td>
+                <td>
+                    <button onclick="toggleTaskDetails({{ task.id }}, event)" class="expand-button">Подробнее</button>
+                    <span class="jump-to-task" onclick="scrollToTaskDetails({{ task.id }}, event)">↗</span>
+                </td>
+            </tr>
+            {% endwith %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="total">
+        <h3>📈 Итоги по сводной таблице</h3>
+        <p>• Всего задач: {{ task_count }}</p>
+        <p>• Общая стоимость: {{ total_price_all|floatformat:2 }} руб.</p>
+        <p>• Всего подзадач: {{ total_subtasks_all }}</p>
+        <p>• Всего изменений сроков: {{ total_history_all }}</p>
+    </div>
+</div>

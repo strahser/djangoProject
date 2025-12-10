@@ -1,0 +1,111 @@
+<!-- ProjectTDL/templates/ProjectTDL/task_details.html -->
+<div class="task-block" id="task-details-{{ task.id }}">
+    <div class="task-header">
+        <h3>Задача #{{ forloop.counter }}: {{ task.name }} <small>(ID: {{ task.id }})</small></h3>
+        <p><strong>Проект:</strong> {{ task.project }} |
+        <strong>Статус:</strong> <span class="status-{{ task.status_class }}">{{ task.status }}</span> |
+        <strong>Срок:</strong> {{ task.due_date }}</p>
+
+        <div class="task-nav">
+            <button onclick="toggleThisTask({{ task.id }})" class="nav-button" id="toggle-btn-{{ task.id }}">▼ Развернуть</button>
+            <button onclick="scrollToSummary()" class="nav-button">↑ К сводной</button>
+            <button onclick="scrollToTop()" class="nav-button">⬆ Наверх</button>
+        </div>
+    </div>
+
+    <div class="task-details" id="details-{{ task.id }}">
+        <div class="section">
+            <h4 class="section-title">📋 Основная информация</h4>
+            <table>
+                <tr><td><strong>ID задачи:</strong></td><td>{{ task.id }}</td></tr>
+                <tr><td><strong>Подпроект:</strong></td><td>{{ task.sub_project }}</td></tr>
+                <tr><td><strong>Здание:</strong></td><td>{{ task.building }}</td></tr>
+                <tr><td><strong>Раздел проектирования:</strong></td><td>{{ task.design_chapter }}</td></tr>
+                <tr><td><strong>Ответственный:</strong></td><td>{{ task.contractor }}</td></tr>
+                <tr><td><strong>Категория:</strong></td><td>{{ task.category }}</td></tr>
+                <tr><td><strong>Стоимость задачи:</strong></td><td>{{ task.price_display }} руб.</td></tr>
+                <tr><td><strong>Срок выполнения:</strong></td><td>{{ task.due_date }}</td></tr>
+                <tr><td><strong>Создана:</strong></td><td>{{ task.created }}</td></tr>
+                <tr><td><strong>Обновлена:</strong></td><td>{{ task.updated }}</td></tr>
+            </table>
+        </div>
+
+        <div class="section">
+            <h4 class="section-title">📝 Описание задачи</h4>
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 3px; border-left: 3px solid #3498db;">
+                {{ task.description|safe }}
+            </div>
+        </div>
+
+        <div class="section">
+            <h4 class="section-title">📝 Подзадачи ({{ content.subtask_count }})
+                {% if content.subtasks %}
+                <small style="font-weight: normal; color: #7f8c8d; margin-left: 10px;">
+                    (Общая стоимость: {{ content.subtask_total|floatformat:3 }} руб.)
+                </small>
+                {% endif %}
+            </h4>
+            {% if content.subtasks %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Наименование</th>
+                        <th>Описание</th>
+                        <th>Стоимость</th>
+                        <th>Срок</th>
+                        <th>Создана</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for subtask in content.subtasks %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ subtask.name }}</td>
+                        <td>{{ subtask.description|safe }}</td>
+                        <td>{{ subtask.price }} руб.</td>
+                        <td>{{ subtask.due_date }}</td>
+                        <td>{{ subtask.created }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div style="margin-top: 10px; padding: 10px; background-color: #e8f4fc; border-radius: 3px;">
+                <strong>Итого по подзадачам:</strong> {{ content.subtask_total|floatformat:3 }} руб.
+            </div>
+            {% else %}
+            <p class="no-data">Нет подзадач</p>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <h4 class="section-title">🕐 История изменений сроков ({{ content.history_count }})</h4>
+            {% if content.history %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Предыдущая дата</th>
+                        <th>Новая дата</th>
+                        <th>Дата изменения</th>
+                        <th>Кто изменил</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in content.history %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ record.old_date }}</td>
+                        <td>{{ record.new_date }}</td>
+                        <td>{{ record.change_date }}</td>
+                        <td>{{ record.changed_by }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="no-data">Нет изменений сроков</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
