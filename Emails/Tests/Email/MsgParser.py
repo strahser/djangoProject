@@ -26,11 +26,16 @@ class EmailData:
     sender: str
     email_data: datetime.datetime
 
+
 def clean(text):
     # clean text for creating a folder
     return "".join(c if c.isalnum() else "_" for c in text)
 
-def add_emails_msg_to_sqlite(_mypath: str, _file_list: list[str], sqlite_connection: sqlite3.Connection):
+
+def add_emails_msg_to_sqlite(
+        _mypath: str,
+        _file_list: list[str],
+        sqlite_connection: sqlite3.Connection):
     def create_emil_df(mail_list: [EmailData]):
         df = pd.DataFrame(mail_list)
         with open(_mypath + 'df.html', "w", encoding="utf-8") as f:
@@ -58,7 +63,7 @@ def add_emails_msg_to_sqlite(_mypath: str, _file_list: list[str], sqlite_connect
             count = cursor.execute(sqlite_insert_query, values)
             sqlite_connection.commit()
             if msg.body:
-                with open(link+str(en), "w", encoding="utf-8") as f:
+                with open(link + str(en), "w", encoding="utf-8") as f:
                     f.write(msg.body)
             msg.close()
         except Exception as e:

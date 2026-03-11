@@ -20,6 +20,7 @@ FILTERED_COLUMNS = {
     'due_date': "Окончание"
 }
 
+
 # ОПРЕДЕЛЕНИЕ МОДЕЛЕЙ БЕЗ ИМПОРТОВ ИЗ ДРУГИХ МОДУЛЕЙ ПРОЕКТА
 class Task(models.Model):
     owner = models.ForeignKey('auth.User', on_delete=models.CASCADE,
@@ -80,7 +81,8 @@ class TaskDueDateHistory(models.Model):
     old_due_date = models.DateField(verbose_name="Предыдущая дата", null=True, blank=True)
     new_due_date = models.DateField(verbose_name="Новая дата", null=True, blank=True)
     change_date = models.DateTimeField(auto_now_add=True, verbose_name="Дата изменения")
-    changed_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, verbose_name="Кто изменил", null=True, blank=True)
+    changed_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, verbose_name="Кто изменил", null=True,
+                                   blank=True)
 
     class Meta:
         verbose_name = 'История изменения срока задачи'

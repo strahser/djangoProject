@@ -91,7 +91,7 @@ INSTALLED_APPS = [
     'Emails',
 ]
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-AUTOSAVE_PERIOD =120#minutes
+AUTOSAVE_PERIOD =120 #minutes
 MEDIA_ROOT =r"e:\Проекты Симрус\Переписка"
 BACKUP_PATH = folder = os.path.join('e:\\','Проекты Симрус', 'backup')
 
