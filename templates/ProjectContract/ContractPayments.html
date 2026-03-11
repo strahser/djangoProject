@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <form method="GET">
+    <label for="scale">Масштаб:</label>
+    <select name="scale" id="scale">
+        <option value="day" {% if scale == 'day' %}selected{% endif %}>День</option>
+        <option value="week" {% if scale == 'week' %}selected{% endif %}>Неделя</option>
+        <option value="month" {% if scale == 'month' %}selected{% endif %}>Месяц</option>
+        <option value="quarter" {% if scale == 'quarter' %}selected{% endif %}>Квартал</option>
+    </select>
+    <button type="submit">Показать</button>
+</form>
+{{ html_table|safe }}
+{% endblock content %}
