@@ -10,6 +10,5 @@ class EmailData:
 	parent: str
 	link: str
 	subject: str
-	body: str
 	sender: str
 	data: datetime.datetime

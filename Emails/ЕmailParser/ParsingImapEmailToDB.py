@@ -57,7 +57,3 @@ class ParsingImapEmailToDB:
 						print(e)
 				else:
 					self.skip_action_list.append(msg.uid)
-		print("create_action_list")
-		print(len(self.create_action_list))
-		print("skip_action_list")
-		print(len(self.skip_action_list))

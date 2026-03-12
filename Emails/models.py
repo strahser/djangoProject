@@ -2,7 +2,6 @@ from enum import Enum
 
 from django.db import models
 from django.utils.safestring import mark_safe
-from tinymce.models import HTMLField
 
 
 class EmailType(Enum):
@@ -48,7 +47,6 @@ class Email(models.Model):
                                blank=True)
     link = models.CharField(max_length=300, null=True, blank=True, verbose_name='Ссылка')
     subject = models.CharField(max_length=300, null=True, blank=True, verbose_name='Тема письма')
-    body = HTMLField(null=True, blank=True, verbose_name='Тело письма')
     sender = models.CharField(max_length=300, null=True, blank=True, verbose_name='Отправитель')
     receiver = models.CharField(max_length=300, null=True, blank=True, verbose_name='Получатель')
     email_stamp = models.DateTimeField(null=True, blank=True, verbose_name="дата письма")

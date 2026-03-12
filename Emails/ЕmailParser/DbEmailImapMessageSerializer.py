@@ -12,7 +12,6 @@ class DbEmailImapMessageSerializer:
 		self.email_type = email_type
 		self.subject = msg.subject
 		self.link = link
-		self.body = EmailBody(msg).created_body
 		self.sender = msg.from_values.name
 		self.receiver = msg.to_values
 		self.email_stamp = msg.date
@@ -29,7 +28,6 @@ class DbEmailImapMessageSerializer:
 			uid=self.uid, email_type=self.email_type,
 			subject=self.subject,
 			link=self.link,
-			body=self.body,
 			sender=self.sender,
 			receiver=receiver_name,
 			email_stamp=self.email_stamp,
