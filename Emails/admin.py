@@ -10,7 +10,7 @@ from import_export.admin import ImportExportModelAdmin
 
 from Emails.models import EmailType, Email
 from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
-from Emails.ЕmailParser.EmailFunctions import clean
+from Emails.ЕmailParser.sanitize import clean
 
 
 def copy_to_clipboard(text):

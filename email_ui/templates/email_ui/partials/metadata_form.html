@@ -1,0 +1,9 @@
+<form hx-post="{% url 'email_ui:edit_metadata' email.pk %}"
+      hx-target="#metadata-block-{{ email.pk }}"
+      hx-swap="innerHTML">
+    {{ metadata_form.as_p }}
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+    <button type="button" class="btn btn-secondary"
+            hx-get="{% url 'email_ui:metadata_display' email.pk %}"
+            hx-target="#metadata-block-{{ email.pk }}">Отмена</button>
+</form>

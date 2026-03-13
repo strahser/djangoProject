@@ -1,0 +1,75 @@
+<div class="card">
+    <div class="card-header d-flex justify-content-between">
+        <h5>{{ email.subject }}</h5>
+        <div>
+            <button class="btn btn-sm btn-outline-secondary" disabled>Ответить</button>
+            <button class="btn btn-sm btn-outline-secondary" disabled>Переслать</button>
+            <div class="btn-group">
+                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">Переместить</button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#"
+                           hx-post="{% url 'email_ui:move_to_folder' email.pk %}"
+                           hx-vals='{"folder": "archive"}'
+                           hx-target="body"
+                           hx-swap="none">В архив</a></li>
+                    <li><a class="dropdown-item" href="#"
+                           hx-post="{% url 'email_ui:move_to_folder' email.pk %}"
+                           hx-vals='{"folder": "trash"}'
+                           hx-target="body"
+                           hx-swap="none">В корзину</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <p><strong>От:</strong> {{ email.sender }}</p>
+        <p><strong>Кому:</strong> {{ email.receiver }}</p>
+        <p><strong>Дата:</strong> {{ email.email_stamp }}</p>
+
+        <!-- Метаданные (редактируемые) -->
+        <div id="metadata-block-{{ email.pk }}">
+            {% include "email_ui/partials/metadata_display.html" %}
+        </div>
+
+        <!-- Привязка к задачам -->
+        <div class="mt-2">
+            <strong>Задачи:</strong>
+            {% for task in email.tasks.all %}
+                <span class="badge bg-info">
+                    {{ task.name }}
+                    <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white">✖</a>
+                </span>
+            {% empty %}
+                <span>нет</span>
+            {% endfor %}
+            <button class="btn btn-sm btn-link"
+                    hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}"
+                    hx-target="#task-modal-container"
+                    hx-trigger="click"
+                    data-bs-toggle="modal"
+                    data-bs-target="#taskModal">Прикрепить</button>
+        </div>
+
+        <!-- Вложения -->
+        <div id="attachments-{{ email.pk }}" class="mt-3">
+            {% include "email_ui/partials/attachments_list.html" %}
+        </div>
+
+        <!-- Тело письма (загружается через отдельный эндпоинт) -->
+        <div class="mt-3 border p-2"
+             hx-get="{% url 'email_ui:email_body' email.pk %}"
+             hx-trigger="load"
+             hx-target="this">
+            Загрузка...
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для задач -->
+<div class="modal fade" id="taskModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content" id="task-modal-container">
+            <!-- Загружается через HTMX -->
+        </div>
+    </div>
+</div>

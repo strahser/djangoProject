@@ -1,0 +1,41 @@
+<ul>
+    {% for att in email.attachments.all %}
+    <li class="d-flex justify-content-between align-items-center">
+        <div>
+            <span>{{ att.filename }}</span>
+            <small class="text-muted">({{ att.size|filesizeformat }})</small>
+        </div>
+        <div>
+            <button class="btn btn-sm btn-outline-secondary copy-path-btn"
+                    data-path="{{ att.file_path }}"
+                    title="Копировать путь к файлу">
+                📋 Копировать путь
+            </button>
+            <!-- Если file:// работает в вашей сети, можно добавить и прямую ссылку:
+            <a href="{{ att.file_url }}" target="_blank" class="btn btn-sm btn-outline-primary ms-2">Открыть</a>
+            -->
+        </div>
+    </li>
+    {% empty %}
+    <li>Нет вложений</li>
+    {% endfor %}
+</ul>
+
+<script>
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('copy-path-btn') || e.target.closest('.copy-path-btn')) {
+            const btn = e.target.closest('.copy-path-btn');
+            const path = btn.dataset.path;
+            navigator.clipboard.writeText(path).then(() => {
+                // Визуальный отклик
+                const originalText = btn.textContent;
+                btn.textContent = 'Скопировано!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            }).catch(err => {
+                alert('Не удалось скопировать путь: ' + err);
+            });
+        }
+    });
+</script>

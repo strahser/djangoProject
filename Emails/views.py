@@ -9,6 +9,7 @@ from django.views import View
 
 from Emails.forms import EmailForm, EmailFilterForm
 from Emails.models import Email, EmailType
+from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
 from ProjectTDL.models import Task
 from Emails.ЕmailParser.OutlookEmailCreate import parsing_form_for_e_mail_path, make_folder, process_e_mail, \
     add_form_data_to_data_base
@@ -42,7 +43,7 @@ def handle_incoming_email(request):
         initial_folder_list = {'INBOX': EmailType.IN.name, 'Отправленные': EmailType.OUT.name }
         actions_list = []
         scip_list = []
-        directory = os.path.join('e:\Проекты Симрус', 'Переписка', 'imap_attachments')
+        directory = os.path.join(E_MAIL_DIRECTORY, 'imap_attachments')
         for folder, folder_db_name in initial_folder_list.items():
             root_path = os.path.join(directory, folder)
             _parser = ParsingImapEmailToDB(root_path)

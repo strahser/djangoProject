@@ -1,0 +1,19 @@
+<div class="modal-header" xmlns:item.id xmlns:item.id>
+    <h5 class="modal-title">{{ title }}</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+    <div class="list-group">
+        {% for item in items %}
+        <label class="list-group-item">
+            <input type="checkbox" class="form-check-input me-2" value="{{ item.id }}"
+                   {% if item.id|stringformat:"s" in selected_values %}checked{% endif %}>
+            {{ item.name }}
+        </label>
+        {% endfor %}
+    </div>
+</div>
+<div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+    <button type="button" class="btn btn-primary" onclick="applyFilter('{{ field_name }}')">Применить</button>
+</div>

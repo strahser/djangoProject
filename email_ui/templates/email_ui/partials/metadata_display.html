@@ -1,0 +1,18 @@
+<div class="row">
+    <div class="col">
+        <p><strong>Проект:</strong> {{ email.project_site|default:"-" }}</p>
+        <p><strong>Категория:</strong> {{ email.category|default:"-" }}</p>
+        <p><strong>Тип информации:</strong> {{ email.get_info_display|default:"-" }}</p>
+    </div>
+    <div class="col">
+        <p><strong>Подрядчик:</strong> {{ email.contractor|default:"-" }}</p>
+        <p><strong>Здание:</strong> {{ email.building_type|default:"-" }}</p>
+        <p><strong>Важное:</strong> {% if email.is_important %}✅{% else %}❌{% endif %}</p>
+    </div>
+    <div class="col">
+        <button class="btn btn-sm btn-outline-primary"
+                hx-get="{% url 'email_ui:edit_metadata_form' email.pk %}"
+                hx-target="#metadata-block-{{ email.pk }}"
+                hx-swap="innerHTML">Редактировать</button>
+    </div>
+</div>

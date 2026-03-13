@@ -1,0 +1,61 @@
+{% extends "email_ui/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>
+        {% if folder == 'inbox' %}Входящие
+        {% elif folder == 'sent' %}Отправленные
+        {% elif folder == 'drafts' %}Черновики
+        {% elif folder == 'archive' %}Архив
+        {% elif folder == 'trash' %}Корзина
+        {% endif %}
+    </h2>
+    <div>
+        <!-- Кнопка получения почты -->
+        <form method="post" action="{% url 'email_ui:fetch_emails' %}" class="d-inline">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <input type="hidden" name="mail_count" value="10"> <!-- Можно изменить на выбор пользователя -->
+            <button type="submit" class="btn btn-success me-2">
+                <i class="bi bi-envelope-paper"></i> Получить почту
+            </button>
+        </form>
+        <button class="btn btn-primary" disabled>Написать</button>
+    </div>
+</div>
+
+<!-- Фильтры -->
+<div class="card mb-3">
+    <div class="card-body">
+        {% include "email_ui/partials/filter_form.html" %}
+    </div>
+</div>
+
+<!-- Массовые действия -->
+<div id="bulk-action-bar" class="mb-2 d-none">
+    <form id="bulk-form" method="post"
+          hx-post="{% url 'email_ui:bulk_action' %}"
+          hx-target="#email-list-container"
+          hx-swap="outerHTML"
+          hx-push-url="false">
+        {% csrf_token %}
+        <input type="hidden" name="folder" value="{{ folder }}">
+        <div class="btn-group" role="group">
+            <button type="submit" name="action" value="move" class="btn btn-sm btn-outline-secondary" disabled>Переместить</button>
+            <button type="submit" name="action" value="mark_read" class="btn btn-sm btn-outline-secondary" disabled>Прочитано</button>
+            <button type="submit" name="action" value="mark_unread" class="btn btn-sm btn-outline-secondary" disabled>Не прочитано</button>
+            <button type="submit" name="action" value="mark_important" class="btn btn-sm btn-outline-secondary" disabled>Важное</button>
+            <button type="submit" name="action" value="mark_unimportant" class="btn btn-sm btn-outline-secondary" disabled>Не важное</button>
+            <button type="submit" name="action" value="delete" class="btn btn-sm btn-outline-danger" disabled>В корзину</button>
+        </div>
+    </form>
+</div>
+
+<!-- Список писем -->
+<div id="email-list-container">
+    {% include "email_ui/partials/email_list.html" %}
+</div>
+
+<!-- Данные для JavaScript (преобразование ID в названия) -->
+{{ filter_data|json_script:"filter-data" }}
+{% endblock %}

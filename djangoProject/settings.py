@@ -33,10 +33,11 @@ Database
 https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 """
 import os
+import sys
 from pathlib import Path
 from djangoProject.jasmin import JAZZMIN_SETTINGS
 from import_export.formats.base_formats import XLSX, JSON, HTML
-
+from loguru import logger
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Путь до папки с базами данных (на одном уровне с папкой проекта)
@@ -63,7 +64,7 @@ INSTALLED_APPS = [
     'django_admin_filters',
     'bootstrapsidebar',
     'django_tables2',
-    'django_translate_gettext',
+    #'django_translate_gettext',
     "django_bootstrap5",
     'import_export',
     'crispy_forms',
@@ -89,6 +90,7 @@ INSTALLED_APPS = [
     'ProjectContract',
     'PersonalData',
     'Emails',
+    'email_ui',
 ]
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 AUTOSAVE_PERIOD =120 #minutes
@@ -127,6 +129,22 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'djangoProject.wsgi.application'
 
+# Теперь можно использовать logger
+logger.remove()
+
+# Вывод в консоль только для ошибок и критических сообщений
+logger.add(sys.stderr, level="WARNING")
+
+LOG_DIR = os.path.join(BASE_DIR, 'logs')
+os.makedirs(LOG_DIR, exist_ok=True)
+
+logger.add(
+    os.path.join(LOG_DIR, 'email_ui.log'),
+    rotation="10 MB",
+    level="DEBUG",
+    encoding="utf-8",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}"
+)
 
 
 DATABASES = {
@@ -243,3 +261,4 @@ DJANGO_TABLES2_TABLE_ATTRS = {
 TINYMCE_DEFAULT_CONFIG = {
 
 }
+

@@ -1,0 +1,245 @@
+{% load email_filters %}
+
+<div class="filter-section" xmlns:hx-on="http://www.w3.org/1999/xhtml">
+    <!-- Верхняя строка: поиск + кнопка-триггер для панели фильтров -->
+    <div class="row g-2 align-items-center mb-2">
+        <div class="col-md-8">
+            <form method="get"
+                  id="filter-form"
+                  hx-get="{% url 'email_ui:email_list_partial' %}"
+                  hx-target="#email-list-container"
+                  hx-trigger="submit"
+                  hx-push-url="false">
+                <input type="hidden" name="folder" value="{{ folder }}">
+                <div class="input-group">
+                    {{ filter_form.search }}
+                    <button class="btn btn-outline-secondary" type="submit" id="button-search">
+                        <i class="bi bi-search"></i> Найти
+                    </button>
+                </div>
+            </form>
+        </div>
+        <div class="col-md-4 text-end">
+            <button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#filterCollapse" aria-expanded="false" aria-controls="filterCollapse">
+                <i class="bi bi-funnel"></i> Фильтры
+                {% with total_filters=selected_project_sites|length|add:selected_contractors|length|add:selected_building_types|length|add:selected_categories|length|add:selected_info|length %}
+                    {% if total_filters > 0 %}
+                        <span class="badge bg-secondary">{{ total_filters }}</span>
+                    {% endif %}
+                {% endwith %}
+            </button>
+            <a href="{% url 'email_ui:inbox' folder %}" class="btn btn-outline-secondary">
+                <i class="bi bi-x-circle"></i> Сброс
+            </a>
+        </div>
+    </div>
+
+    <!-- Блок выбранных фильтров (всегда виден) -->
+    <div id="selected-filters-summary" class="mb-2">
+        {% include "email_ui/partials/selected_filters_summary.html" %}
+    </div>
+
+    <!-- Скрываемая панель с дополнительными фильтрами -->
+    <div class="collapse" id="filterCollapse">
+        <div class="card card-body mt-2">
+            <form method="get"
+                  id="filter-form-advanced"
+                  hx-get="{% url 'email_ui:email_list_partial' %}"
+                  hx-target="#email-list-container"
+                  hx-trigger="submit"
+                  hx-push-url="false">
+                <input type="hidden" name="folder" value="{{ folder }}">
+                <!-- Контейнер для скрытых полей -->
+                <div id="filter-hidden-fields">
+                    {% for value in selected_project_sites %}
+                        <input type="hidden" name="project_site" value="{{ value }}">
+                    {% endfor %}
+                    {% for value in selected_contractors %}
+                        <input type="hidden" name="contractor" value="{{ value }}">
+                    {% endfor %}
+                    {% for value in selected_building_types %}
+                        <input type="hidden" name="building_type" value="{{ value }}">
+                    {% endfor %}
+                    {% for value in selected_categories %}
+                        <input type="hidden" name="category" value="{{ value }}">
+                    {% endfor %}
+                    {% for value in selected_info %}
+                        <input type="hidden" name="info" value="{{ value }}">
+                    {% endfor %}
+                </div>
+
+                <!-- Кнопки фильтров (в виде компактных кнопок) -->
+                <div class="row g-2 mb-3">
+                    <div class="col-md-2 col-sm-4">
+                        <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
+                                hx-get="{% url 'email_ui:filter_field_modal' 'project_site' %}?folder={{ folder }}&selected={{ selected_project_sites|join:',' }}"
+                                hx-target="#dynamicModalContent"
+                                hx-trigger="click"
+                                hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                            Проекты <span id="project_site_tags" class="badge bg-primary">{{ selected_project_sites|length }}</span>
+                        </button>
+                    </div>
+                    <div class="col-md-2 col-sm-4">
+                        <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
+                                hx-get="{% url 'email_ui:filter_field_modal' 'contractor' %}"
+                                hx-target="#dynamicModalContent"
+                                hx-trigger="click"
+                                hx-vals='js:{folder: "{{ folder }}", selected: getHiddenFieldValues("contractor").join(","), project_site: getHiddenFieldValues("project_site").join(",")}'
+                                hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                            Подрядчики <span id="contractor_tags" class="badge bg-primary">{{ selected_contractors|length }}</span>
+                        </button>
+                    </div>
+                    <div class="col-md-2 col-sm-4">
+                        <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
+                                hx-get="{% url 'email_ui:filter_field_modal' 'building_type' %}"
+                                hx-target="#dynamicModalContent"
+                                hx-trigger="click"
+                                hx-vals='js:{folder: "{{ folder }}", selected: getHiddenFieldValues("building_type").join(","), project_site: getHiddenFieldValues("project_site").join(",")}'
+                                hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                            Здания <span id="building_type_tags" class="badge bg-primary">{{ selected_building_types|length }}</span>
+                        </button>
+                    </div>
+                    <div class="col-md-2 col-sm-4">
+                        <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
+                                hx-get="{% url 'email_ui:filter_field_modal' 'category' %}?folder={{ folder }}&selected={{ selected_categories|join:',' }}"
+                                hx-target="#dynamicModalContent"
+                                hx-trigger="click"
+                                hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                            Категории <span id="category_tags" class="badge bg-primary">{{ selected_categories|length }}</span>
+                        </button>
+                    </div>
+                    <div class="col-md-2 col-sm-4">
+                        <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
+                                hx-get="{% url 'email_ui:filter_field_modal' 'info' %}?folder={{ folder }}&selected={{ selected_info|join:',' }}"
+                                hx-target="#dynamicModalContent"
+                                hx-trigger="click"
+                                hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                            Тип инфо <span id="info_tags" class="badge bg-primary">{{ selected_info|length }}</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Чекбоксы и даты -->
+                <div class="row g-2 align-items-center">
+                    <div class="col-auto">
+                        <div class="form-check">
+                            {{ filter_form.has_attachments }}
+                            <label class="form-check-label" for="{{ filter_form.has_attachments.id_for_label }}">
+                                {{ filter_form.has_attachments.label }}
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <div class="form-check">
+                            {{ filter_form.is_important }}
+                            <label class="form-check-label" for="{{ filter_form.is_important.id_for_label }}">
+                                {{ filter_form.is_important.label }}
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <div class="form-check">
+                            {{ filter_form.is_unread }}
+                            <label class="form-check-label" for="{{ filter_form.is_unread.id_for_label }}">
+                                {{ filter_form.is_unread.label }}
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label" for="{{ filter_form.date_from.id_for_label }}">Дата с:</label>
+                        {{ filter_form.date_from }}
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label" for="{{ filter_form.date_to.id_for_label }}">по:</label>
+                        {{ filter_form.date_to }}
+                    </div>
+                    <div class="col-auto ms-auto">
+                        <button type="submit" class="btn btn-primary btn-sm">Применить фильтры</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для выбора элементов фильтра -->
+<div class="modal fade" id="dynamicModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content" id="dynamicModalContent">
+            <!-- Загружается через HTMX -->
+        </div>
+    </div>
+</div>
+
+<script>
+    function getHiddenFieldValues(fieldName) {
+        const inputs = document.querySelectorAll(`#filter-hidden-fields input[name="${fieldName}"]`);
+        return Array.from(inputs).map(input => input.value);
+    }
+
+    function applyFilter(fieldName) {
+        const modalContent = document.getElementById('dynamicModalContent');
+        const checkboxes = modalContent.querySelectorAll('input[type="checkbox"]:checked');
+        const values = Array.from(checkboxes).map(cb => cb.value);
+
+        updateHiddenFields(fieldName, values);
+        updateTags(fieldName, values);
+        updateSummary();
+
+        bootstrap.Modal.getInstance(document.getElementById('dynamicModal')).hide();
+    }
+
+    function updateHiddenFields(fieldName, values) {
+        const container = document.getElementById('filter-hidden-fields');
+        document.querySelectorAll(`#filter-hidden-fields input[name="${fieldName}"]`).forEach(el => el.remove());
+        values.forEach(val => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = fieldName;
+            input.value = val;
+            container.appendChild(input);
+        });
+    }
+
+    function updateTags(fieldName, values) {
+        const tagSpan = document.getElementById(fieldName + '_tags');
+        if (tagSpan) {
+            tagSpan.textContent = values.length;
+        }
+    }
+
+    function updateSummary() {
+        // Обновление блока selected-filters-summary через подгрузку HTML или пересчёт
+        const filterData = JSON.parse(document.getElementById('filter-data').textContent);
+        const container = document.getElementById('selected-filters-summary');
+        let html = '';
+
+        const fields = ['project_site', 'contractor', 'building_type', 'category', 'info'];
+        const labels = {
+            'project_site': 'Проекты',
+            'contractor': 'Подрядчики',
+            'building_type': 'Здания',
+            'category': 'Категории',
+            'info': 'Тип информации'
+        };
+
+        fields.forEach(field => {
+            const hiddenInputs = document.querySelectorAll(`#filter-hidden-fields input[name="${field}"]`);
+            const values = Array.from(hiddenInputs).map(input => input.value);
+            if (values.length) {
+                const names = values.map(v => filterData[field]?.[v]).filter(name => name);
+                if (names.length) {
+                    html += `<span class="badge bg-secondary me-1">${labels[field]}: ${names.join(', ')}</span>`;
+                }
+            }
+        });
+
+        if (html === '') {
+            html = '<span class="text-muted">Фильтры не выбраны</span>';
+        }
+        container.innerHTML = html;
+    }
+
+    // Инициализация при загрузке
+    document.addEventListener('DOMContentLoaded', updateSummary);
+</script>

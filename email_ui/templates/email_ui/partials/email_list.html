@@ -1,0 +1,128 @@
+<form id="email-list-form" style="display: none;"></form> <!-- Для массовых действий -->
+
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th><input type="checkbox" id="select-all"></th>
+                <th>
+                    <a href="#"
+                       hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'sender' and current_order == 'asc' %}sort=sender&order=desc{% else %}sort=sender&order=asc{% endif %}&{{ request.GET.urlencode }}"
+                       hx-target="#email-list-container"
+                       hx-push-url="false">
+                        Отправитель
+                        {% if current_sort == 'sender' %}
+                            {% if current_order == 'asc' %}↑{% else %}↓{% endif %}
+                        {% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="#"
+                       hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'subject' and current_order == 'asc' %}sort=subject&order=desc{% else %}sort=subject&order=asc{% endif %}&{{ request.GET.urlencode }}"
+                       hx-target="#email-list-container"
+                       hx-push-url="false">
+                        Тема
+                        {% if current_sort == 'subject' %}
+                            {% if current_order == 'asc' %}↑{% else %}↓{% endif %}
+                        {% endif %}
+                    </a>
+                </th>
+                <th>
+                    <a href="#"
+                       hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'email_stamp' and current_order == 'asc' %}sort=email_stamp&order=desc{% else %}sort=email_stamp&order=asc{% endif %}&{{ request.GET.urlencode }}"
+                       hx-target="#email-list-container"
+                       hx-push-url="false">
+                        Дата
+                        {% if current_sort == 'email_stamp' %}
+                            {% if current_order == 'asc' %}↑{% else %}↓{% endif %}
+                        {% endif %}
+                    </a>
+                </th>
+                <th>Вложения</th>
+            </tr>
+        </thead>
+        <tbody id="email-table-body">
+            {% for email in page_obj %}
+            <tr class="{% if not email.is_read %}unread{% endif %}">
+                <td>
+                    <input type="checkbox" name="selected_emails" value="{{ email.pk }}" form="bulk-form">
+                </td>
+                <td>{{ email.sender|default:"Неизвестно" }}</td>
+                <td>
+                    <a href="#"
+                       data-bs-toggle="modal"
+                       data-bs-target="#emailModal"
+                       hx-get="{% url 'email_ui:email_detail_modal' email.pk %}"
+                       hx-target="#emailModal .modal-content"
+                       hx-trigger="click">
+                        {{ email.subject|truncatechars:50 }}
+                    </a>
+                </td>
+                <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td>
+                <td>{% if email.attachments.all %}<span class="badge bg-secondary">📎</span>{% endif %}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="5" class="text-center">Нет писем</td>
+            </tr>
+            {% endfor %}
+
+            {% if page_obj.has_next %}
+            <tr id="load-marker"
+                hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&{{ request.GET.urlencode }}&_infinite=1"
+                hx-trigger="revealed"
+                hx-target="#load-marker"
+                hx-swap="outerHTML">
+                <td colspan="5" class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+    function toggleBulkActionBar() {
+        const anyChecked = document.querySelectorAll('input[name="selected_emails"]:checked').length > 0;
+        const bulkBar = document.getElementById('bulk-action-bar');
+        if (bulkBar) {
+            if (anyChecked) {
+                bulkBar.classList.remove('d-none');
+            } else {
+                bulkBar.classList.add('d-none');
+            }
+        }
+        const buttons = document.querySelectorAll('#bulk-action-bar .btn');
+        buttons.forEach(btn => btn.disabled = !anyChecked);
+    }
+
+    // Обработчик выделения всех чекбоксов
+    document.addEventListener('click', function(e) {
+        if (e.target.id === 'select-all') {
+            const checkboxes = document.querySelectorAll('input[name="selected_emails"]');
+            checkboxes.forEach(cb => cb.checked = e.target.checked);
+            toggleBulkActionBar();
+        }
+    });
+
+    // Обработчик изменения любого чекбокса
+    document.addEventListener('change', function(e) {
+        if (e.target.name === 'selected_emails') {
+            toggleBulkActionBar();
+        }
+    });
+
+    // При загрузке страницы проверяем состояние (если уже есть выбранные)
+    document.addEventListener('DOMContentLoaded', toggleBulkActionBar);
+
+    // После любой подгрузки контента через HTMX (новая страница, фильтрация) обновляем состояние
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        // Если обновляется список писем (или индикатор загрузки) – пересчитываем видимость
+        if (evt.detail.target.id === 'email-list-container' || evt.detail.target.id === 'load-marker' || evt.detail.target.id === 'email-table-body') {
+            toggleBulkActionBar();
+        }
+    });
+</script>

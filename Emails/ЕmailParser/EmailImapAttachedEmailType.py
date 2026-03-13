@@ -3,7 +3,7 @@ import os
 from imap_tools import MailMessage
 
 from Emails.ЕmailParser.BaseAttachedClass import BaseAttachedClass
-from Emails.ЕmailParser.EmailFunctions import clean
+from Emails.ЕmailParser.sanitize import clean
 
 
 class EmailImapAttachedEmailType(BaseAttachedClass):

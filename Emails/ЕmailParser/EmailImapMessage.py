@@ -2,7 +2,7 @@ import os
 
 from imap_tools import MailBox
 
-from Emails.ЕmailParser.EmailFunctions import clean
+from Emails.ЕmailParser.sanitize import clean
 
 
 class EmailBody:
@@ -32,4 +32,3 @@ class EmailImapMessage:
 				att_list.append(att.filename)
 			body = EmailBody(self.msg, f" Вложения:{','.join(att_list)}")
 			f.write(body.created_body)
-

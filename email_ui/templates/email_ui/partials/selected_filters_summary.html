@@ -1,0 +1,38 @@
+{% load email_filters %}
+<div class="selected-filters">
+    {% if selected_project_sites %}
+        <span class="badge bg-secondary me-1">Проекты:
+            {% for site_id in selected_project_sites %}
+                {{ filter_data.project_site|get_item:site_id }}{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+        </span>
+    {% endif %}
+    {% if selected_contractors %}
+        <span class="badge bg-secondary me-1">Подрядчики:
+            {% for contr_id in selected_contractors %}
+                {{ filter_data.contractor|get_item:contr_id }}{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+        </span>
+    {% endif %}
+    {% if selected_building_types %}
+        <span class="badge bg-secondary me-1">Здания:
+            {% for bt_id in selected_building_types %}
+                {{ filter_data.building_type|get_item:bt_id }}{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+        </span>
+    {% endif %}
+    {% if selected_categories %}
+        <span class="badge bg-secondary me-1">Категории:
+            {% for cat_id in selected_categories %}
+                {{ filter_data.category|get_item:cat_id }}{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+        </span>
+    {% endif %}
+    {% if selected_info %}
+        <span class="badge bg-secondary me-1">Тип информации:
+            {% for info_id in selected_info %}
+                {{ filter_data.info|get_item:info_id }}{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+        </span>
+    {% endif %}
+</div>

@@ -1,10 +1,14 @@
 
 from django.contrib import admin
-from django.urls import path, include
+from django.contrib.auth.decorators import login_required
+from django.urls import path, include, re_path
 from django.views.generic import TemplateView
 from django.contrib.auth import views as auth_views
 from django.contrib.admin import site
 import adminactions.actions as actions
+from django.views.static import serve
+
+from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
 
 # register all adminactions
 actions.add_to_site(site)
@@ -23,7 +27,9 @@ urlpatterns = [
     path('demo', TemplateView.as_view(template_name="bootstrap_base.html"), name='demo'),
     path('popovers', TemplateView.as_view(template_name="bootstrap_popovers.html"), name="popovers"),
     path('login', auth_views.LoginView.as_view(), name="login"),
-
-
+    path('email-ui/', include('email_ui.urls')),
+    re_path(r'^email-files/(?P<path>.*)$', login_required(serve), {
+        'document_root': E_MAIL_DIRECTORY
+    }),
 ]
 

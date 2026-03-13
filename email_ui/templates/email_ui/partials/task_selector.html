@@ -1,0 +1,25 @@
+<div class="modal-header">
+    <h5 class="modal-title">Прикрепить к задачам</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+    <form method="get" hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}" hx-target="#task-modal-container" hx-trigger="submit">
+        {{ search_form.q }}
+        <button type="submit" class="btn btn-sm btn-primary mt-2">Найти</button>
+    </form>
+    <form hx-post="{% url 'email_ui:attach_tasks' email.pk %}" hx-target="body" hx-swap="none">
+        <div class="list-group mt-3">
+            {% for task in tasks %}
+            <label class="list-group-item">
+                <input type="checkbox" name="tasks" value="{{ task.pk }}"> {{ task.name }}
+            </label>
+            {% empty %}
+            <p>Нет задач</p>
+            {% endfor %}
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            <button type="submit" class="btn btn-primary">Прикрепить</button>
+        </div>
+    </form>
+</div>

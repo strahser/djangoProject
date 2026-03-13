@@ -1,0 +1,65 @@
+<div class="modal-header">
+    <h5 class="modal-title">{{ email.subject }}</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+    <p><strong>От:</strong> {{ email.sender }}</p>
+    <p><strong>Кому:</strong> {{ email.receiver }}</p>
+    <p><strong>Дата:</strong> {{ email.email_stamp }}</p>
+
+    <!-- Метаданные (редактируемые) -->
+    <div id="metadata-block-{{ email.pk }}">
+        {% include "email_ui/partials/metadata_display.html" %}
+    </div>
+
+    <!-- Привязка к задачам -->
+    <div class="mt-2">
+        <strong>Задачи:</strong>
+        {% for task in email.tasks.all %}
+            <span class="badge bg-info">
+                {{ task.name }}
+                <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white">✖</a>
+            </span>
+        {% empty %}
+            <span>нет</span>
+        {% endfor %}
+        <button class="btn btn-sm btn-link"
+                hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}"
+                hx-target="#task-modal-container"
+                hx-trigger="click"
+                data-bs-toggle="modal"
+                data-bs-target="#taskModal">Прикрепить</button>
+    </div>
+
+    <!-- Вложения -->
+    <div id="attachments-{{ email.pk }}" class="mt-3">
+        {% include "email_ui/partials/attachments_list.html" %}
+    </div>
+
+    <!-- Тело письма -->
+    <div class="mt-3 border p-2"
+         hx-get="{% url 'email_ui:email_body' email.pk %}"
+         hx-trigger="load"
+         hx-target="this">
+        Загрузка...
+    </div>
+</div>
+<div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+</div>
+
+<script>
+    (function() {
+        const modalElement = document.getElementById('emailModal');
+        if (modalElement) {
+            modalElement.addEventListener('hidden.bs.modal', function () {
+                // Отправляем POST-запрос для отметки прочитанным
+                htmx.ajax('POST', '{% url "email_ui:mark_email_as_read" email.pk %}', {
+                    target: '#emailModal',
+                    swap: 'none',
+                    headers: {'X-CSRFToken': '{{ csrf_token }}'}
+                });
+            });
+        }
+    })();
+</script>
