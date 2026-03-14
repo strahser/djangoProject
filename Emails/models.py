@@ -120,7 +120,6 @@ class Email(models.Model):
         ordering = ['-email_stamp']
 
 
-
 class Attachment(models.Model):
     email = models.ForeignKey(
         Email,
@@ -158,6 +157,31 @@ class Attachment(models.Model):
         encoded = quote(path, safe=':/')
         return f'file://{encoded}'
 
+    @property
+    def file_extension(self):
+        """Возвращает расширение файла без точки (например, 'pdf', 'docx')."""
+        return os.path.splitext(self.filename)[1].lower().lstrip('.') or 'unknown'
+
+    @property
+    def icon_class(self):
+        """Возвращает класс иконки Bootstrap Icons для типа файла."""
+        ext = self.file_extension
+        if ext in ['pdf']:
+            return 'bi-file-pdf-fill'
+        elif ext in ['doc', 'docx']:
+            return 'bi-file-word-fill'
+        elif ext in ['xls', 'xlsx']:
+            return 'bi-file-excel-fill'
+        elif ext in ['ppt', 'pptx']:
+            return 'bi-file-ppt-fill'
+        elif ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']:
+            return 'bi-file-image-fill'
+        elif ext in ['zip', 'rar', '7z', 'tar', 'gz', 'bz2']:
+            return 'bi-file-zip-fill'
+        elif ext in ['dwg']:
+            return 'bi-file-earmark-fill'  # можно заменить на кастомную иконку
+        else:
+            return 'bi-file-earmark-fill'
     def __str__(self):
         return self.filename
 

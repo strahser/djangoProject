@@ -1,10 +1,13 @@
+import subprocess
+from sys import platform
+
 from django.contrib.admin.utils import flatten
 from django.urls import reverse
-from loguru import logger   # <-- замена стандартному logging
+from loguru import logger  # <-- замена стандартному logging
 import os
 import mimetypes
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import HttpResponse, HttpResponseBadRequest, FileResponse, Http404
+from django.http import HttpResponse, HttpResponseBadRequest, FileResponse, Http404, JsonResponse
 from django.db.models import Q
 from django.core.paginator import Paginator
 from django.contrib.auth.decorators import login_required
@@ -19,12 +22,14 @@ from ProjectTDL.models import Task
 from StaticData.models import ProjectSite, BuildingType, Category
 from .forms import EmailFilterForm, EmailMetadataForm, TaskSearchForm
 from .utils import clean_email_html
-
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import get_object_or_404
+from Emails.models import Email
 PER_PAGE = 50
 # Разрешённые поля для сортировки
 
 ALLOWED_SORT_FIELDS = ['sender', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
-
 
 
 def apply_sorting(queryset, request):
@@ -70,7 +75,6 @@ def filter_emails(queryset, cleaned_data):
             Q(name__icontains=query)
         )
     return queryset
-
 
 
 @login_required
@@ -120,6 +124,7 @@ def inbox_view(request, folder='inbox'):
     }
     return render(request, 'email_ui/inbox.html', context)
 
+
 @login_required
 @require_http_methods(['GET'])
 def email_list_partial(request):
@@ -155,6 +160,7 @@ def email_list_partial(request):
     }
     return render(request, 'email_ui/partials/email_list.html', context)
 
+
 @login_required
 def filter_form_partial(request):
     """Частичное обновление формы фильтрации (для каскадных фильтров)."""
@@ -186,6 +192,8 @@ def email_detail_modal(request, pk):
         'metadata_form': EmailMetadataForm(instance=email),
     }
     return render(request, 'email_ui/partials/email_detail_modal_content.html', context)
+
+
 @login_required
 @require_http_methods(['POST'])
 def mark_email_as_read(request, pk):
@@ -195,6 +203,7 @@ def mark_email_as_read(request, pk):
         email.is_read = True
         email.save(update_fields=['is_read'])
     return HttpResponse(status=204)  # No content, успешно
+
 
 @login_required
 def email_body(request, pk):
@@ -416,6 +425,7 @@ def unread_count(request):
     count = Email.objects.filter(folder='inbox', is_read=False).count()
     return HttpResponse(str(count))
 
+
 def _get_list_from_request(request, param_name):
     """
     Возвращает список значений параметра, поддерживая как множественные параметры,
@@ -470,3 +480,29 @@ def fetch_emails(request):
     # Редирект обратно на исходную страницу (список писем)
     next_url = request.POST.get('next', reverse('email_ui:inbox_default'))
     return redirect(next_url)
+
+
+@login_required
+def attachments_modal(request, pk):
+    """Возвращает содержимое модального окна со всеми вложениями письма."""
+    email = get_object_or_404(Email, pk=pk)
+    return render(request, 'email_ui/partials/attachments_modal.html', {'email': email})
+
+
+@login_required
+def open_attachment_folder(request, pk):
+    """Открывает папку с вложениями письма в проводнике."""
+    email = get_object_or_404(Email, pk=pk)
+    folder_path = email.link
+    if not folder_path or not os.path.exists(folder_path):
+        return JsonResponse({'success': False, 'error': 'Папка не найдена'})
+    try:
+        if platform.system() == 'Windows':
+            os.startfile(folder_path)
+        elif platform.system() == 'Darwin':  # macOS
+            subprocess.Popen(['open', folder_path])
+        else:  # Linux
+            subprocess.Popen(['xdg-open', folder_path])
+        return JsonResponse({'success': True})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})

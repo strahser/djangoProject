@@ -1,4 +1,4 @@
-<form id="email-list-form" style="display: none;"></form> <!-- Для массовых действий -->
+<form id="email-list-form" style="display: none;"></form>
 
 <div class="table-responsive">
     <table class="table table-hover">
@@ -59,7 +59,22 @@
                     </a>
                 </td>
                 <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td>
-                <td>{% if email.attachments.all %}<span class="badge bg-secondary">📎</span>{% endif %}</td>
+                <td class="attachments-cell">
+                    {% with count=email.attachments.count %}
+                        {% if count > 0 %}
+                            <span class="attachment-icon"
+                                  hx-post="{% url 'email_ui:open_attachment_folder' email.pk %}"
+                                  hx-trigger="click"
+                                  hx-swap="none"
+                                  title="Открыть папку с вложениями ({{ count }} файлов)">
+                                <i class="bi bi-paperclip"></i>
+                                <span class="badge">{{ count }}</span>
+                            </span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    {% endwith %}
+                </td>
             </tr>
             {% empty %}
             <tr>
@@ -99,7 +114,6 @@
         buttons.forEach(btn => btn.disabled = !anyChecked);
     }
 
-    // Обработчик выделения всех чекбоксов
     document.addEventListener('click', function(e) {
         if (e.target.id === 'select-all') {
             const checkboxes = document.querySelectorAll('input[name="selected_emails"]');
@@ -108,21 +122,24 @@
         }
     });
 
-    // Обработчик изменения любого чекбокса
     document.addEventListener('change', function(e) {
         if (e.target.name === 'selected_emails') {
             toggleBulkActionBar();
         }
     });
 
-    // При загрузке страницы проверяем состояние (если уже есть выбранные)
     document.addEventListener('DOMContentLoaded', toggleBulkActionBar);
 
-    // После любой подгрузки контента через HTMX (новая страница, фильтрация) обновляем состояние
     document.body.addEventListener('htmx:afterSwap', function(evt) {
-        // Если обновляется список писем (или индикатор загрузки) – пересчитываем видимость
         if (evt.detail.target.id === 'email-list-container' || evt.detail.target.id === 'load-marker' || evt.detail.target.id === 'email-table-body') {
             toggleBulkActionBar();
+        }
+    });
+
+    // Предотвращаем всплытие клика по иконке вложений, чтобы не открывалось письмо
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.attachment-icon')) {
+            e.stopPropagation();
         }
     });
 </script>

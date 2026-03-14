@@ -76,6 +76,7 @@ class EmailFilterForm(forms.Form):
                     email__project_site__in=selected_projects
                 ).distinct()
 
+
 class EmailMetadataForm(forms.ModelForm):
     class Meta:
         model = Email

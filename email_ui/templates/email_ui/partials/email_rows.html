@@ -15,12 +15,26 @@
         </a>
     </td>
     <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td>
-    <td>{% if email.attachments.all %}<span class="badge bg-secondary">📎</span>{% endif %}</td>
+    <td class="attachments-cell">
+        {% with count=email.attachments.count %}
+            {% if count > 0 %}
+                <span class="attachment-icon"
+                      hx-post="{% url 'email_ui:open_attachment_folder' email.pk %}"
+                      hx-trigger="click"
+                      hx-swap="none"
+                      title="Открыть папку с вложениями ({{ count }} файлов)">
+                    <i class="bi bi-paperclip"></i>
+                    <span class="badge">{{ count }}</span>
+                </span>
+            {% else %}
+                <span class="text-muted">—</span>
+            {% endif %}
+        {% endwith %}
+    </td>
 </tr>
 {% endfor %}
 
 {% if page_obj.has_next %}
-<!-- Новый индикатор для следующей страницы -->
 <tr id="load-marker"
     hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&{{ request.GET.urlencode }}&_infinite=1"
     hx-trigger="revealed"

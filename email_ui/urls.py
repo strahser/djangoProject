@@ -24,4 +24,6 @@ urlpatterns = [
     # Новый маршрут для получения почты
     path('fetch-emails/', views.fetch_emails, name='fetch_emails'),
     path('email/<int:pk>/mark-read/', views.mark_email_as_read, name='mark_email_as_read'),
+    path('email/<int:pk>/attachments-modal/', views.attachments_modal, name='attachments_modal'),
+    path('email/<int:pk>/open-folder/', views.open_attachment_folder, name='open_attachment_folder'),
 ]

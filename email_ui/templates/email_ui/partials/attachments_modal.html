@@ -1,0 +1,39 @@
+<div class="modal-header">
+    <h5 class="modal-title">Вложения письма</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+    <ul class="list-group">
+        {% for att in email.attachments.all %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center">
+                <span class="attachment-extension me-2 {{ att.file_extension }}">
+                    {{ att.file_extension|upper }}
+                </span>
+                <div>
+                    <div><strong>{{ att.filename }}</strong></div>
+                    <small class="text-muted">{{ att.size|filesizeformat }}</small>
+                </div>
+            </div>
+            <div>
+                <button class="btn btn-sm btn-outline-secondary copy-path-btn me-1"
+                        data-path="{{ att.file_path }}"
+                        title="Копировать путь">
+                    <i class="bi bi-clipboard"></i>
+                </button>
+                <a href="{% url 'email_ui:download_attachment' att.pk %}"
+                   class="btn btn-sm btn-outline-primary"
+                   title="Скачать"
+                   download>
+                    <i class="bi bi-download"></i>
+                </a>
+            </div>
+        </li>
+        {% empty %}
+        <li class="list-group-item">Нет вложений</li>
+        {% endfor %}
+    </ul>
+</div>
+<div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+</div>
