@@ -77,6 +77,30 @@
     </div>
 </div>
 <div class="modal-footer">
+    <button type="button" class="btn btn-outline-primary"
+            hx-get="{% url 'email_ui:reply_modal' email.pk 'reply' %}"
+            hx-target="#composeModal .modal-content"
+            hx-trigger="click"
+            data-bs-toggle="modal"
+            data-bs-target="#composeModal">
+        <i class="bi bi-reply"></i> Ответить
+    </button>
+    <button type="button" class="btn btn-outline-primary"
+            hx-get="{% url 'email_ui:reply_modal' email.pk 'reply_all' %}"
+            hx-target="#composeModal .modal-content"
+            hx-trigger="click"
+            data-bs-toggle="modal"
+            data-bs-target="#composeModal">
+        <i class="bi bi-reply-all"></i> Ответить всем
+    </button>
+    <button type="button" class="btn btn-outline-primary"
+            hx-get="{% url 'email_ui:reply_modal' email.pk 'forward' %}"
+            hx-target="#composeModal .modal-content"
+            hx-trigger="click"
+            data-bs-toggle="modal"
+            data-bs-target="#composeModal">
+        <i class="bi bi-forward"></i> Переслать
+    </button>
     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
 </div>
 

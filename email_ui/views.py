@@ -378,6 +378,26 @@ def bulk_action(request):
         return HttpResponseBadRequest('Неизвестное действие')
 
     folder = request.GET.get('folder', 'inbox')
+    # При HTMX-запросе возвращаем частичное обновление, а не редирект
+    # (иначе весь HTML страницы вставится внутрь #email-list-container)
+    if request.headers.get('HX-Request'):
+        emails = Email.objects.filter(folder=folder).select_related(
+            'project_site', 'contractor'
+        ).prefetch_related('attachments')
+        # Применяем те же фильтры, что были
+        filter_form = EmailFilterForm(request.GET)
+        if filter_form.is_valid():
+            emails = filter_emails(emails, filter_form.cleaned_data)
+        emails, current_sort, current_order = apply_sorting(emails, request)
+        paginator = Paginator(emails, PER_PAGE)
+        page_obj = paginator.get_page(1)
+        context = {
+            'folder': folder,
+            'page_obj': page_obj,
+            'current_sort': current_sort,
+            'current_order': current_order,
+        }
+        return render(request, 'email_ui/partials/email_list.html', context)
     return redirect(reverse('email_ui:inbox', args=[folder]))
 
 
@@ -572,13 +592,34 @@ def reply_modal(request, pk, reply_type='reply'):
         'forward': f'Fwd: {email.subject}',
     }
 
+    # Подгружаем тело исходного письма для цитирования
+    body_text = ''
+    html_path = email.get_html_file_path()
+    if html_path and os.path.exists(html_path):
+        try:
+            with open(html_path, 'r', encoding='utf-8') as f:
+                body_text = f.read()
+        except Exception:
+            pass
+
+    to_addr = ''
+    cc_addr = ''
+    if reply_type == 'reply':
+        to_addr = email.sender or ''
+    elif reply_type == 'reply_all':
+        to_addr = email.sender or ''
+        cc_addr = email.cc or ''
+    elif reply_type == 'forward':
+        to_addr = ''
+
     context = {
         'form': form,
         'email': email,
         'mode': reply_type,
         'subject': subject_map.get(reply_type, email.subject),
-        'to': email.sender if reply_type in ('reply', 'reply_all') else '',
-        'cc': email.sender if reply_type == 'reply_all' else '',
+        'to': to_addr,
+        'cc': cc_addr,
+        'body': body_text,
     }
     return render(request, 'email_ui/partials/compose_modal.html', context)
 
@@ -661,14 +702,19 @@ def send_email(request):
 @login_required
 @require_http_methods(['POST'])
 def reply_send(request, pk):
-    """Отправка ответа на письмо."""
+    """Отправка ответа/пересылки на письмо."""
     email = get_object_or_404(Email, pk=pk)
+    mode = request.POST.get('mode', 'reply')
     form = ComposeReplyForm(request.POST)
     if not form.is_valid():
-        return HttpResponseBadRequest('Форма невалидна')
+        return render(request, 'email_ui/partials/compose_modal.html', {
+            'form': form, 'email': email, 'mode': mode, 'error': 'Форма невалидна',
+        }, status=400)
 
     cd = form.cleaned_data
-    body = cd['body']
+    body = cd.get('body', '')
+
+    # Добавляем исходное письмо, если нужно
     if cd.get('include_original'):
         original_body = ''
         html_path = email.get_html_file_path()
@@ -677,41 +723,57 @@ def reply_send(request, pk):
                 original_body = f'<hr><blockquote>{f.read()}</blockquote>'
         body = body + original_body
 
-    to_list = [email.sender] if email.sender else []
-    cc_list = []
-    if cd.get('reply_all') and email.cc:
-        cc_list = [addr.strip() for addr in email.cc.split(',') if addr.strip()]
+    # Формируем получателей
+    to_raw = cd.get('to', '')
+    if not to_raw and mode in ('reply', 'reply_all'):
+        to_raw = email.sender or ''
+    to_list = [addr.strip() for addr in to_raw.split(',') if addr.strip()]
+
+    cc_raw = cd.get('cc', '')
+    if not cc_raw and mode == 'reply_all' and email.cc:
+        cc_raw = email.cc
+    cc_list = [addr.strip() for addr in cc_raw.split(',') if addr.strip()]
+
+    subject = cd.get('subject', '')
+    if not subject:
+        if mode == 'forward':
+            subject = f'Fwd: {email.subject}' if email.subject else 'Fwd:'
+        else:
+            subject = f'Re: {email.subject}' if email.subject else 'Re:'
 
     try:
         sender = EmailSenderService()
         sender.send_via_smtp(
             to_emails=to_list,
-            subject=f'Re: {email.subject}' if email.subject else 'Re:',
+            subject=subject,
             body_html=body,
             cc=cc_list if cc_list else None,
-            in_reply_to=email.message_id,
-            references=email.references or email.message_id,
+            in_reply_to=email.message_id if mode != 'forward' else None,
+            references=email.references or email.message_id if mode != 'forward' else None,
         )
 
-        # Create reply record
+        # Create reply/forward record
         Email.objects.create(
             email_type='OUT',
-            subject=f'Re: {email.subject}' if email.subject else 'Re:',
+            subject=subject,
             sender=sender.smtp_account.from_email if sender.smtp_account else '',
             receiver=', '.join(to_list),
+            cc=', '.join(cc_list) if cc_list else None,
             folder='sent',
             sent_status='sent',
             sent_at=timezone.now(),
             is_read=True,
-            in_reply_to=email.message_id,
-            thread_id=email.thread_id,
+            in_reply_to=email.message_id if mode != 'forward' else None,
+            thread_id=email.thread_id if mode != 'forward' else None,
         )
 
-        messages.success(request, 'Ответ отправлен')
+        messages.success(request, 'Письмо отправлено')
         return HttpResponse(status=204)
     except Exception as e:
         logger.exception(f'Ошибка отправки ответа: {e}')
-        return HttpResponseBadRequest(str(e))
+        return render(request, 'email_ui/partials/compose_modal.html', {
+            'form': form, 'email': email, 'mode': mode, 'error': str(e),
+        }, status=400)
 
 
 @login_required

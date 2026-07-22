@@ -166,22 +166,20 @@ class ComposeEmailForm(forms.Form):
     )
 
 
-class ComposeReplyForm(forms.Form):
-    body = forms.CharField(
-        label='Текст ответа',
-        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 15}),
-    )
-    reply_all = forms.BooleanField(
-        required=False,
-        label='Ответить всем',
-        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-    )
+class ComposeReplyForm(ComposeEmailForm):
     include_original = forms.BooleanField(
         required=False,
         initial=True,
         label='Включить исходное письмо',
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields.pop('template', None)
+        self.fields.pop('smtp_account', None)
+        self.fields.pop('use_outlook', None)
+        self.fields.pop('bcc', None)
 
 
 class ContactForm(forms.ModelForm):

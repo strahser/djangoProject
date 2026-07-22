@@ -20,7 +20,14 @@
                 <i class="bi bi-envelope-paper"></i> Получить почту
             </button>
         </form>
-        <button class="btn btn-primary" disabled>Написать</button>
+        <button class="btn btn-primary"
+                hx-get="{% url 'email_ui:compose_modal' %}"
+                hx-target="#composeModal .modal-content"
+                hx-trigger="click"
+                data-bs-toggle="modal"
+                data-bs-target="#composeModal">
+            <i class="bi bi-pencil-square"></i> Написать
+        </button>
     </div>
 </div>
 
@@ -36,7 +43,7 @@
     <form id="bulk-form" method="post"
           hx-post="{% url 'email_ui:bulk_action' %}"
           hx-target="#email-list-container"
-          hx-swap="outerHTML"
+          hx-swap="innerHTML"
           hx-push-url="false">
         {% csrf_token %}
         <input type="hidden" name="folder" value="{{ folder }}">
@@ -63,6 +70,8 @@
         </div>
     </div>
 </div>
+
+
 <!-- Список писем -->
 <div id="email-list-container">
     {% include "email_ui/partials/email_list.html" %}

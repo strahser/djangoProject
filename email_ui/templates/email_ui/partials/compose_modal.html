@@ -10,7 +10,7 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
-              hx-target="#modal-container" hx-swap="innerHTML"
+              hx-target="#composeModal .modal-content" hx-swap="innerHTML"
               enctype="multipart/form-data" id="compose-form">
             {% csrf_token %}
             <div class="modal-body">
@@ -18,10 +18,12 @@
                 <div class="alert alert-danger">{{ error }}</div>
                 {% endif %}
 
+                {% if mode == 'compose' %}
                 <div class="mb-2">
                     <label class="form-label small">Кому</label>
                     <input type="text" name="to" class="form-control" value="{{ to|default:'' }}"
-                           placeholder="email1@example.com, email2@example.com">
+                           placeholder="email1@example.com, email2@example.com"
+                           data-role="tagsinput">
                 </div>
                 <div class="row mb-2">
                     <div class="col">
@@ -33,13 +35,26 @@
                         <input type="text" name="bcc" class="form-control">
                     </div>
                 </div>
+                {% else %}
+                <div class="mb-2">
+                    <label class="form-label small">Кому</label>
+                    <input type="text" name="to" class="form-control" value="{{ to|default:'' }}" readonly>
+                </div>
+                {% if cc %}
+                <div class="mb-2">
+                    <label class="form-label small">Копия</label>
+                    <input type="text" name="cc" class="form-control" value="{{ cc|default:'' }}">
+                </div>
+                {% endif %}
+                {% endif %}
                 <div class="mb-2">
                     <label class="form-label small">Тема</label>
                     <input type="text" name="subject" class="form-control" value="{{ subject|default:'' }}">
                 </div>
                 <div class="mb-2">
-                    <textarea name="body" class="form-control" rows="12" id="compose-editor">{{ email|default:'' }}</textarea>
+                    <textarea name="body" class="form-control" rows="12" id="compose-editor">{{ body|default:'' }}</textarea>
                 </div>
+                {% if mode == 'compose' %}
                 <div class="row mb-2">
                     <div class="col">
                         <label class="form-label small">Шаблон</label>
@@ -68,12 +83,24 @@
                     <input type="checkbox" name="use_outlook" class="form-check-input" id="use-outlook">
                     <label class="form-check-label small" for="use-outlook">Отправить через Outlook</label>
                 </div>
+                {% else %}
+                <div class="form-check mb-2">
+                    <input type="checkbox" name="include_original" class="form-check-input" id="include-original" checked>
+                    <label class="form-check-label small" for="include-original">Включить исходное письмо</label>
+                </div>
+                {% if mode == 'reply_all' %}
+                <input type="hidden" name="reply_all" value="1">
+                {% endif %}
+                <input type="hidden" name="mode" value="{{ mode }}">
+                {% endif %}
             </div>
             <div class="modal-footer">
                 <button type="submit" class="btn btn-primary">
                     <i class="bi bi-send"></i> Отправить
                 </button>
+                {% if mode == 'compose' %}
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                {% endif %}
             </div>
         </form>
     </div>
