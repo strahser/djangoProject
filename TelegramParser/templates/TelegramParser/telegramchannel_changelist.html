@@ -1,0 +1,20 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+
+{% block content %}
+<div id="tg-parse-taskbar"></div>
+{{ block.super }}
+{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    #tg-parse-taskbar { margin-bottom: 10px; }
+    #tg-parse-taskbar table td { border-bottom: 1px solid #333; }
+</style>
+{% endblock %}
+
+{% block extrajs %}
+{{ block.super }}
+<script src="{% static 'TelegramParser/taskbar.js' %}"></script>
+{% endblock %}
