@@ -98,6 +98,50 @@ class Email(models.Model):
         verbose_name='Задачи'
     )
 
+    # Поля для отправки
+    reply_to = models.CharField(max_length=300, blank=True, null=True, verbose_name='Ответить кому')
+    cc = models.TextField(blank=True, null=True, verbose_name='Копия')
+    bcc = models.TextField(blank=True, null=True, verbose_name='Скрытая копия')
+    message_id = models.CharField(max_length=300, blank=True, null=True, unique=False, verbose_name='Message-ID')
+    in_reply_to = models.CharField(max_length=300, blank=True, null=True, verbose_name='In-Reply-To')
+    references = models.TextField(blank=True, null=True, verbose_name='References')
+    thread_id = models.CharField(max_length=100, blank=True, null=True, db_index=True, verbose_name='Thread ID')
+
+    # Статус отправки
+    sent_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('draft', 'Черновик'),
+            ('queued', 'В очереди'),
+            ('sent', 'Отправлено'),
+            ('failed', 'Ошибка'),
+            ('bounced', 'Возвращено'),
+        ],
+        default='draft',
+        verbose_name='Статус отправки',
+    )
+    sent_at = models.DateTimeField(null=True, blank=True, verbose_name='Дата отправки')
+    error_message = models.TextField(blank=True, null=True, verbose_name='Ошибка отправки')
+
+    # Связи
+    contact = models.ForeignKey(
+        'email_ui.Contact', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='email_messages',
+        verbose_name='Контакт',
+    )
+    smtp_account = models.ForeignKey(
+        'email_ui.SMTPAccount', on_delete=models.SET_NULL,
+        null=True, blank=True, verbose_name='SMTP аккаунт',
+    )
+    template = models.ForeignKey(
+        'email_ui.EmailTemplate', on_delete=models.SET_NULL,
+        null=True, blank=True, verbose_name='Шаблон',
+    )
+
+    @property
+    def tags(self):
+        return self.email_tags.all()
+
     @property
     def create_admin_link(self):
         return mark_safe(f'<a href="file:///{self.link}">Ссылка</a>')
@@ -105,11 +149,17 @@ class Email(models.Model):
     create_admin_link.fget.short_description = 'e-mail Данные'
 
     def get_html_file_path(self):
-        """Возвращает полный путь к HTML-файлу письма."""
+        """Возвращает полный путь к HTML-файлу письма.
+        Сначала ищет subject-based .html файл, затем legacy custom_table_view.html,
+        затем любой .html файл в директории."""
         if not self.link:
             return None
-        # Имя HTML-файла, используемое в парсере
-        return os.path.join(self.link, 'custom_table_view.html')
+        if not os.path.isdir(self.link):
+            return os.path.join(self.link, 'custom_table_view.html')
+        for fname in os.listdir(self.link):
+            if fname.endswith('.html'):
+                return os.path.join(self.link, fname)
+        return None
 
     def __str__(self):
         return f"Ссылка {self.name}"
@@ -132,6 +182,8 @@ class Attachment(models.Model):
     size = models.IntegerField(verbose_name='Размер (байт)')
     content_type = models.CharField(max_length=100, blank=True, verbose_name='Тип содержимого')
     uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата загрузки')
+    is_inline = models.BooleanField(default=False, verbose_name='Inline')
+    content_id = models.CharField(max_length=200, blank=True, verbose_name='Content-ID')
 
     @property
     def file_path_js(self):

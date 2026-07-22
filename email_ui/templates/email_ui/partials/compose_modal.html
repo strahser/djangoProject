@@ -1,0 +1,80 @@
+<div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title">
+                {% if mode == 'reply' %}Ответить
+                {% elif mode == 'reply_all' %}Ответить всем
+                {% elif mode == 'forward' %}Переслать
+                {% else %}Новое письмо{% endif %}
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
+              hx-target="#modal-container" hx-swap="innerHTML"
+              enctype="multipart/form-data" id="compose-form">
+            {% csrf_token %}
+            <div class="modal-body">
+                {% if error %}
+                <div class="alert alert-danger">{{ error }}</div>
+                {% endif %}
+
+                <div class="mb-2">
+                    <label class="form-label small">Кому</label>
+                    <input type="text" name="to" class="form-control" value="{{ to|default:'' }}"
+                           placeholder="email1@example.com, email2@example.com">
+                </div>
+                <div class="row mb-2">
+                    <div class="col">
+                        <label class="form-label small">Копия</label>
+                        <input type="text" name="cc" class="form-control" value="{{ cc|default:'' }}">
+                    </div>
+                    <div class="col">
+                        <label class="form-label small">Скрытая копия</label>
+                        <input type="text" name="bcc" class="form-control">
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Тема</label>
+                    <input type="text" name="subject" class="form-control" value="{{ subject|default:'' }}">
+                </div>
+                <div class="mb-2">
+                    <textarea name="body" class="form-control" rows="12" id="compose-editor">{{ email|default:'' }}</textarea>
+                </div>
+                <div class="row mb-2">
+                    <div class="col">
+                        <label class="form-label small">Шаблон</label>
+                        <select name="template" class="form-select">
+                            <option value="">Без шаблона</option>
+                            {% for t in form.fields.template.queryset %}
+                            <option value="{{ t.id }}">{{ t.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label class="form-label small">Аккаунт</label>
+                        <select name="smtp_account" class="form-select">
+                            {% for a in form.fields.smtp_account.queryset %}
+                            <option value="{{ a.id }}">{{ a.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Вложения</label>
+                    <input type="file" name="attachment_files" class="form-control" multiple id="file-input">
+                    <div id="file-list" class="mt-1 small"></div>
+                </div>
+                <div class="form-check mb-2">
+                    <input type="checkbox" name="use_outlook" class="form-check-input" id="use-outlook">
+                    <label class="form-check-label small" for="use-outlook">Отправить через Outlook</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-send"></i> Отправить
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>

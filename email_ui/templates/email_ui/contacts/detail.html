@@ -1,0 +1,52 @@
+{% extends 'email_ui/base.html' %}
+{% block title %}{{ contact.name }}{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'email_ui:contact_list' %}">Контакты</a></li>
+            <li class="breadcrumb-item active">{{ contact.name }}</li>
+        </ol>
+    </nav>
+
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between">
+            <h5 class="mb-0">{{ contact.name }}</h5>
+            <button class="btn btn-sm btn-outline-primary" hx-get="{% url 'email_ui:contact_edit_modal' contact.id %}" hx-target="#modal-container">
+                <i class="bi bi-pencil"></i>
+            </button>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-2">Email</dt>
+                <dd class="col-sm-10">
+                    {% for ce in contact.emails.all %}
+                    <span class="badge bg-light text-dark me-1">{{ ce.email }} {% if ce.is_primary %}(осн.){% endif %}</span>
+                    {% endfor %}
+                </dd>
+                <dt class="col-sm-2">Компания</dt>
+                <dd class="col-sm-10">{{ contact.company.name|default:'—' }}</dd>
+                <dt class="col-sm-2">Телефон</dt>
+                <dd class="col-sm-10">{{ contact.phone|default:'—' }}</dd>
+                <dt class="col-sm-2">Заметки</dt>
+                <dd class="col-sm-10">{{ contact.notes|default:'—' }}</dd>
+            </dl>
+        </div>
+    </div>
+
+    <h5>Письма ({{ emails.count }})</h5>
+    <div class="list-group">
+        {% for email in emails %}
+        <a href="#" class="list-group-item list-group-item-action" hx-get="{% url 'email_ui:email_detail_modal' email.id %}" hx-target="#modal-container">
+            <div class="d-flex w-100 justify-content-between">
+                <h6 class="mb-1">{{ email.subject|default:'Без темы' }}</h6>
+                <small>{{ email.email_stamp|date:'d.m.Y' }}</small>
+            </div>
+            <small class="text-muted">{{ email.sender }} → {{ email.receiver }}</small>
+        </a>
+        {% empty %}
+        <div class="text-muted text-center py-3">Нет писем</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

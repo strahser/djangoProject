@@ -22,9 +22,8 @@ https://github.com/zostera/django-charting
 'grappelli',
 'grappelli.dashboard',
 "bootstrap_datepicker_plus",
-'django_filters',
-'advanced_filters',
-'more_admin_filters',
+    'django_filters',
+    'advanced_filters',
 "django_charting",
 'timeline',https://github.com/andywar65/timeline
 Password validation
@@ -61,7 +60,7 @@ INSTALLED_APPS = [
     'django_mptt_admin',
     'mptt',
     'adminactions',
-    'django_admin_filters',
+    # 'adminfilters',
     'bootstrapsidebar',
     'django_tables2',
     #'django_translate_gettext',
@@ -91,6 +90,7 @@ INSTALLED_APPS = [
     'PersonalData',
     'Emails',
     'email_ui',
+    'TelegramParser',
 ]
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 AUTOSAVE_PERIOD =120 #minutes
@@ -140,6 +140,14 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 logger.add(
     os.path.join(LOG_DIR, 'email_ui.log'),
+    rotation="10 MB",
+    level="DEBUG",
+    encoding="utf-8",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}"
+)
+
+logger.add(
+    os.path.join(LOG_DIR, 'telegram_parser.log'),
     rotation="10 MB",
     level="DEBUG",
     encoding="utf-8",
@@ -261,4 +269,33 @@ DJANGO_TABLES2_TABLE_ATTRS = {
 TINYMCE_DEFAULT_CONFIG = {
 
 }
+
+TELEGRAM_API_ID = int(os.environ.get('TELEGRAM_API_ID', 0))
+TELEGRAM_API_HASH = os.environ.get('TELEGRAM_API_HASH', '')
+YA_HOST = os.environ.get('YA_HOST', 'imap.yandex.ru')
+YA_PORT = int(os.environ.get('YA_PORT', 993))
+YA_USER = os.environ.get('YA_USER', '')
+YA_PASSWORD = os.environ.get('YA_PASSWORD', '')
+E_MAIL_DIRECTORY = os.environ.get('E_MAIL_DIRECTORY', os.path.join('e:\\', 'Проекты Симрус', 'Переписка', 'Bitrix 24'))
+
+_env_path = os.path.join(BASE_DIR, '.env')
+if os.path.exists(_env_path):
+    with open(_env_path, 'r', encoding='utf-8') as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith('#') and '=' in _line:
+                _key, _val = _line.split('=', 1)
+                _key, _val = _key.strip(), _val.strip()
+                if _key and _val:
+                    os.environ.setdefault(_key, _val)
+    if not TELEGRAM_API_ID:
+        TELEGRAM_API_ID = int(os.environ.get('TELEGRAM_API_ID', 0))
+    if not TELEGRAM_API_HASH:
+        TELEGRAM_API_HASH = os.environ.get('TELEGRAM_API_HASH', '')
+    if not YA_USER:
+        YA_USER = os.environ.get('YA_USER', '')
+    if not YA_PASSWORD:
+        YA_PASSWORD = os.environ.get('YA_PASSWORD', '')
+    if not E_MAIL_DIRECTORY or E_MAIL_DIRECTORY == os.path.join('e:\\', 'Проекты Симрус', 'Переписка', 'Bitrix 24'):
+        E_MAIL_DIRECTORY = os.environ.get('E_MAIL_DIRECTORY', E_MAIL_DIRECTORY)
 

@@ -1,7 +1,12 @@
 import os
+from django.conf import settings
 
-YA_HOST = "imap.yandex.ru"
-YA_PORT = 993
-YA_USER = "strakhov.s@cimrus.com"
-YA_PASSWORD = "mircxhzbiwryssjp"
-E_MAIL_DIRECTORY=os.path.join('e:\\','Проекты Симрус','Переписка', 'Bitrix 24')
+YA_HOST = settings.YA_HOST
+YA_PORT = settings.YA_PORT
+YA_USER = settings.YA_USER
+YA_PASSWORD = settings.YA_PASSWORD
+E_MAIL_DIRECTORY = settings.E_MAIL_DIRECTORY
+
+if not YA_USER or not YA_PASSWORD:
+    import warnings
+    warnings.warn("IMAP credentials (YA_USER, YA_PASSWORD) not configured in .env")

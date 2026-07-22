@@ -1,0 +1,18 @@
+<div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title">{% if mode == 'edit' %}Редактировать тег{% else %}Новый тег{% endif %}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form hx-post="{% url 'email_ui:tag_create' %}" hx-target="#modal-container" hx-swap="innerHTML">
+            {% csrf_token %}
+            <div class="modal-body">
+                {{ form.as_p }}
+            </div>
+            <div class="modal-footer">
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>

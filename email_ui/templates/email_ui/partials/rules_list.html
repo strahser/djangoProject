@@ -1,0 +1,34 @@
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">Правила автоматизации</h5>
+    <button class="btn btn-sm btn-outline-primary" hx-get="{% url 'email_ui:rule_create_modal' %}" hx-target="#modal-container">
+        <i class="bi bi-plus-lg"></i> Добавить
+    </button>
+</div>
+<div class="list-group">
+    {% for rule in rules %}
+    <div class="list-group-item py-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <span class="fw-bold">{{ rule.name }}</span>
+                <span class="badge {% if rule.is_active %}bg-success{% else %}bg-secondary{% endif %} ms-2">
+                    {% if rule.is_active %}Активно{% else %}Отключено{% endif %}
+                </span>
+                <small class="text-muted ms-2">приоритет: {{ rule.priority }}</small>
+            </div>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary" hx-post="{% url 'email_ui:rule_toggle' rule.id %}" hx-target="closest .list-group-item">
+                    {% if rule.is_active %}<i class="bi bi-pause"></i>{% else %}<i class="bi bi-play"></i>{% endif %}
+                </button>
+                <button class="btn btn-outline-danger" hx-post="{% url 'email_ui:rule_run_now' rule.id %}" hx-confirm="Применить правило ко всем письмам?">
+                    <i class="bi bi-lightning"></i>
+                </button>
+            </div>
+        </div>
+        {% if rule.description %}
+        <small class="text-muted d-block mt-1">{{ rule.description }}</small>
+        {% endif %}
+    </div>
+    {% empty %}
+    <div class="text-muted text-center py-3">Нет правил</div>
+    {% endfor %}
+</div>

@@ -1,0 +1,37 @@
+<div class="thread-container">
+    {% for email in thread %}
+    <div class="thread-message card mb-2 {% if email.id == active_email.id %}border-primary{% endif %}">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <div>
+                <strong>{{ email.sender|default:'Неизвестно' }}</strong>
+                <small class="text-muted ms-2">{{ email.email_stamp|date:'d.m.Y H:i' }}</small>
+            </div>
+            <div>
+                {% for tag in email.email_tags.all %}
+                <span class="badge rounded-pill" style="background-color: {{ tag.tag.color }}">{{ tag.tag.name }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="card-body py-2">
+            <h6>{{ email.subject }}</h6>
+            <div class="thread-preview text-muted small">
+                {% if email.get_html_file_path %}
+                <button class="btn btn-sm btn-outline-primary" hx-get="{% url 'email_ui:email_body' email.id %}" hx-target="#thread-body-{{ email.id }}" hx-trigger="click">
+                    <i class="bi bi-eye"></i> Показать
+                </button>
+                <div id="thread-body-{{ email.id }}"></div>
+                {% else %}
+                <em>Нет содержимого</em>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card-footer py-1 text-end">
+            <button class="btn btn-sm btn-outline-secondary" hx-get="{% url 'email_ui:reply_modal' email.id 'reply' %}" hx-target="#modal-container">
+                <i class="bi bi-reply"></i>
+            </button>
+        </div>
+    </div>
+    {% empty %}
+    <div class="text-muted text-center py-3">Нет писем в цепочке</div>
+    {% endfor %}
+</div>

@@ -1,0 +1,24 @@
+<div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title">{% if mode == 'edit' %}Редактировать контакт{% else %}Новый контакт{% endif %}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form hx-post="{% if mode == 'edit' %}{% url 'email_ui:contact_edit' contact.id %}{% else %}{% url 'email_ui:contact_create' %}{% endif %}"
+              hx-target="#modal-container" hx-swap="innerHTML">
+            {% csrf_token %}
+            <div class="modal-body">
+                {{ form.as_p }}
+                {% if mode == 'create' %}
+                <hr>
+                <h6>Email адрес</h6>
+                {{ email_form.as_p }}
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>

@@ -1,0 +1,21 @@
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">Теги</h5>
+    <button class="btn btn-sm btn-outline-primary" hx-get="{% url 'email_ui:tag_create_modal' %}" hx-target="#modal-container" hx-trigger="click">
+        <i class="bi bi-plus-lg"></i>
+    </button>
+</div>
+<div class="list-group">
+    {% for tag in tags %}
+    <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2">
+        <span>
+            <span class="badge rounded-pill" style="background-color: {{ tag.color }}">{{ tag.name }}</span>
+            <small class="text-muted ms-2">{{ tag.email_tags.count }} писем</small>
+        </span>
+        <button class="btn btn-sm btn-outline-danger" hx-post="{% url 'email_ui:tag_delete' tag.id %}" hx-target="closest .list-group-item" hx-swap="outerHTML" hx-confirm="Удалить тег?">
+            <i class="bi bi-x"></i>
+        </button>
+    </div>
+    {% empty %}
+    <div class="text-muted text-center py-3">Нет тегов</div>
+    {% endfor %}
+</div>

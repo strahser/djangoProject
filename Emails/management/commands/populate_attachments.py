@@ -15,7 +15,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--exclude-patterns',
             nargs='*',
-            default=['Image.*.png', 'custom_table_view.html'],
+            default=['Image.*.png', 'custom_table_view.html', '*.html'],
             help='Шаблоны имён файлов для исключения (простая маска с * в начале/конце)'
         )
 
