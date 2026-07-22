@@ -266,10 +266,6 @@ DJANGO_TABLES2_TABLE_ATTRS = {
     },
 }
 
-TINYMCE_DEFAULT_CONFIG = {
-
-}
-
 TELEGRAM_API_ID = int(os.environ.get('TELEGRAM_API_ID', 0))
 TELEGRAM_API_HASH = os.environ.get('TELEGRAM_API_HASH', '')
 YA_HOST = os.environ.get('YA_HOST', 'imap.yandex.ru')
@@ -298,4 +294,15 @@ if os.path.exists(_env_path):
         YA_PASSWORD = os.environ.get('YA_PASSWORD', '')
     if not E_MAIL_DIRECTORY or E_MAIL_DIRECTORY == os.path.join('e:\\', 'Проекты Симрус', 'Переписка', 'Bitrix 24'):
         E_MAIL_DIRECTORY = os.environ.get('E_MAIL_DIRECTORY', E_MAIL_DIRECTORY)
+
+DRAFT_DIRECTORY = os.path.join(E_MAIL_DIRECTORY, 'drafts')
+
+TINYMCE_DEFAULT_CONFIG = {
+    'height': 400,
+    'width': '100%',
+    'menubar': False,
+    'plugins': 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',
+    'toolbar': 'undo redo | formatselect | bold italic backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat | code',
+    'content_css': '//www.tiny.cloud/css/codepen.min.css',
+}
 

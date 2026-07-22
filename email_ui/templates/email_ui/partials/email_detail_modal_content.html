@@ -1,30 +1,51 @@
-<!-- Toolbar -->
-<div class="detail-toolbar">
-    <div class="d-flex align-items-center gap-2 flex-wrap">
+<!-- Header -->
+<div class="modal-header d-flex align-items-center">
+    <h5 class="modal-title text-truncate me-3">
+        <i class="bi bi-envelope-open me-2"></i>{{ email.subject|default:"Без темы" }}
+    </h5>
+    {% if not email.is_read %}
+    <span class="badge bg-primary me-2">Новое</span>
+    {% endif %}
+    {% if email.is_important %}
+    <span class="badge bg-warning text-dark me-2"><i class="bi bi-star-fill"></i> Важно</span>
+    {% endif %}
+    <div class="ms-auto d-flex align-items-center gap-1">
+        <button type="button" class="btn btn-sm btn-outline-secondary" title="Закрыть"
+                onclick="EmailApp.closeModal()">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+</div>
+
+<div class="modal-body">
+    <!-- Toolbar -->
+    <div class="detail-toolbar d-flex align-items-center gap-2 flex-wrap">
         <button class="btn btn-sm btn-outline-primary"
-                onclick="EmailApp.openReply('{% url 'email_ui:reply_modal' email.pk 'reply' %}')">
+                onclick="EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'reply' %}')">
             <i class="bi bi-reply"></i> Ответить
         </button>
         <button class="btn btn-sm btn-outline-primary"
-                onclick="EmailApp.openReply('{% url 'email_ui:reply_modal' email.pk 'reply_all' %}')">
+                onclick="EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'reply_all' %}')">
             <i class="bi bi-reply-all"></i> Всем
         </button>
         <button class="btn btn-sm btn-outline-primary"
-                onclick="EmailApp.openReply('{% url 'email_ui:reply_modal' email.pk 'forward' %}')">
+                onclick="EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'forward' %}')">
             <i class="bi bi-forward"></i> Переслать
         </button>
         <div class="vr"></div>
         <!-- Теги -->
-        <span id="email-tags-{{ email.pk }}">
+        <span id="email-tags-{{ email.pk }}" class="d-flex align-items-center gap-1 flex-wrap">
             {% for et in email.email_tags.all %}
             <span class="badge rounded-pill" style="background-color: {{ et.tag.color }}">
                 {{ et.tag.name }}
-                <a href="#" hx-post="{% url 'email_ui:remove_tag' email.pk et.tag.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white text-decoration-none">&times;</a>
+                <a href="#" hx-post="{% url 'email_ui:remove_tag' email.pk et.tag.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white text-decoration-none ms-1">&times;</a>
             </span>
             {% endfor %}
         </span>
-        <div class="dropdown">
-            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">Тег</button>
+        <div class="dropdown d-inline-block">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle py-0" data-bs-toggle="dropdown">
+                <i class="bi bi-tag"></i>
+            </button>
             <ul class="dropdown-menu">
                 {% for tag in all_tags %}
                 <li><a class="dropdown-item" href="#" onclick="assignTag({{ email.pk }}, {{ tag.id }}, '{{ tag.name }}', '{{ tag.color }}')">{{ tag.name }}</a></li>
@@ -33,32 +54,37 @@
                 {% endfor %}
             </ul>
         </div>
-        <div class="ms-auto">
-            {% if not email.is_read %}
-            <span class="badge bg-primary">Новое</span>
+    </div>
+
+    <!-- Meta info -->
+    <div class="detail-meta">
+        <table class="table table-sm table-borderless mb-2" style="max-width: 700px;">
+            <tr>
+                <td class="text-muted" style="width: 80px;">От:</td>
+                <td><strong>{{ email.sender|default:"—" }}</strong></td>
+            </tr>
+            <tr>
+                <td class="text-muted">Кому:</td>
+                <td>{{ email.receiver|default:"—" }}</td>
+            </tr>
+            {% if email.cc %}
+            <tr>
+                <td class="text-muted">Копия:</td>
+                <td>{{ email.cc }}</td>
+            </tr>
             {% endif %}
-        </div>
-    </div>
-</div>
-
-<!-- Meta info -->
-<div class="detail-meta">
-    <h5>{{ email.subject }}</h5>
-    <div class="row mb-3">
-        <div class="col-md-8">
-            <p class="mb-1"><strong>От:</strong> {{ email.sender }}</p>
-            <p class="mb-1"><strong>Кому:</strong> {{ email.receiver }}</p>
-            {% if email.cc %}<p class="mb-1"><strong>Копия:</strong> {{ email.cc }}</p>{% endif %}
-            <p class="mb-1"><strong>Дата:</strong> {{ email.email_stamp|date:"d.m.Y H:i" }}</p>
-        </div>
-        <div class="col-md-4 text-end">
-            <div id="metadata-block-{{ email.pk }}">
-                {% include "email_ui/partials/metadata_display.html" %}
-            </div>
+            <tr>
+                <td class="text-muted">Дата:</td>
+                <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td>
+            </tr>
+        </table>
+        <div class="d-flex gap-3" id="metadata-block-{{ email.pk }}">
+            {% include "email_ui/partials/metadata_display.html" %}
         </div>
     </div>
 
-    <!-- Задачи -->
+    <!-- Tasks -->
+    <div class="px-3">
     <div class="collapsible-section">
         <div class="section-header" onclick="toggleSection(this)">
             <span><i class="bi bi-list-task"></i> Задачи ({% if email.tasks.all %}{{ email.tasks.count }}{% else %}0{% endif %})</span>
@@ -66,9 +92,9 @@
         </div>
         <div class="section-body">
             {% for task in email.tasks.all %}
-                <span class="badge bg-info mb-1">
+                <span class="badge bg-info mb-1 me-1">
                     {{ task.name }}
-                    <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white">&times;</a>
+                    <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white text-decoration-none ms-1">&times;</a>
                 </span>
             {% empty %}
                 <span class="text-muted">Нет привязанных задач</span>
@@ -82,7 +108,7 @@
         </div>
     </div>
 
-    <!-- Вложения -->
+    <!-- Attachments -->
     <div class="collapsible-section">
         <div class="section-header" onclick="toggleSection(this)">
             <span><i class="bi bi-paperclip"></i> Вложения ({% if email.attachments.all %}{{ email.attachments.count }}{% else %}0{% endif %})</span>
@@ -92,16 +118,17 @@
             {% include "email_ui/partials/attachments_list.html" %}
         </div>
     </div>
-</div>
+    </div>
 
-<!-- Тело письма -->
-<div class="detail-body">
-    <div class="border rounded p-3"
-         hx-get="{% url 'email_ui:email_body' email.pk %}"
-         hx-trigger="load"
-         hx-target="this"
-         style="min-height: 200px; background: #fff;">
-        <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
+    <!-- Body -->
+    <div class="detail-body">
+        <div class="border rounded p-4 bg-white"
+             hx-get="{% url 'email_ui:email_body' email.pk %}"
+             hx-trigger="load"
+             hx-target="this"
+             style="min-height: 200px;">
+            <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
+        </div>
     </div>
 </div>
 
@@ -117,7 +144,11 @@ function assignTag(emailId, tagId, tagName, tagColor) {
             let badge = document.createElement('span');
             badge.className = 'badge rounded-pill';
             badge.style.backgroundColor = tagColor;
-            badge.innerHTML = tagName + ' <a href="#" onclick="this.parentElement.remove(); return false;" class="text-white text-decoration-none">&times;</a>';
+            badge.innerHTML = tagName + ' <a href="#" class="text-white text-decoration-none ms-1">&times;</a>';
+            badge.querySelector('a').addEventListener('click', function(e) {
+                e.preventDefault();
+                badge.remove();
+            });
             container.appendChild(badge);
         }
     });
@@ -128,4 +159,10 @@ function assignTag(emailId, tagId, tagName, tagColor) {
         navigator.sendBeacon('{% url "email_ui:mark_email_as_read" email.pk %}');
     });
 })();
+
+function toggleSection(header) {
+    header.classList.toggle('collapsed');
+    const body = header.nextElementSibling;
+    body.classList.toggle('show');
+}
 </script>

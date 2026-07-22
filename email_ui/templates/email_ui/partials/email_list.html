@@ -1,64 +1,67 @@
-<form id="email-list-form" style="display: none;"></form>
-
 <div class="table-responsive">
-    <table class="table table-hover mb-0" style="font-size: 13px;">
-        <thead class="sticky-top bg-white">
+    <table class="table table-email table-hover mb-0">
+        <thead>
             <tr>
                 <th style="width:30px"><input type="checkbox" id="select-all"></th>
-                <th style="width:140px">
-                    <a href="#"
+                <th style="width:160px">
+                    <a href="#" class="text-decoration-none text-dark"
                        hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'sender' and current_order == 'asc' %}sort=sender&order=desc{% else %}sort=sender&order=asc{% endif %}&{{ request.GET.urlencode }}"
                        hx-target="#email-list-container"
                        hx-swap="innerHTML"
                        hx-push-url="false">
                         Отправитель
-                        {% if current_sort == 'sender' %}{% if current_order == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+                        {% if current_sort == 'sender' %}<i class="bi bi-caret-{% if current_order == 'asc' %}up{% else %}down{% endif %}"></i>{% endif %}
                     </a>
                 </th>
                 <th>
-                    <a href="#"
+                    <a href="#" class="text-decoration-none text-dark"
                        hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'subject' and current_order == 'asc' %}sort=subject&order=desc{% else %}sort=subject&order=asc{% endif %}&{{ request.GET.urlencode }}"
                        hx-target="#email-list-container"
                        hx-swap="innerHTML"
                        hx-push-url="false">
                         Тема
-                        {% if current_sort == 'subject' %}{% if current_order == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+                        {% if current_sort == 'subject' %}<i class="bi bi-caret-{% if current_order == 'asc' %}up{% else %}down{% endif %}"></i>{% endif %}
                     </a>
                 </th>
-                <th style="width:80px">
-                    <a href="#"
+                <th style="width:90px">
+                    <a href="#" class="text-decoration-none text-dark"
                        hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'email_stamp' and current_order == 'asc' %}sort=email_stamp&order=desc{% else %}sort=email_stamp&order=asc{% endif %}&{{ request.GET.urlencode }}"
                        hx-target="#email-list-container"
                        hx-swap="innerHTML"
                        hx-push-url="false">
                         Дата
-                        {% if current_sort == 'email_stamp' %}{% if current_order == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
+                        {% if current_sort == 'email_stamp' %}<i class="bi bi-caret-{% if current_order == 'asc' %}up{% else %}down{% endif %}"></i>{% endif %}
                     </a>
                 </th>
                 <th style="width:30px"></th>
             </tr>
         </thead>
-        <tbody id="email-table-body">
+        <tbody>
             {% for email in page_obj %}
-            <tr class="{% if not email.is_read %}unread{% endif %} email-row"
-                onclick="EmailApp.openEmail('{% url 'email_ui:email_detail_modal' email.pk %}')">
+            <tr class="email-row{% if not email.is_read %} unread{% endif %}"
+                onclick="EmailApp.openModal('{% url 'email_ui:email_detail_modal' email.pk %}')">
                 <td onclick="event.stopPropagation()">
                     <input type="checkbox" name="selected_emails" value="{{ email.pk }}" form="bulk-form">
                 </td>
-                <td>{{ email.sender|truncatechars:18|default:"Неизвестно" }}</td>
-                <td>{{ email.subject|truncatechars:40 }}</td>
-                <td>{{ email.email_stamp|date:"d.m" }}</td>
+                <td>{{ email.sender|truncatechars:20|default:"Неизвестно" }}</td>
                 <td>
+                    {{ email.subject|truncatechars:60 }}
                     {% with count=email.attachments.count %}
                         {% if count > 0 %}
-                            <i class="bi bi-paperclip text-muted" title="{{ count }} вл."></i>
+                            <i class="bi bi-paperclip text-muted ms-1" title="{{ count }} вл."></i>
                         {% endif %}
                     {% endwith %}
+                </td>
+                <td class="text-nowrap">{{ email.email_stamp|date:"d.m.Y" }}</td>
+                <td>
+                    {% if email.is_important %}
+                    <i class="bi bi-star-fill text-warning"></i>
+                    {% endif %}
                 </td>
             </tr>
             {% empty %}
             <tr>
-                <td colspan="5" class="text-center text-muted py-4">Нет писем</td>
+                <td colspan="5" class="text-center text-muted py-5">Нет писем</td>
             </tr>
             {% endfor %}
 
@@ -68,8 +71,8 @@
                 hx-trigger="revealed"
                 hx-target="#load-marker"
                 hx-swap="outerHTML">
-                <td colspan="5" class="text-center py-2">
-                    <div class="spinner-border spinner-border-sm text-primary"></div>
+                <td colspan="5" class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm text-primary"></div> Загрузка...
                 </td>
             </tr>
             {% endif %}
@@ -81,9 +84,7 @@
     function toggleBulkActionBar() {
         const anyChecked = document.querySelectorAll('input[name="selected_emails"]:checked').length > 0;
         const bulkBar = document.getElementById('bulk-action-bar');
-        if (bulkBar) {
-            bulkBar.classList.toggle('d-none', !anyChecked);
-        }
+        if (bulkBar) bulkBar.classList.toggle('d-none', !anyChecked);
         document.querySelectorAll('#bulk-action-bar .btn').forEach(btn => btn.disabled = !anyChecked);
     }
 
@@ -93,11 +94,9 @@
             toggleBulkActionBar();
         }
     });
-
     document.addEventListener('change', function(e) {
         if (e.target.name === 'selected_emails') toggleBulkActionBar();
     });
-
     document.addEventListener('DOMContentLoaded', toggleBulkActionBar);
 
     document.body.addEventListener('htmx:afterSwap', function(evt) {

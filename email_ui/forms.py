@@ -123,6 +123,7 @@ class TaskSearchForm(forms.Form):
 
 class ComposeEmailForm(forms.Form):
     to = forms.CharField(
+        required=False,
         label='Кому',
         widget=forms.TextInput(attrs={
             'class': 'form-control', 'placeholder': 'email1@example.com, email2@example.com',

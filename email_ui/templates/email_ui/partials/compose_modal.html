@@ -1,118 +1,110 @@
-<!-- Compose panel (loads into #detail-content) -->
-<div class="compose-panel">
-    <div class="compose-header">
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-            <h6 class="mb-0">
-                {% if mode == 'reply' %}Ответить
-                {% elif mode == 'reply_all' %}Ответить всем
-                {% elif mode == 'forward' %}Переслать
-                {% else %}Новое письмо{% endif %}
-            </h6>
-            <div class="ms-auto d-flex align-items-center gap-1">
-                <button type="button" class="btn btn-sm btn-outline-success" title="Сохранить черновик"
-                        onclick="saveDraft()">
-                    <i class="bi bi-save"></i>
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" title="Закрыть"
-                        onclick="EmailApp.checkDirtyThen(function(){ EmailApp.clearDirty(); document.getElementById('detail-content').innerHTML = '<div class=\'empty-state\'><div class=\'text-center\'><i class=\'bi bi-envelope\' style=\'font-size:48px\'></i><p class=\'mt-2\'>Выберите письмо</p></div></div>'; });">
-                    <i class="bi bi-x-lg"></i>
-                </button>
-            </div>
-        </div>
+<!-- Header -->
+<div class="modal-header d-flex align-items-center">
+    <h5 class="modal-title">
+        <i class="bi bi-pencil-square me-2"></i>
+        {% if mode == 'reply' %}Ответить
+        {% elif mode == 'reply_all' %}Ответить всем
+        {% elif mode == 'forward' %}Переслать
+        {% else %}Новое письмо{% endif %}
+    </h5>
+    <div class="ms-auto d-flex align-items-center gap-1">
+        <button type="button" class="btn btn-sm btn-outline-success" title="Сохранить черновик"
+                onclick="saveDraft()">
+            <i class="bi bi-save"></i>
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" title="Закрыть"
+                onclick="EmailApp.checkDirtyThen(function(){ EmailApp.clearDirty(); EmailApp.closeModal(); })">
+            <i class="bi bi-x-lg"></i>
+        </button>
     </div>
+</div>
 
-    <form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
-          hx-target="#detail-content" hx-swap="innerHTML"
-          hx-on::before-request="EmailApp.clearDirty();"
-          enctype="multipart/form-data" id="compose-form"
-          class="compose-panel">
-        {% csrf_token %}
+<form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
+      hx-target="#emailModalContent" hx-swap="innerHTML"
+      enctype="multipart/form-data" id="compose-form"
+      onsubmit="if(typeof tinymce!=='undefined'&&tinymce.activeEditor){tinymce.activeEditor.save()}">
+    {% csrf_token %}
+
+    <div class="modal-body p-0 d-flex flex-column" style="min-height: calc(100vh - 120px);">
+        {% if error %}
+        <div class="alert alert-danger m-3 mb-0" role="alert">
+            {{ error }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endif %}
 
         <div class="compose-fields">
-            {% if error %}
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                {{ error }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-            {% endif %}
-
-            {% if mode == 'compose' %}
             <div class="mb-2">
-                <label class="form-label small text-muted">Кому</label>
+                <label class="form-label small text-muted mb-1">Кому <span class="text-danger">*</span></label>
                 <input type="text" name="to" class="form-control form-control-sm" value="{{ to|default:'' }}"
                        placeholder="email1@example.com, email2@example.com"
+                       list="contacts-datalist"
                        oninput="EmailApp.markDirty()">
+                <datalist id="contacts-datalist">
+                    {% for contact in contacts %}
+                    {% with primary_email=contact.primary_email %}
+                    {% if primary_email %}
+                    <option value="{{ primary_email.email }}" label="{{ contact.name }}">
+                    {% endif %}
+                    {% endwith %}
+                    {% endfor %}
+                </datalist>
             </div>
             <div class="row mb-2">
                 <div class="col">
-                    <label class="form-label small text-muted">Копия</label>
+                    <label class="form-label small text-muted mb-1">Копия</label>
                     <input type="text" name="cc" class="form-control form-control-sm" value="{{ cc|default:'' }}"
+                           placeholder="email@example.com"
                            oninput="EmailApp.markDirty()">
                 </div>
                 <div class="col">
-                    <label class="form-label small text-muted">Скрытая копия</label>
+                    <label class="form-label small text-muted mb-1">Скрытая копия</label>
                     <input type="text" name="bcc" class="form-control form-control-sm"
+                           placeholder="email@example.com"
                            oninput="EmailApp.markDirty()">
                 </div>
             </div>
-            {% else %}
-            <div class="mb-2">
-                <label class="form-label small text-muted">Кому</label>
-                <input type="text" name="to" class="form-control form-control-sm" value="{{ to|default:'' }}" readonly>
-            </div>
-            {% if cc %}
-            <div class="mb-2">
-                <label class="form-label small text-muted">Копия</label>
-                <input type="text" name="cc" class="form-control form-control-sm" value="{{ cc|default:'' }}">
-            </div>
-            {% endif %}
-            {% endif %}
-
             <div class="mb-0">
-                <label class="form-label small text-muted">Тема</label>
+                <label class="form-label small text-muted mb-1">Тема</label>
                 <input type="text" name="subject" class="form-control form-control-sm" value="{{ subject|default:'' }}"
+                       placeholder="Тема письма"
                        oninput="EmailApp.markDirty()">
             </div>
         </div>
 
-        <div class="compose-editor">
-            <textarea name="body" class="form-control" id="compose-editor" placeholder="Напишите сообщение..."
-                      oninput="EmailApp.markDirty()">{{ body|default:'' }}</textarea>
+        <div class="compose-editor flex-fill">
+            <textarea name="body" class="form-control" id="compose-editor" placeholder="Напишите сообщение...">{{ body|default:'' }}</textarea>
         </div>
+    </div>
 
-        <div class="compose-footer">
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-                <button type="submit" class="btn btn-primary btn-sm">
-                    <i class="bi bi-send"></i> Отправить
-                </button>
-                {% if mode != 'compose' %}
-                <div class="vr"></div>
+    <div class="modal-footer">
+        <div class="d-flex align-items-center gap-2 flex-wrap w-100">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-send"></i> Отправить
+            </button>
+            {% if mode != 'compose' %}
+            <div class="form-check form-check-inline mb-0">
+                <input type="checkbox" name="include_original" class="form-check-input" id="include-original" checked>
+                <label class="form-check-label small" for="include-original">Включить исходное письмо</label>
+            </div>
+            <input type="hidden" name="mode" value="{{ mode }}">
+            {% endif %}
+            <div class="ms-auto d-flex align-items-center gap-2">
+                {% if mode == 'compose' %}
+                <label class="btn btn-outline-secondary btn-sm mb-0">
+                    <i class="bi bi-paperclip"></i> Вложения
+                    <input type="file" name="attachment_files" class="d-none" multiple onchange="updateFileList(this)">
+                </label>
+                <span id="file-count-compose" class="text-muted small"></span>
                 <div class="form-check form-check-inline mb-0">
-                    <input type="checkbox" name="include_original" class="form-check-input" id="include-original" checked>
-                    <label class="form-check-label small" for="include-original">Исходное письмо</label>
+                    <input type="checkbox" name="use_outlook" class="form-check-input" id="use-outlook">
+                    <label class="form-check-label small" for="use-outlook">Outlook</label>
                 </div>
-                {% if mode == 'reply_all' %}
-                <input type="hidden" name="reply_all" value="1">
                 {% endif %}
-                <input type="hidden" name="mode" value="{{ mode }}">
-                {% endif %}
-                <div class="ms-auto">
-                    {% if mode == 'compose' %}
-                    <label class="btn btn-outline-secondary btn-sm mb-0" for="file-input-compose">
-                        <i class="bi bi-paperclip"></i> Вложения
-                    </label>
-                    <input type="file" name="attachment_files" class="d-none" multiple id="file-input-compose" onchange="updateFileList(this)">
-                    <span id="file-count-compose" class="text-muted small"></span>
-                    <div class="form-check form-check-inline mb-0 ms-2">
-                        <input type="checkbox" name="use_outlook" class="form-check-input" id="use-outlook">
-                        <label class="form-check-label small" for="use-outlook">Outlook</label>
-                    </div>
-                    {% endif %}
-                </div>
             </div>
         </div>
-    </form>
-</div>
+    </div>
+</form>
 
 <script>
 function updateFileList(input) {
@@ -122,17 +114,19 @@ function updateFileList(input) {
 }
 
 function saveDraft() {
+    if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
+        tinymce.activeEditor.save();
+    }
     var form = document.getElementById('compose-form');
     if (!form) return;
     fetch('{% url "email_ui:save_draft" %}', {
         method: 'POST',
-        headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
+        headers: {'X-CSRFToken': '{{ csrf_token }}'},
         body: new URLSearchParams(new FormData(form))
     }).then(r => {
         if (r.ok || r.status === 204) {
             EmailApp.clearDirty();
-            document.getElementById('detail-content').innerHTML =
-                '<div class="empty-state"><div class="text-center"><i class="bi bi-check-circle text-success" style="font-size:48px"></i><p class="mt-2">Черновик сохранён</p></div></div>';
+            EmailApp.closeModal();
         }
     });
 }

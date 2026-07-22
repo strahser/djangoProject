@@ -7,43 +7,50 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.3/tinymce.min.js"></script>
     <style>
-        .email-row:hover { background-color: #f5f5f5; cursor: pointer; }
-        .unread { font-weight: bold; }
-        .sidebar { min-height: 100vh; border-right: 1px solid #dee2e6; }
+        body { background: #f5f6fa; }
+        .sidebar { min-height: calc(100vh - 56px); border-right: 1px solid #dee2e6; background: #fff; }
+        .sidebar .nav-link { color: #333; border-radius: 0; padding: 10px 16px; }
+        .sidebar .nav-link:hover { background: #e9ecef; }
+        .sidebar .nav-link.active { background: #e3f2fd; color: #0d6efd; font-weight: 600; }
 
-        .split-panel { display: flex; height: calc(100vh - 56px); overflow: hidden; }
-        .list-panel { flex: 0 0 420px; border-right: 1px solid #dee2e6; display: flex; flex-direction: column; overflow: hidden; }
-        .list-panel-header { flex: 0 0 auto; }
-        .list-panel-body { flex: 1; overflow-y: auto; }
-        .detail-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        .detail-content { flex: 1; overflow-y: auto; }
+        .email-row:hover { background-color: #f0f4ff; cursor: pointer; }
+        .email-row.unread { font-weight: 600; background: #fafbff; }
+        .email-row.unread td { border-left: 3px solid #0d6efd; }
 
-        .compose-panel { display: flex; flex-direction: column; height: 100%; }
-        .compose-header { flex: 0 0 auto; padding: 12px 16px; border-bottom: 1px solid #dee2e6; background: #f8f9fa; }
-        .compose-fields { flex: 0 0 auto; padding: 12px 16px; border-bottom: 1px solid #eee; }
-        .compose-editor { flex: 1; overflow-y: auto; padding: 16px; }
-        .compose-editor textarea { border: none; resize: none; outline: none; font-size: 14px; width: 100%; min-height: 100%; }
+        .table-email { font-size: 13px; }
+        .table-email thead th { background: #f8f9fa; border-bottom: 2px solid #dee2e6; position: sticky; top: 0; z-index: 1; }
+
+        /* Full-screen modal */
+        .modal-fullscreen { max-width: 100%; margin: 0; }
+        .modal-fullscreen .modal-content { border-radius: 0; border: none; min-height: 100vh; }
+        .modal-fullscreen .modal-header { border-bottom: 1px solid #dee2e6; background: #f8f9fa; padding: 12px 20px; }
+        .modal-fullscreen .modal-body { padding: 0; overflow-y: auto; }
+        .modal-fullscreen .modal-footer { border-top: 1px solid #dee2e6; background: #f8f9fa; }
+
+        /* Detail toolbar */
+        .detail-toolbar { padding: 12px 20px; border-bottom: 1px solid #dee2e6; background: #fff; }
+        .detail-meta { padding: 20px; background: #fff; border-bottom: 1px solid #eee; }
+        .detail-body { padding: 20px; background: #fff; }
+
+        /* Compose */
+        .compose-fields { padding: 16px 20px; background: #fff; border-bottom: 1px solid #eee; }
+        .compose-editor { padding: 0; }
+        .compose-editor textarea { border: none; resize: none; outline: none; font-size: 14px; width: 100%; min-height: 500px; padding: 20px; }
         .compose-editor textarea:focus { box-shadow: none; }
-        .compose-footer { flex: 0 0 auto; padding: 12px 16px; border-bottom: 1px solid #dee2e6; background: #f8f9fa; }
-
-        .detail-toolbar { padding: 10px 16px; border-bottom: 1px solid #dee2e6; background: #f8f9fa; }
-        .detail-meta { padding: 16px; }
-        .detail-body { padding: 0 16px 16px 16px; }
+        .compose-footer { padding: 12px 20px; background: #fff; border-top: 1px solid #dee2e6; }
 
         .collapsible-section { border: 1px solid #dee2e6; border-radius: 6px; margin-bottom: 8px; }
         .collapsible-section .section-header { padding: 8px 12px; cursor: pointer; background: #f8f9fa; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; user-select: none; }
         .collapsible-section .section-header:hover { background: #e9ecef; }
-        .collapsible-section .section-header .bi { transition: transform 0.2s; }
         .collapsible-section .section-header.collapsed .bi-chevron-down { transform: rotate(-90deg); }
         .collapsible-section .section-body { padding: 8px 12px; display: none; }
         .collapsible-section .section-body.show { display: block; }
-
-        .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #6c757d; }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-dark bg-dark px-3">
+    <nav class="navbar navbar-dark bg-dark px-3" style="height: 56px;">
         <span class="navbar-brand mb-0 h1">
             <i class="bi bi-envelope"></i> Почтовый клиент
         </span>
@@ -57,129 +64,176 @@
         </div>
     </nav>
 
-    <div class="split-panel">
-        <div class="col-md-2 p-0 sidebar bg-light" style="flex: 0 0 180px; min-height: 100%;">
+    <div class="d-flex">
+        <div class="sidebar" style="width: 200px; flex-shrink: 0;">
             {% include "email_ui/partials/sidebar.html" %}
         </div>
-        <div class="col-md-10 p-0">
+        <div style="flex: 1; min-width: 0;">
             {% block content %}{% endblock %}
         </div>
     </div>
 
-    <div class="modal fade" id="taskModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content" id="task-modal-container"></div>
-        </div>
-    </div>
-    <div class="modal fade" id="dynamicModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content" id="dynamicModalContent"></div>
+    <!-- Full-screen modal for email detail / compose -->
+    <div class="modal fade" id="emailModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-fullscreen modal-fullscreen" style="max-width: 100%; margin: 0;">
+            <div class="modal-content" id="emailModalContent" style="min-height: 100vh; border-radius: 0;">
+
+            </div>
         </div>
     </div>
 
+    <!-- Draft confirm modal -->
     <div class="modal fade" id="draftConfirmModal" tabindex="-1">
         <div class="modal-dialog modal-sm modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header py-2">
                     <h6 class="modal-title">Несохранённое письмо</h6>
                 </div>
-                <div class="modal-body py-2">
+                <div class="modal-body py-3">
                     <p class="mb-0">Сохранить черновик перед закрытием?</p>
                 </div>
                 <div class="modal-footer py-2">
-                    <button type="button" class="btn btn-sm btn-secondary" id="draft-discard-btn">Нет</button>
-                    <button type="button" class="btn btn-sm btn-primary" id="draft-save-btn">Сохранить</button>
+                    <button type="button" class="btn btn-sm btn-secondary" id="draft-discard-btn">
+                        <i class="bi bi-x-circle"></i> Не сохранять
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" id="draft-save-btn">
+                        <i class="bi bi-save"></i> Сохранить
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Task modal (для привязки задач) -->
+    <div class="modal fade" id="taskModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content" id="task-modal-container"></div>
+        </div>
+    </div>
+
+    <!-- Dynamic modal (для фильтров) -->
+    <div class="modal fade" id="dynamicModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content" id="dynamicModalContent"></div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
-<meta name="csrf-token" content="{{ csrf_token }}">
-<script>
-    document.body.addEventListener('htmx:configRequest', (evt) => {
-        evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
-    });
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <script>
+        document.body.addEventListener('htmx:configRequest', (evt) => {
+            evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+        });
 
-    window.EmailApp = {
-        isDirty: false,
-        pendingAction: null,
-        draftFormId: null,
+        window.EmailApp = {
+            isDirty: false,
+            pendingAction: null,
 
-        markDirty: function() { this.isDirty = true; },
-        clearDirty: function() { this.isDirty = false; },
+            markDirty: function() { this.isDirty = true; },
+            clearDirty: function() { this.isDirty = false; },
 
-        loadContent: function(url) {
-            htmx.ajax('GET', url, { target: '#detail-content', swap: 'innerHTML' });
-        },
+            modal: null,
+            modalEl: null,
 
-        checkDirtyThen: function(callback) {
-            if (!this.isDirty) { callback(); return; }
-            this.pendingAction = callback;
-            var modal = new bootstrap.Modal(document.getElementById('draftConfirmModal'));
-            modal.show();
-        },
+            openModal: function(url) {
+                this.checkDirtyThen(() => {
+                    this.clearDirty();
+                    this.modalEl = document.getElementById('emailModal');
+                    this.modal = new bootstrap.Modal(this.modalEl, { backdrop: 'static' });
+                    htmx.ajax('GET', url, { target: '#emailModalContent', swap: 'innerHTML' });
+                    this.modal.show();
+                });
+            },
 
-        openEmail: function(url) {
-            this.checkDirtyThen(() => {
-                this.clearDirty();
-                this.loadContent(url);
+            closeModal: function() {
+                if (this.modal) this.modal.hide();
+            },
+
+            checkDirtyThen: function(callback) {
+                if (!this.isDirty) { callback(); return; }
+                this.pendingAction = callback;
+                var m = new bootstrap.Modal(document.getElementById('draftConfirmModal'));
+                m.show();
+            }
+        };
+
+        document.addEventListener('shown.bs.modal', function(e) {
+            if (e.target.id === 'draftConfirmModal' && window.EmailApp.pendingAction) {
+            }
+        });
+
+        document.addEventListener('htmx:afterSwap', function(evt) {
+            if (evt.detail.target.id === 'emailModalContent' || evt.detail.target.id === 'emailModal') {
+                window.initTinyMCE();
+            }
+        });
+
+        window.initTinyMCE = function() {
+            if (typeof tinymce === 'undefined') return;
+            tinymce.remove('#compose-editor');
+            tinymce.init({
+                selector: '#compose-editor',
+                height: 500,
+                menubar: false,
+                plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',
+                toolbar: 'undo redo | formatselect | bold italic backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat | code',
+                setup: function(editor) {
+                    editor.on('change', function() {
+                        editor.save();
+                        if (window.EmailApp) EmailApp.markDirty();
+                    });
+                }
             });
-        },
+        };
 
-        openCompose: function(url) {
-            this.checkDirtyThen(() => {
-                this.clearDirty();
-                this.loadContent(url);
-            });
-        },
-
-        openReply: function(url) {
-            this.checkDirtyThen(() => {
-                this.clearDirty();
-                this.loadContent(url);
-            });
-        }
-    };
-
-    document.getElementById('draft-save-btn').addEventListener('click', function() {
-        var modal = bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal'));
-        modal.hide();
-        var form = document.getElementById('compose-form');
-        if (form) {
-            fetch('{% url "email_ui:save_draft" %}', {
-                method: 'POST',
-                headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
-                body: new URLSearchParams(new FormData(form))
-            }).then(() => {
+        document.getElementById('draft-save-btn').addEventListener('click', function() {
+            var modal = bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal'));
+            modal.hide();
+            var form = document.getElementById('compose-form');
+            if (form) {
+                // Get TinyMCE content if active
+                if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
+                    tinymce.activeEditor.save();
+                }
+                fetch('{% url "email_ui:save_draft" %}', {
+                    method: 'POST',
+                    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+                    body: new URLSearchParams(new FormData(form))
+                }).then(r => {
+                    EmailApp.clearDirty();
+                    if (EmailApp.pendingAction) {
+                        EmailApp.pendingAction();
+                        EmailApp.pendingAction = null;
+                    }
+                }).catch(() => {
+                    EmailApp.clearDirty();
+                    if (EmailApp.pendingAction) {
+                        EmailApp.pendingAction();
+                        EmailApp.pendingAction = null;
+                    }
+                });
+            } else {
                 EmailApp.clearDirty();
                 if (EmailApp.pendingAction) {
                     EmailApp.pendingAction();
                     EmailApp.pendingAction = null;
                 }
-            });
-        } else {
+            }
+        });
+
+        document.getElementById('draft-discard-btn').addEventListener('click', function() {
+            var modal = bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal'));
+            modal.hide();
             EmailApp.clearDirty();
             if (EmailApp.pendingAction) {
                 EmailApp.pendingAction();
                 EmailApp.pendingAction = null;
             }
-        }
-    });
+        });
 
-    document.getElementById('draft-discard-btn').addEventListener('click', function() {
-        var modal = bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal'));
-        modal.hide();
-        EmailApp.clearDirty();
-        if (EmailApp.pendingAction) {
-            EmailApp.pendingAction();
+        document.getElementById('draftConfirmModal').addEventListener('hide.bs.modal', function() {
             EmailApp.pendingAction = null;
-        }
-    });
-
-    document.getElementById('draftConfirmModal').addEventListener('hide.bs.modal', function() {
-        EmailApp.pendingAction = null;
-    });
-</script>
+        });
+    </script>
 </body>
 </html>

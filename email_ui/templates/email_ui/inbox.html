@@ -1,87 +1,65 @@
 {% extends "email_ui/base.html" %}
 
 {% block content %}
-<div class="split-panel">
-    <!-- Left panel: email list -->
-    <div class="list-panel">
-        <div class="list-panel-header p-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h5 class="mb-0">
-                    {% if folder == 'inbox' %}Входящие
-                    {% elif folder == 'sent' %}Отправленные
-                    {% elif folder == 'drafts' %}Черновики
-                    {% elif folder == 'archive' %}Архив
-                    {% elif folder == 'trash' %}Корзина
-                    {% endif %}
-                </h5>
-                <div>
-                    <form method="post" action="{% url 'email_ui:fetch_emails' %}" class="d-inline">
-                        {% csrf_token %}
-                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                        <input type="hidden" name="mail_count" value="10">
-                        <button type="submit" class="btn btn-success btn-sm me-1" title="Получить почту">
-                            <i class="bi bi-arrow-down-circle"></i>
-                        </button>
-                    </form>
-                    <button class="btn btn-primary btn-sm" title="Написать"
-                            onclick="EmailApp.openCompose('{% url 'email_ui:compose_modal' %}'); return false;">
-                        <i class="bi bi-pencil-square"></i>
-                    </button>
-                </div>
-            </div>
-
-            <div class="collapsible-section">
-                <div class="section-header" onclick="toggleSection(this)">
-                    <span><i class="bi bi-funnel"></i> Фильтры</span>
-                    <i class="bi bi-chevron-down"></i>
-                </div>
-                <div class="section-body">
-                    {% include "email_ui/partials/filter_form.html" %}
-                </div>
-            </div>
-
-            <div id="bulk-action-bar" class="mt-2 d-none">
-                <form id="bulk-form" method="post"
-                      hx-post="{% url 'email_ui:bulk_action' %}"
-                      hx-target="#email-list-container"
-                      hx-swap="innerHTML"
-                      hx-push-url="false">
-                    {% csrf_token %}
-                    <input type="hidden" name="folder" value="{{ folder }}">
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button type="submit" name="action" value="mark_read" class="btn btn-outline-secondary" disabled>Прочитано</button>
-                        <button type="submit" name="action" value="mark_unread" class="btn btn-outline-secondary" disabled>Не прочитано</button>
-                        <button type="submit" name="action" value="delete" class="btn btn-outline-danger" disabled>В корзину</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <div class="list-panel-body" id="email-list-container">
-            {% include "email_ui/partials/email_list.html" %}
+<div class="p-3">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">
+            {% if folder == 'inbox' %}Входящие
+            {% elif folder == 'sent' %}Отправленные
+            {% elif folder == 'drafts' %}Черновики
+            {% elif folder == 'archive' %}Архив
+            {% elif folder == 'trash' %}Корзина
+            {% else %}{{ folder }}{% endif %}
+            <span class="badge bg-secondary ms-2">{{ total_count }}</span>
+        </h5>
+        <div>
+            <form method="post" action="{% url 'email_ui:fetch_emails' %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <input type="hidden" name="mail_count" value="10">
+                <button type="submit" class="btn btn-success btn-sm me-1" title="Получить почту">
+                    <i class="bi bi-arrow-down-circle"></i> Загрузить
+                </button>
+            </form>
+            <button class="btn btn-primary btn-sm" title="Написать"
+                    onclick="EmailApp.openModal('{% url 'email_ui:compose_modal' %}'); return false;">
+                <i class="bi bi-pencil-square"></i> Написать
+            </button>
         </div>
     </div>
 
-    <!-- Right panel: detail / compose -->
-    <div class="detail-panel">
-        <div class="detail-content" id="detail-content">
-            <div class="empty-state">
-                <div class="text-center">
-                    <i class="bi bi-envelope" style="font-size: 48px; opacity: 0.3;"></i>
-                    <p class="mt-2 text-muted">Выберите письмо</p>
+    <!-- Filter bar -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                {% include "email_ui/partials/filter_form.html" %}
+                <div id="bulk-action-bar" class="d-none">
+                    <form id="bulk-form" method="post"
+                          hx-post="{% url 'email_ui:bulk_action' %}"
+                          hx-target="#email-list-container"
+                          hx-swap="innerHTML"
+                          hx-push-url="false">
+                        {% csrf_token %}
+                        <input type="hidden" name="folder" value="{{ folder }}">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="submit" name="action" value="mark_read" class="btn btn-outline-secondary" disabled><i class="bi bi-envelope-open"></i></button>
+                            <button type="submit" name="action" value="mark_unread" class="btn btn-outline-secondary" disabled><i class="bi bi-envelope"></i></button>
+                            <button type="submit" name="action" value="delete" class="btn btn-outline-danger" disabled><i class="bi bi-trash"></i></button>
+                        </div>
+                    </form>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Email list -->
+    <div class="card">
+        <div class="card-body p-0" id="email-list-container">
+            {% include "email_ui/partials/email_list.html" %}
         </div>
     </div>
 </div>
 
 {{ filter_data|json_script:"filter-data" }}
-
-<script>
-function toggleSection(header) {
-    header.classList.toggle('collapsed');
-    const body = header.nextElementSibling;
-    body.classList.toggle('show');
-}
-</script>
 {% endblock %}

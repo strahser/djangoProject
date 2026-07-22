@@ -574,10 +574,11 @@ def open_attachment_folder(request, pk):
 def compose_modal(request):
     """Редактор для создания нового письма."""
     form = ComposeEmailForm()
+    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
     return render(request, 'email_ui/partials/compose_modal.html', {
         'form': form,
         'mode': 'compose',
-        'tab_id': 'compose',
+        'contacts': contacts,
     })
 
 
@@ -594,14 +595,17 @@ def reply_modal(request, pk, reply_type='reply'):
     }
 
     # Подгружаем тело исходного письма для цитирования
+    # Для forward: предзаполняем тело письма (пользователь редактирует его)
+    # Для reply: тело пустое, исходное письмо добавляется при отправке (include_original)
     body_text = ''
-    html_path = email.get_html_file_path()
-    if html_path and os.path.exists(html_path):
-        try:
-            with open(html_path, 'r', encoding='utf-8') as f:
-                body_text = f.read()
-        except Exception:
-            pass
+    if reply_type == 'forward':
+        html_path = email.get_html_file_path()
+        if html_path and os.path.exists(html_path):
+            try:
+                with open(html_path, 'r', encoding='utf-8') as f:
+                    body_text = f.read()
+            except Exception:
+                pass
 
     to_addr = ''
     cc_addr = ''
@@ -613,6 +617,7 @@ def reply_modal(request, pk, reply_type='reply'):
     elif reply_type == 'forward':
         to_addr = ''
 
+    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
     context = {
         'form': form,
         'email': email,
@@ -621,7 +626,7 @@ def reply_modal(request, pk, reply_type='reply'):
         'to': to_addr,
         'cc': cc_addr,
         'body': body_text,
-        'tab_id': f'{reply_type}-{pk}',
+        'contacts': contacts,
     }
     return render(request, 'email_ui/partials/compose_modal.html', context)
 
@@ -630,10 +635,18 @@ def reply_modal(request, pk, reply_type='reply'):
 @require_http_methods(['POST'])
 def send_email(request):
     """Отправка письма (AJAX)."""
+    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
     form = ComposeEmailForm(request.POST, request.FILES)
     if not form.is_valid():
         return render(request, 'email_ui/partials/compose_modal.html', {
-            'form': form, 'mode': 'compose',
+            'form': form, 'mode': 'compose', 'contacts': contacts,
+        }, status=400)
+
+    cd = form.cleaned_data
+    if not cd.get('to'):
+        form.add_error('to', 'Укажите получателя')
+        return render(request, 'email_ui/partials/compose_modal.html', {
+            'form': form, 'mode': 'compose', 'contacts': contacts,
         }, status=400)
 
     cd = form.cleaned_data
@@ -699,7 +712,7 @@ def send_email(request):
     except Exception as e:
         logger.exception(f'Ошибка отправки: {e}')
         return render(request, 'email_ui/partials/compose_modal.html', {
-            'form': form, 'mode': 'compose', 'error': str(e),
+            'form': form, 'mode': 'compose', 'contacts': contacts, 'error': str(e),
         }, status=400)
 
 
@@ -709,17 +722,19 @@ def reply_send(request, pk):
     """Отправка ответа/пересылки на письмо."""
     email = get_object_or_404(Email, pk=pk)
     mode = request.POST.get('mode', 'reply')
+    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
     form = ComposeReplyForm(request.POST)
     if not form.is_valid():
         return render(request, 'email_ui/partials/compose_modal.html', {
-            'form': form, 'email': email, 'mode': mode, 'error': 'Форма невалидна',
+            'form': form, 'email': email, 'mode': mode,
+            'contacts': contacts, 'error': 'Форма невалидна',
         }, status=400)
 
     cd = form.cleaned_data
     body = cd.get('body', '')
 
-    # Добавляем исходное письмо, если нужно
-    if cd.get('include_original'):
+    # Добавляем исходное письмо, если нужно (только для reply, не forward)
+    if cd.get('include_original') and mode != 'forward':
         original_body = ''
         html_path = email.get_html_file_path()
         if html_path and os.path.exists(html_path):
@@ -778,7 +793,8 @@ def reply_send(request, pk):
     except Exception as e:
         logger.exception(f'Ошибка отправки ответа: {e}')
         return render(request, 'email_ui/partials/compose_modal.html', {
-            'form': form, 'email': email, 'mode': mode, 'error': str(e),
+            'form': form, 'email': email, 'mode': mode,
+            'contacts': contacts, 'error': str(e),
         }, status=400)
 
 
@@ -791,16 +807,39 @@ def save_draft(request):
         return HttpResponseBadRequest('Форма невалидна')
 
     cd = form.cleaned_data
+    from django.conf import settings
+
+    # Создаём директорию черновиков
+    draft_dir = os.path.join(settings.DRAFT_DIRECTORY)
+    os.makedirs(draft_dir, exist_ok=True)
+
+    # Создаём уникальную поддиректорию для письма
+    from datetime import datetime
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    subject_clean = cd.get('subject', 'no_subject')[:50]
+    safe_subject = ''.join(c if c.isalnum() or c in ' -_.,()' else '_' for c in subject_clean).strip()
+    email_dir = os.path.join(draft_dir, f'{ts}_{safe_subject}')
+    os.makedirs(email_dir, exist_ok=True)
+
+    # Сохраняем HTML тело
+    body_content = cd.get('body', '')
+    if body_content:
+        body_path = os.path.join(email_dir, f'{safe_subject}.html')
+        with open(body_path, 'w', encoding='utf-8') as f:
+            f.write(body_content)
+
     email_obj = Email.objects.create(
         email_type='OUT',
-        subject=cd['subject'],
+        subject=cd.get('subject', ''),
         sender='',
-        receiver=cd['to'],
+        receiver=cd.get('to', ''),
         cc=cd.get('cc', ''),
         bcc=cd.get('bcc', ''),
+        link=email_dir,
         folder='drafts',
         sent_status='draft',
     )
+
     return HttpResponse(status=204)
 
 
@@ -917,7 +956,7 @@ def contact_search(request):
     data = [{
         'id': c.id,
         'name': c.name,
-        'email': c.primary_email.email if c.primary_email else '',
+        'email': c.primary_email.email if c.primary_email else (c.emails.first().email if c.emails.exists() else ''),
         'company': c.company.name if c.company else '',
     } for c in contacts]
     return JsonResponse(data, safe=False)
