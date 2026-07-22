@@ -96,13 +96,6 @@ def select_default_widget(qs, label: str, field_name:str, _choices=None):
 
 
 class TaskFilterForm(forms.Form):
-    qs = Task.objects.all()
-    project_site = select_default_widget(qs, 'Площадка', 'project_site')
-    sub_project = select_default_widget(qs, 'Проект', 'sub_project')
-    status = select_default_widget(qs, 'Статус', 'status')
-    category = select_default_widget(qs, 'Категория', 'category')
-    contractor = select_default_widget(qs, 'Ответсв.', 'contractor')
-    building_number = select_default_widget(qs, 'Здание', 'building_number')
     due_date = forms.ChoiceField(
         widget=forms.Select,
         choices=[('', ''),
@@ -113,13 +106,24 @@ class TaskFilterForm(forms.Form):
         required=False,
         label="Окончание",
     )
-    helper = FormHelper()
-    helper.form_class = 'form-vertical'
-    helper.label_class = 'col-lg-7'
-    helper.field_class = 'col-lg-7'
-    helper.add_input(Submit('submit', 'Обновить', css_class='btn-success'))
-    helper.add_input(Submit('save_attachments', 'Экспорт в ексель', css_class='btn-primary'))
-    helper.layout = Layout(
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        qs = Task.objects.all()
+        self.fields['project_site'] = select_default_widget(qs, 'Площадка', 'project_site')
+        self.fields['sub_project'] = select_default_widget(qs, 'Проект', 'sub_project')
+        self.fields['status'] = select_default_widget(qs, 'Статус', 'status')
+        self.fields['category'] = select_default_widget(qs, 'Категория', 'category')
+        self.fields['contractor'] = select_default_widget(qs, 'Ответсв.', 'contractor')
+        self.fields['building_number'] = select_default_widget(qs, 'Здание', 'building_number')
+
+        self.helper = FormHelper()
+        self.helper.form_class = 'form-vertical'
+        self.helper.label_class = 'col-lg-7'
+        self.helper.field_class = 'col-lg-7'
+        self.helper.add_input(Submit('submit', 'Обновить', css_class='btn-success'))
+        self.helper.add_input(Submit('save_attachments', 'Экспорт в ексель', css_class='btn-primary'))
+        self.helper.layout = Layout(
         Row(
             Column('project_site'),
             Column('sub_project'),
