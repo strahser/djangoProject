@@ -1,5 +1,5 @@
 import re
-from typing import List, Union
+from typing import List, Optional, Union
 
 import bleach
 
@@ -55,3 +55,85 @@ ALLOWED_ATTRIBUTES = {
 def clean_email_html(html_content):
     """Очистка HTML от опасных тегов и скриптов."""
     return bleach.clean(html_content, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES, strip=True)
+
+
+_EMAIL_IN_ANGLE_RE = re.compile(r'<([^>]+@[^>]+)>')
+_EMAIL_STANDALONE_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+
+
+def extract_email_address(text: str) -> Optional[str]:
+    """
+    Extract a valid email address from a string.
+    Handles formats:
+      - "Name" <email@example.com>
+      - Name <email@example.com>
+      - email@example.com
+      - Multiple comma-separated addresses
+    Returns the first valid email found, or None.
+    """
+    if not text:
+        return None
+    text = text.strip()
+    if not text:
+        return None
+
+    m = _EMAIL_IN_ANGLE_RE.search(text)
+    if m:
+        return m.group(1).strip()
+
+    parts = [p.strip() for p in text.split(',') if p.strip()]
+    for part in parts:
+        if _EMAIL_STANDALONE_RE.match(part):
+            return part
+
+    return None
+
+
+def extract_all_email_addresses(text: str) -> List[str]:
+    """
+    Extract all email addresses from a string (possibly comma-separated).
+    Handles both <email> and bare email formats.
+    """
+    if not text:
+        return []
+    text = text.strip()
+    if not text:
+        return []
+
+    results = []
+    for m in _EMAIL_IN_ANGLE_RE.finditer(text):
+        results.append(m.group(1).strip())
+
+    for part in text.split(','):
+        part = part.strip()
+        if _EMAIL_STANDALONE_RE.match(part) and part not in results:
+            results.append(part)
+
+    return results
+
+
+def resolve_sender_to_email(sender: str) -> str:
+    """
+    Resolve a sender string to an email address.
+    If the sender string contains an email, extract it.
+    If it's just a name, try to look up the Contact model.
+    Falls back to returning the original string.
+    """
+    if not sender:
+        return ''
+
+    email = extract_email_address(sender)
+    if email:
+        return email
+
+    from .models import Contact, ContactEmail
+    contacts = Contact.objects.filter(is_active=True, name__icontains=sender.strip())
+    for contact in contacts:
+        primary = contact.primary_email
+        if primary:
+            return primary.email
+        first = contact.emails.first()
+        if first:
+            return first.email
+
+    return sender

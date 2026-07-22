@@ -119,10 +119,16 @@ function saveDraft() {
     }
     var form = document.getElementById('compose-form');
     if (!form) return;
+    var params = new URLSearchParams();
+    var fields = ['to', 'cc', 'bcc', 'subject', 'body'];
+    fields.forEach(function(name) {
+        var el = form.elements[name];
+        if (el) params.append(name, el.value);
+    });
     fetch('{% url "email_ui:save_draft" %}', {
         method: 'POST',
         headers: {'X-CSRFToken': '{{ csrf_token }}'},
-        body: new URLSearchParams(new FormData(form))
+        body: params
     }).then(r => {
         if (r.ok || r.status === 204) {
             EmailApp.clearDirty();

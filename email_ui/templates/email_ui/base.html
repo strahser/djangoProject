@@ -157,11 +157,6 @@
             }
         };
 
-        document.addEventListener('shown.bs.modal', function(e) {
-            if (e.target.id === 'draftConfirmModal' && window.EmailApp.pendingAction) {
-            }
-        });
-
         document.addEventListener('htmx:afterSwap', function(evt) {
             if (evt.detail.target.id === 'emailModalContent' || evt.detail.target.id === 'emailModal') {
                 window.initTinyMCE();
@@ -170,7 +165,9 @@
 
         window.initTinyMCE = function() {
             if (typeof tinymce === 'undefined') return;
-            tinymce.remove('#compose-editor');
+            var el = document.getElementById('compose-editor');
+            if (!el) return;
+            if (tinymce.get('compose-editor')) return;
             tinymce.init({
                 selector: '#compose-editor',
                 height: 500,
@@ -229,10 +226,6 @@
                 EmailApp.pendingAction();
                 EmailApp.pendingAction = null;
             }
-        });
-
-        document.getElementById('draftConfirmModal').addEventListener('hide.bs.modal', function() {
-            EmailApp.pendingAction = null;
         });
     </script>
 </body>

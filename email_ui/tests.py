@@ -1,6 +1,7 @@
 import os
 import tempfile
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
@@ -13,6 +14,7 @@ from email_ui.models import (
     EmailTag, EmailTaskLink, EmailTemplate, SavedFilter, SMTPAccount,
 )
 from email_ui.utils import sanitize_id, sanitize_id_list, clean_email_html
+from email_ui.utils import extract_email_address, extract_all_email_addresses, resolve_sender_to_email
 
 
 class UtilsTest(TestCase):
@@ -973,3 +975,374 @@ class EmailAttachmentExtendedFieldsTest(CategoryMixin, TestCase):
                 size=100,
             )
             self.assertEqual(att.icon_class, expected, f'Failed for .{ext}')
+
+
+class ExtractEmailAddressTest(TestCase):
+    """Tests for extract_email_address utility."""
+
+    def test_angle_bracket_format(self):
+        self.assertEqual(extract_email_address('Name <email@test.com>'), 'email@test.com')
+
+    def test_quoted_name_format(self):
+        self.assertEqual(extract_email_address('"Name" <email@test.com>'), 'email@test.com')
+
+    def test_bare_email(self):
+        self.assertEqual(extract_email_address('email@test.com'), 'email@test.com')
+
+    def test_name_only(self):
+        self.assertIsNone(extract_email_address('Sergey Strakhov'))
+
+    def test_empty_string(self):
+        self.assertIsNone(extract_email_address(''))
+
+    def test_none(self):
+        self.assertIsNone(extract_email_address(None))
+
+    def test_whitespace(self):
+        self.assertIsNone(extract_email_address('   '))
+
+    def test_mixed_format(self):
+        result = extract_email_address('Sergey Strakhov <strakhov.s@cimrus.com>')
+        self.assertEqual(result, 'strakhov.s@cimrus.com')
+
+    def test_comma_separated(self):
+        result = extract_email_address('email1@test.com, email2@test.com')
+        self.assertEqual(result, 'email1@test.com')
+
+    def test_name_then_email(self):
+        result = extract_email_address('Sergey Strakhov, strakhov.s@cimrus.com')
+        self.assertEqual(result, 'strakhov.s@cimrus.com')
+
+
+class ExtractAllEmailAddressesTest(TestCase):
+    """Tests for extract_all_email_addresses utility."""
+
+    def test_single_email(self):
+        self.assertEqual(extract_all_email_addresses('email@test.com'), ['email@test.com'])
+
+    def test_angle_bracket(self):
+        result = extract_all_email_addresses('Name <email@test.com>')
+        self.assertEqual(result, ['email@test.com'])
+
+    def test_comma_separated(self):
+        result = extract_all_email_addresses('a@test.com, b@test.com')
+        self.assertEqual(result, ['a@test.com', 'b@test.com'])
+
+    def test_mixed(self):
+        result = extract_all_email_addresses('Name <a@test.com>, b@test.com')
+        self.assertEqual(result, ['a@test.com', 'b@test.com'])
+
+    def test_empty(self):
+        self.assertEqual(extract_all_email_addresses(''), [])
+
+    def test_none(self):
+        self.assertEqual(extract_all_email_addresses(None), [])
+
+    def test_no_emails(self):
+        self.assertEqual(extract_all_email_addresses('Just some text'), [])
+
+
+class ResolveSenderToEmailTest(TestCase):
+    """Tests for resolve_sender_to_email utility."""
+
+    def test_already_email(self):
+        self.assertEqual(resolve_sender_to_email('user@test.com'), 'user@test.com')
+
+    def test_angle_bracket_format(self):
+        result = resolve_sender_to_email('Name <user@test.com>')
+        self.assertEqual(result, 'user@test.com')
+
+    def test_name_only_with_contact(self):
+        contact = Contact.objects.create(name='John Doe')
+        ContactEmail.objects.create(contact=contact, email='john@test.com', is_primary=True)
+        result = resolve_sender_to_email('John Doe')
+        self.assertEqual(result, 'john@test.com')
+
+    def test_name_only_no_contact(self):
+        result = resolve_sender_to_email('Unknown Person')
+        self.assertEqual(result, 'Unknown Person')
+
+    def test_empty(self):
+        self.assertEqual(resolve_sender_to_email(''), '')
+
+    def test_none(self):
+        self.assertEqual(resolve_sender_to_email(None), '')
+
+
+class ComposeModalViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Tests for compose modal view."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('composeuser', 'compose@test.com', 'password')
+        self.client.login(username='composeuser', password='password')
+        self.contact = Contact.objects.create(name='Test Contact')
+        ContactEmail.objects.create(contact=self.contact, email='test@contact.com', is_primary=True)
+
+    def test_compose_modal_status(self):
+        response = self.client.get(reverse('email_ui:compose_modal'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_compose_modal_template(self):
+        response = self.client.get(reverse('email_ui:compose_modal'))
+        self.assertTemplateUsed(response, 'email_ui/partials/compose_modal.html')
+
+    def test_compose_modal_has_contacts(self):
+        response = self.client.get(reverse('email_ui:compose_modal'))
+        self.assertIn('contacts', response.context)
+        self.assertEqual(response.context['contacts'].count(), 1)
+
+    def test_compose_modal_mode(self):
+        response = self.client.get(reverse('email_ui:compose_modal'))
+        self.assertEqual(response.context['mode'], 'compose')
+
+
+class ReplyModalViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Tests for reply modal view - sender should be resolved to email."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('replyuser', 'reply@test.com', 'password')
+        self.client.login(username='replyuser', password='password')
+        self.email = self.create_test_email(
+            uid='reply-uid-1',
+            sender='Sergey Strakhov <strakhov.s@cimrus.com>',
+        )
+
+    def test_reply_modal_resolves_sender_email(self):
+        response = self.client.get(
+            reverse('email_ui:reply_modal', args=[self.email.pk, 'reply'])
+        )
+        self.assertEqual(response.context['to'], 'strakhov.s@cimrus.com')
+
+    def test_reply_all_modal_resolves_sender_email(self):
+        response = self.client.get(
+            reverse('email_ui:reply_modal', args=[self.email.pk, 'reply_all'])
+        )
+        self.assertEqual(response.context['to'], 'strakhov.s@cimrus.com')
+
+    def test_forward_modal_to_empty(self):
+        response = self.client.get(
+            reverse('email_ui:reply_modal', args=[self.email.pk, 'forward'])
+        )
+        self.assertEqual(response.context['to'], '')
+
+    def test_reply_modal_sender_name_only_with_contact(self):
+        contact = Contact.objects.create(name='John Smith')
+        ContactEmail.objects.create(contact=contact, email='john@smith.com', is_primary=True)
+        self.email.sender = 'John Smith'
+        self.email.save()
+        response = self.client.get(
+            reverse('email_ui:reply_modal', args=[self.email.pk, 'reply'])
+        )
+        self.assertEqual(response.context['to'], 'john@smith.com')
+
+
+class SendEmailViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Tests for send_email view with mocked SMTP."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('senduser', 'send@test.com', 'password')
+        self.client.login(username='senduser', password='password')
+        self.smtp_account = SMTPAccount.objects.create(
+            name='Test SMTP',
+            host='smtp.test.com',
+            port=587,
+            username='user@test.com',
+            password='pass',
+            from_email='user@test.com',
+            from_name='Test User',
+            is_default=True,
+        )
+
+    @patch('email_ui.services.email_sender.smtplib.SMTP')
+    def test_send_email_success(self, mock_smtp):
+        mock_server = mock_smtp.return_value.__enter__.return_value
+        mock_server.sendmail.return_value = {}
+
+        response = self.client.post(reverse('email_ui:send_email'), {
+            'to': 'recipient@test.com',
+            'subject': 'Test Subject',
+            'body': '<p>Hello</p>',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'email_ui/partials/send_success.html')
+        mock_server.sendmail.assert_called_once()
+
+    @patch('email_ui.services.email_sender.smtplib.SMTP')
+    def test_send_email_resolves_angle_bracket(self, mock_smtp):
+        mock_server = mock_smtp.return_value.__enter__.return_value
+        mock_server.sendmail.return_value = {}
+
+        response = self.client.post(reverse('email_ui:send_email'), {
+            'to': 'Name <recipient@test.com>',
+            'subject': 'Test',
+            'body': '<p>Hi</p>',
+        })
+        self.assertEqual(response.status_code, 200)
+        call_args = mock_server.sendmail.call_args
+        recipients = call_args[0][1]
+        self.assertIn('recipient@test.com', recipients)
+
+    @patch('email_ui.services.email_sender.smtplib.SMTP')
+    def test_send_email_multiple_recipients(self, mock_smtp):
+        mock_server = mock_smtp.return_value.__enter__.return_value
+        mock_server.sendmail.return_value = {}
+
+        response = self.client.post(reverse('email_ui:send_email'), {
+            'to': 'a@test.com, b@test.com',
+            'subject': 'Multi',
+            'body': '<p>Hi</p>',
+        })
+        self.assertEqual(response.status_code, 200)
+        call_args = mock_server.sendmail.call_args
+        recipients = call_args[0][1]
+        self.assertIn('a@test.com', recipients)
+        self.assertIn('b@test.com', recipients)
+
+    def test_send_email_no_recipient(self):
+        response = self.client.post(reverse('email_ui:send_email'), {
+            'to': '',
+            'subject': 'No recipient',
+            'body': '<p>Hi</p>',
+        })
+        self.assertEqual(response.status_code, 400)
+
+    def test_send_email_name_only_fails_validation(self):
+        """Sending to a plain name without email should fail."""
+        response = self.client.post(reverse('email_ui:send_email'), {
+            'to': 'Sergey Strakhov',
+            'subject': 'Name only',
+            'body': '<p>Hi</p>',
+        })
+        self.assertIn(response.status_code, [400, 200])
+
+
+class ReplySendViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Tests for reply_send view with mocked SMTP."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('replysenduser', 'rs@test.com', 'password')
+        self.client.login(username='replysenduser', password='password')
+        self.smtp_account = SMTPAccount.objects.create(
+            name='Test SMTP',
+            host='smtp.test.com',
+            port=587,
+            username='user@test.com',
+            password='pass',
+            from_email='user@test.com',
+            from_name='Test User',
+            is_default=True,
+        )
+        self.email = self.create_test_email(
+            uid='replysend-uid-1',
+            sender='Sergey Strakhov <strakhov.s@cimrus.com>',
+        )
+
+    @patch('email_ui.services.email_sender.smtplib.SMTP')
+    def test_reply_send_resolves_sender(self, mock_smtp):
+        mock_server = mock_smtp.return_value.__enter__.return_value
+        mock_server.sendmail.return_value = {}
+
+        response = self.client.post(
+            reverse('email_ui:reply_send', args=[self.email.pk]),
+            {'mode': 'reply', 'body': 'Reply text', 'subject': 'Re: Test'}
+        )
+        self.assertEqual(response.status_code, 200)
+        call_args = mock_server.sendmail.call_args
+        recipients = call_args[0][1]
+        self.assertIn('strakhov.s@cimrus.com', recipients)
+        self.assertNotIn('Sergey Strakhov', recipients)
+
+    @patch('email_ui.services.email_sender.smtplib.SMTP')
+    def test_reply_send_with_typed_email(self, mock_smtp):
+        mock_server = mock_smtp.return_value.__enter__.return_value
+        mock_server.sendmail.return_value = {}
+
+        response = self.client.post(
+            reverse('email_ui:reply_send', args=[self.email.pk]),
+            {'mode': 'reply', 'to': 'other@test.com', 'body': 'Hi', 'subject': 'Re: Test'}
+        )
+        self.assertEqual(response.status_code, 200)
+        call_args = mock_server.sendmail.call_args
+        recipients = call_args[0][1]
+        self.assertIn('other@test.com', recipients)
+
+    @patch('email_ui.services.email_sender.smtplib.SMTP')
+    def test_forward_send_no_original_body(self, mock_smtp):
+        mock_server = mock_smtp.return_value.__enter__.return_value
+        mock_server.sendmail.return_value = {}
+
+        response = self.client.post(
+            reverse('email_ui:reply_send', args=[self.email.pk]),
+            {'mode': 'forward', 'to': 'fwd@test.com', 'body': 'Forwarded', 'subject': 'Fwd: Test'}
+        )
+        self.assertEqual(response.status_code, 200)
+
+
+class SaveDraftViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Tests for save_draft view."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('draftuser', 'draft@test.com', 'password')
+        self.client.login(username='draftuser', password='password')
+
+    @override_settings(DRAFT_DIRECTORY=os.path.join(tempfile.gettempdir(), 'test_drafts'))
+    def test_save_draft_with_subject(self):
+        response = self.client.post(reverse('email_ui:save_draft'), {
+            'to': 'recipient@test.com',
+            'subject': 'Draft Subject',
+            'body': '<p>Draft body</p>',
+        })
+        self.assertEqual(response.status_code, 204)
+        draft = Email.objects.filter(folder='drafts').first()
+        self.assertIsNotNone(draft)
+        self.assertEqual(draft.subject, 'Draft Subject')
+        self.assertEqual(draft.receiver, 'recipient@test.com')
+        self.assertEqual(draft.sent_status, 'draft')
+
+    @override_settings(DRAFT_DIRECTORY=os.path.join(tempfile.gettempdir(), 'test_drafts'))
+    def test_save_draft_without_subject(self):
+        """Draft should save even without subject."""
+        response = self.client.post(reverse('email_ui:save_draft'), {
+            'to': 'recipient@test.com',
+            'subject': '',
+            'body': '<p>No subject draft</p>',
+        })
+        self.assertEqual(response.status_code, 204)
+        draft = Email.objects.filter(folder='drafts').first()
+        self.assertIsNotNone(draft)
+        self.assertEqual(draft.subject, '')
+
+    @override_settings(DRAFT_DIRECTORY=os.path.join(tempfile.gettempdir(), 'test_drafts'))
+    def test_save_draft_empty_body(self):
+        response = self.client.post(reverse('email_ui:save_draft'), {
+            'subject': 'Empty body',
+        })
+        self.assertEqual(response.status_code, 204)
+        draft = Email.objects.filter(folder='drafts').first()
+        self.assertIsNotNone(draft)
+
+    @override_settings(DRAFT_DIRECTORY=os.path.join(tempfile.gettempdir(), 'test_drafts'))
+    def test_save_draft_creates_file(self):
+        response = self.client.post(reverse('email_ui:save_draft'), {
+            'subject': 'File Test',
+            'body': '<p>Saved body</p>',
+        })
+        self.assertEqual(response.status_code, 204)
+        draft = Email.objects.filter(folder='drafts').first()
+        self.assertIsNotNone(draft)
+        self.assertTrue(os.path.exists(draft.link))
+        html_files = [f for f in os.listdir(draft.link) if f.endswith('.html')]
+        self.assertEqual(len(html_files), 1)
+        with open(os.path.join(draft.link, html_files[0]), 'r', encoding='utf-8') as f:
+            content = f.read()
+        self.assertIn('Saved body', content)
+
+    @override_settings(DRAFT_DIRECTORY=os.path.join(tempfile.gettempdir(), 'test_drafts'))
+    def test_save_draft_requires_post(self):
+        response = self.client.get(reverse('email_ui:save_draft'))
+        self.assertEqual(response.status_code, 405)

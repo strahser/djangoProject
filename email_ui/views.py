@@ -35,7 +35,10 @@ from .models import (
     EmailTag, EmailTaskLink, EmailTemplate, SavedFilter, SMTPAccount,
 )
 from .services.email_sender import EmailSenderService
-from .utils import clean_email_html, sanitize_id, sanitize_id_list
+from .utils import (
+    clean_email_html, extract_all_email_addresses, resolve_sender_to_email,
+    sanitize_id, sanitize_id_list,
+)
 PER_PAGE = 50
 # Разрешённые поля для сортировки
 
@@ -610,9 +613,9 @@ def reply_modal(request, pk, reply_type='reply'):
     to_addr = ''
     cc_addr = ''
     if reply_type == 'reply':
-        to_addr = email.sender or ''
+        to_addr = resolve_sender_to_email(email.sender or '')
     elif reply_type == 'reply_all':
-        to_addr = email.sender or ''
+        to_addr = resolve_sender_to_email(email.sender or '')
         cc_addr = email.cc or ''
     elif reply_type == 'forward':
         to_addr = ''
@@ -673,9 +676,24 @@ def send_email(request):
             use_outlook=use_outlook,
         )
 
-        to_list = [addr.strip() for addr in cd['to'].split(',') if addr.strip()]
-        cc_list = [addr.strip() for addr in cd.get('cc', '').split(',') if addr.strip()]
-        bcc_list = [addr.strip() for addr in cd.get('bcc', '').split(',') if addr.strip()]
+        to_list = extract_all_email_addresses(cd['to'])
+        if not to_list:
+            to_list = [addr.strip() for addr in cd['to'].split(',') if addr.strip()]
+
+        from .utils import _EMAIL_STANDALONE_RE
+        invalid = [a for a in to_list if not _EMAIL_STANDALONE_RE.match(a)]
+        if invalid:
+            form.add_error('to', f'Некорректные адреса: {", ".join(invalid)}')
+            return render(request, 'email_ui/partials/compose_modal.html', {
+                'form': form, 'mode': 'compose', 'contacts': contacts,
+            }, status=400)
+
+        cc_list = extract_all_email_addresses(cd.get('cc', ''))
+        if not cc_list:
+            cc_list = [addr.strip() for addr in cd.get('cc', '').split(',') if addr.strip()]
+        bcc_list = extract_all_email_addresses(cd.get('bcc', ''))
+        if not bcc_list:
+            bcc_list = [addr.strip() for addr in cd.get('bcc', '').split(',') if addr.strip()]
 
         result = sender.send_via_smtp(
             to_emails=to_list,
@@ -745,13 +763,17 @@ def reply_send(request, pk):
     # Формируем получателей
     to_raw = cd.get('to', '')
     if not to_raw and mode in ('reply', 'reply_all'):
-        to_raw = email.sender or ''
-    to_list = [addr.strip() for addr in to_raw.split(',') if addr.strip()]
+        to_raw = resolve_sender_to_email(email.sender or '')
+    to_list = extract_all_email_addresses(to_raw)
+    if not to_list:
+        to_list = [addr.strip() for addr in to_raw.split(',') if addr.strip()]
 
     cc_raw = cd.get('cc', '')
     if not cc_raw and mode == 'reply_all' and email.cc:
         cc_raw = email.cc
-    cc_list = [addr.strip() for addr in cc_raw.split(',') if addr.strip()]
+    cc_list = extract_all_email_addresses(cc_raw)
+    if not cc_list:
+        cc_list = [addr.strip() for addr in cc_raw.split(',') if addr.strip()]
 
     subject = cd.get('subject', '')
     if not subject:
@@ -802,11 +824,12 @@ def reply_send(request, pk):
 @require_http_methods(['POST'])
 def save_draft(request):
     """Сохранить черновик письма."""
-    form = ComposeEmailForm(request.POST)
-    if not form.is_valid():
-        return HttpResponseBadRequest('Форма невалидна')
+    to_val = request.POST.get('to', '')
+    cc_val = request.POST.get('cc', '')
+    bcc_val = request.POST.get('bcc', '')
+    subject_val = request.POST.get('subject', '')
+    body_val = request.POST.get('body', '')
 
-    cd = form.cleaned_data
     from django.conf import settings
 
     # Создаём директорию черновиков
@@ -816,25 +839,24 @@ def save_draft(request):
     # Создаём уникальную поддиректорию для письма
     from datetime import datetime
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    subject_clean = cd.get('subject', 'no_subject')[:50]
+    subject_clean = subject_val[:50] if subject_val else 'no_subject'
     safe_subject = ''.join(c if c.isalnum() or c in ' -_.,()' else '_' for c in subject_clean).strip()
     email_dir = os.path.join(draft_dir, f'{ts}_{safe_subject}')
     os.makedirs(email_dir, exist_ok=True)
 
     # Сохраняем HTML тело
-    body_content = cd.get('body', '')
-    if body_content:
+    if body_val:
         body_path = os.path.join(email_dir, f'{safe_subject}.html')
         with open(body_path, 'w', encoding='utf-8') as f:
-            f.write(body_content)
+            f.write(body_val)
 
-    email_obj = Email.objects.create(
+    Email.objects.create(
         email_type='OUT',
-        subject=cd.get('subject', ''),
+        subject=subject_val,
         sender='',
-        receiver=cd.get('to', ''),
-        cc=cd.get('cc', ''),
-        bcc=cd.get('bcc', ''),
+        receiver=to_val,
+        cc=cc_val,
+        bcc=bcc_val,
         link=email_dir,
         folder='drafts',
         sent_status='draft',
