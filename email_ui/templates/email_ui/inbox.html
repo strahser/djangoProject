@@ -24,13 +24,12 @@
                         </button>
                     </form>
                     <button class="btn btn-primary btn-sm" title="Написать"
-                            onclick="MailApp.openTab('compose', 'Новое письмо', '{% url 'email_ui:compose_modal' %}'); return false;">
+                            onclick="EmailApp.openCompose('{% url 'email_ui:compose_modal' %}'); return false;">
                         <i class="bi bi-pencil-square"></i>
                     </button>
                 </div>
             </div>
 
-            <!-- Фильтры -->
             <div class="collapsible-section">
                 <div class="section-header" onclick="toggleSection(this)">
                     <span><i class="bi bi-funnel"></i> Фильтры</span>
@@ -41,7 +40,6 @@
                 </div>
             </div>
 
-            <!-- Массовые действия -->
             <div id="bulk-action-bar" class="mt-2 d-none">
                 <form id="bulk-form" method="post"
                       hx-post="{% url 'email_ui:bulk_action' %}"
@@ -66,9 +64,6 @@
 
     <!-- Right panel: detail / compose -->
     <div class="detail-panel">
-        <div class="detail-tabs">
-            <ul class="nav nav-tabs" id="detail-tabs-list"></ul>
-        </div>
         <div class="detail-content" id="detail-content">
             <div class="empty-state">
                 <div class="text-center">

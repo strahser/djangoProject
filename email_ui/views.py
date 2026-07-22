@@ -692,7 +692,9 @@ def send_email(request):
                 Attachment.objects.filter(id__in=[a.id for a in attachment_objs]).update(email=email_obj)
 
             messages.success(request, 'Письмо отправлено')
-            return HttpResponse(status=204)
+            return render(request, 'email_ui/partials/send_success.html', {
+                'message': 'Письмо отправлено',
+            })
 
     except Exception as e:
         logger.exception(f'Ошибка отправки: {e}')
@@ -770,7 +772,9 @@ def reply_send(request, pk):
         )
 
         messages.success(request, 'Письмо отправлено')
-        return HttpResponse(status=204)
+        return render(request, 'email_ui/partials/send_success.html', {
+            'message': 'Письмо отправлено',
+        })
     except Exception as e:
         logger.exception(f'Ошибка отправки ответа: {e}')
         return render(request, 'email_ui/partials/compose_modal.html', {
@@ -797,7 +801,6 @@ def save_draft(request):
         folder='drafts',
         sent_status='draft',
     )
-    messages.success(request, 'Черновик сохранён')
     return HttpResponse(status=204)
 
 

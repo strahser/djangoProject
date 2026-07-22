@@ -41,7 +41,7 @@
         <tbody id="email-table-body">
             {% for email in page_obj %}
             <tr class="{% if not email.is_read %}unread{% endif %} email-row"
-                onclick="MailApp.openTab('email-{{ email.pk }}', '{{ email.subject|truncatechars:30|escapejs }}', '{% url 'email_ui:email_detail_modal' email.pk %}')">
+                onclick="EmailApp.openEmail('{% url 'email_ui:email_detail_modal' email.pk %}')">
                 <td onclick="event.stopPropagation()">
                     <input type="checkbox" name="selected_emails" value="{{ email.pk }}" form="bulk-form">
                 </td>

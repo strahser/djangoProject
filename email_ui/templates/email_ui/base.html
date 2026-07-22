@@ -12,31 +12,25 @@
         .unread { font-weight: bold; }
         .sidebar { min-height: 100vh; border-right: 1px solid #dee2e6; }
 
-        /* ===== Split-panel layout ===== */
         .split-panel { display: flex; height: calc(100vh - 56px); overflow: hidden; }
         .list-panel { flex: 0 0 420px; border-right: 1px solid #dee2e6; display: flex; flex-direction: column; overflow: hidden; }
         .list-panel-header { flex: 0 0 auto; }
         .list-panel-body { flex: 1; overflow-y: auto; }
         .detail-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .detail-content { flex: 1; overflow-y: auto; }
 
-        /* ===== Tabs for multi-window ===== */
-        .detail-tabs { flex: 0 0 auto; display: flex; align-items: center; border-bottom: 1px solid #dee2e6; background: #f8f9fa; min-height: 42px; }
-        .detail-tabs .nav-tabs { border: none; margin: 0; padding: 0 8px; flex: 1; overflow-x: auto; white-space: nowrap; }
-        .detail-tabs .nav-tabs .nav-link { border: none; border-radius: 0; padding: 8px 14px; font-size: 13px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
-        .detail-tabs .nav-tabs .nav-link.active { background: #fff; border-bottom: 2px solid #0d6efd; }
-        .detail-tabs .nav-tabs .nav-link .tab-close { margin-left: 6px; font-size: 11px; opacity: 0.5; }
-        .detail-tabs .nav-tabs .nav-link:hover .tab-close { opacity: 1; }
-
-        /* ===== Detail / Compose panel ===== */
-        .detail-content { flex: 1; overflow-y: auto; padding: 16px; }
-        .compose-panel { flex: 1; display: flex; flex-direction: column; }
+        .compose-panel { display: flex; flex-direction: column; height: 100%; }
         .compose-header { flex: 0 0 auto; padding: 12px 16px; border-bottom: 1px solid #dee2e6; background: #f8f9fa; }
-        .compose-body { flex: 1; overflow-y: auto; padding: 16px; }
-        .compose-footer { flex: 0 0 auto; padding: 12px 16px; border-top: 1px solid #dee2e6; background: #f8f9fa; }
-        .compose-body textarea { border: none; resize: none; outline: none; font-size: 14px; min-height: 300px; }
-        .compose-body textarea:focus { box-shadow: none; }
+        .compose-fields { flex: 0 0 auto; padding: 12px 16px; border-bottom: 1px solid #eee; }
+        .compose-editor { flex: 1; overflow-y: auto; padding: 16px; }
+        .compose-editor textarea { border: none; resize: none; outline: none; font-size: 14px; width: 100%; min-height: 100%; }
+        .compose-editor textarea:focus { box-shadow: none; }
+        .compose-footer { flex: 0 0 auto; padding: 12px 16px; border-bottom: 1px solid #dee2e6; background: #f8f9fa; }
 
-        /* ===== Collapsible sections ===== */
+        .detail-toolbar { padding: 10px 16px; border-bottom: 1px solid #dee2e6; background: #f8f9fa; }
+        .detail-meta { padding: 16px; }
+        .detail-body { padding: 0 16px 16px 16px; }
+
         .collapsible-section { border: 1px solid #dee2e6; border-radius: 6px; margin-bottom: 8px; }
         .collapsible-section .section-header { padding: 8px 12px; cursor: pointer; background: #f8f9fa; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; user-select: none; }
         .collapsible-section .section-header:hover { background: #e9ecef; }
@@ -45,12 +39,10 @@
         .collapsible-section .section-body { padding: 8px 12px; display: none; }
         .collapsible-section .section-body.show { display: block; }
 
-        /* ===== Empty state ===== */
         .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #6c757d; }
     </style>
 </head>
 <body>
-    <!-- Верхняя навигационная панель -->
     <nav class="navbar navbar-dark bg-dark px-3">
         <span class="navbar-brand mb-0 h1">
             <i class="bi bi-envelope"></i> Почтовый клиент
@@ -66,28 +58,39 @@
     </nav>
 
     <div class="split-panel">
-        <!-- Боковая панель -->
         <div class="col-md-2 p-0 sidebar bg-light" style="flex: 0 0 180px; min-height: 100%;">
             {% include "email_ui/partials/sidebar.html" %}
         </div>
-
-        <!-- Основной контент -->
         <div class="col-md-10 p-0">
             {% block content %}{% endblock %}
         </div>
     </div>
 
-    <!-- Модальное окно для задач (оставляем модалкой - это вспомогательное) -->
     <div class="modal fade" id="taskModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content" id="task-modal-container"></div>
         </div>
     </div>
-
-    <!-- Модальное окно для выбора фильтров (оставляем модалкой) -->
     <div class="modal fade" id="dynamicModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content" id="dynamicModalContent"></div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="draftConfirmModal" tabindex="-1">
+        <div class="modal-dialog modal-sm modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title">Несохранённое письмо</h6>
+                </div>
+                <div class="modal-body py-2">
+                    <p class="mb-0">Сохранить черновик перед закрытием?</p>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-secondary" id="draft-discard-btn">Нет</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="draft-save-btn">Сохранить</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -98,66 +101,85 @@
         evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
     });
 
-    /* ===== Multi-tab system ===== */
-    window.MailApp = {
-        tabs: [],
-        activeTab: null,
+    window.EmailApp = {
+        isDirty: false,
+        pendingAction: null,
+        draftFormId: null,
 
-        openTab: function(id, title, url) {
-            // Check if tab already exists
-            let existing = this.tabs.find(t => t.id === id);
-            if (existing) {
-                this.activateTab(id);
-                return;
-            }
-            // Create new tab
-            this.tabs.push({ id, title, url });
-            this.activateTab(id);
-            // Load content via HTMX
+        markDirty: function() { this.isDirty = true; },
+        clearDirty: function() { this.isDirty = false; },
+
+        loadContent: function(url) {
             htmx.ajax('GET', url, { target: '#detail-content', swap: 'innerHTML' });
         },
 
-        activateTab: function(id) {
-            this.activeTab = id;
-            this.renderTabs();
-            // Show/hide panels
-            let tab = this.tabs.find(t => t.id === id);
-            if (tab) {
-                // Load content
-                htmx.ajax('GET', tab.url, { target: '#detail-content', swap: 'innerHTML' });
-            }
+        checkDirtyThen: function(callback) {
+            if (!this.isDirty) { callback(); return; }
+            this.pendingAction = callback;
+            var modal = new bootstrap.Modal(document.getElementById('draftConfirmModal'));
+            modal.show();
         },
 
-        closeTab: function(id, evt) {
-            if (evt) evt.stopPropagation();
-            this.tabs = this.tabs.filter(t => t.id !== id);
-            if (this.activeTab === id) {
-                if (this.tabs.length > 0) {
-                    this.activateTab(this.tabs[this.tabs.length - 1].id);
-                } else {
-                    this.activeTab = null;
-                    document.getElementById('detail-content').innerHTML = '<div class="empty-state"><div class="text-center"><i class="bi bi-envelope" style="font-size:48px"></i><p class="mt-2">Выберите письмо</p></div></div>';
-                }
-            }
-            this.renderTabs();
-        },
-
-        renderTabs: function() {
-            let container = document.getElementById('detail-tabs-list');
-            if (!container) return;
-            let html = '';
-            this.tabs.forEach(tab => {
-                let active = tab.id === this.activeTab ? ' active' : '';
-                let short = tab.title.length > 20 ? tab.title.substring(0, 20) + '...' : tab.title;
-                html += '<li class="nav-item">';
-                html += '<a class="nav-link' + active + '" href="#" onclick="MailApp.activateTab(\'' + tab.id + '\'); return false;">';
-                html += short;
-                html += '<span class="tab-close" onclick="MailApp.closeTab(\'' + tab.id + '\', event)">&times;</span>';
-                html += '</a></li>';
+        openEmail: function(url) {
+            this.checkDirtyThen(() => {
+                this.clearDirty();
+                this.loadContent(url);
             });
-            container.innerHTML = html;
+        },
+
+        openCompose: function(url) {
+            this.checkDirtyThen(() => {
+                this.clearDirty();
+                this.loadContent(url);
+            });
+        },
+
+        openReply: function(url) {
+            this.checkDirtyThen(() => {
+                this.clearDirty();
+                this.loadContent(url);
+            });
         }
     };
+
+    document.getElementById('draft-save-btn').addEventListener('click', function() {
+        var modal = bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal'));
+        modal.hide();
+        var form = document.getElementById('compose-form');
+        if (form) {
+            fetch('{% url "email_ui:save_draft" %}', {
+                method: 'POST',
+                headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
+                body: new URLSearchParams(new FormData(form))
+            }).then(() => {
+                EmailApp.clearDirty();
+                if (EmailApp.pendingAction) {
+                    EmailApp.pendingAction();
+                    EmailApp.pendingAction = null;
+                }
+            });
+        } else {
+            EmailApp.clearDirty();
+            if (EmailApp.pendingAction) {
+                EmailApp.pendingAction();
+                EmailApp.pendingAction = null;
+            }
+        }
+    });
+
+    document.getElementById('draft-discard-btn').addEventListener('click', function() {
+        var modal = bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal'));
+        modal.hide();
+        EmailApp.clearDirty();
+        if (EmailApp.pendingAction) {
+            EmailApp.pendingAction();
+            EmailApp.pendingAction = null;
+        }
+    });
+
+    document.getElementById('draftConfirmModal').addEventListener('hide.bs.modal', function() {
+        EmailApp.pendingAction = null;
+    });
 </script>
 </body>
 </html>

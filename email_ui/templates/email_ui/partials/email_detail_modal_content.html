@@ -1,20 +1,20 @@
-<!-- Toolbar (header) -->
-<div style="border-bottom: 1px solid #dee2e6; padding: 10px 16px; background: #f8f9fa;">
+<!-- Toolbar -->
+<div class="detail-toolbar">
     <div class="d-flex align-items-center gap-2 flex-wrap">
         <button class="btn btn-sm btn-outline-primary"
-                onclick="MailApp.openTab('reply-{{ email.pk }}', 'Re: {{ email.subject|truncatechars:20|escapejs }}', '{% url 'email_ui:reply_modal' email.pk 'reply' %}')">
+                onclick="EmailApp.openReply('{% url 'email_ui:reply_modal' email.pk 'reply' %}')">
             <i class="bi bi-reply"></i> Ответить
         </button>
         <button class="btn btn-sm btn-outline-primary"
-                onclick="MailApp.openTab('replyall-{{ email.pk }}', 'Re: {{ email.subject|truncatechars:20|escapejs }}', '{% url 'email_ui:reply_modal' email.pk 'reply_all' %}')">
+                onclick="EmailApp.openReply('{% url 'email_ui:reply_modal' email.pk 'reply_all' %}')">
             <i class="bi bi-reply-all"></i> Всем
         </button>
         <button class="btn btn-sm btn-outline-primary"
-                onclick="MailApp.openTab('fwd-{{ email.pk }}', 'Fwd: {{ email.subject|truncatechars:20|escapejs }}', '{% url 'email_ui:reply_modal' email.pk 'forward' %}')">
+                onclick="EmailApp.openReply('{% url 'email_ui:reply_modal' email.pk 'forward' %}')">
             <i class="bi bi-forward"></i> Переслать
         </button>
         <div class="vr"></div>
-        <!-- Теги (инлайн) -->
+        <!-- Теги -->
         <span id="email-tags-{{ email.pk }}">
             {% for et in email.email_tags.all %}
             <span class="badge rounded-pill" style="background-color: {{ et.tag.color }}">
@@ -41,8 +41,8 @@
     </div>
 </div>
 
-<!-- Мета-информация -->
-<div style="padding: 16px;">
+<!-- Meta info -->
+<div class="detail-meta">
     <h5>{{ email.subject }}</h5>
     <div class="row mb-3">
         <div class="col-md-8">
@@ -52,14 +52,13 @@
             <p class="mb-1"><strong>Дата:</strong> {{ email.email_stamp|date:"d.m.Y H:i" }}</p>
         </div>
         <div class="col-md-4 text-end">
-            <!-- Метаданные (редактируемые) -->
             <div id="metadata-block-{{ email.pk }}">
                 {% include "email_ui/partials/metadata_display.html" %}
             </div>
         </div>
     </div>
 
-    <!-- Задачи (collapsible) -->
+    <!-- Задачи -->
     <div class="collapsible-section">
         <div class="section-header" onclick="toggleSection(this)">
             <span><i class="bi bi-list-task"></i> Задачи ({% if email.tasks.all %}{{ email.tasks.count }}{% else %}0{% endif %})</span>
@@ -83,7 +82,7 @@
         </div>
     </div>
 
-    <!-- Вложения (collapsible) -->
+    <!-- Вложения -->
     <div class="collapsible-section">
         <div class="section-header" onclick="toggleSection(this)">
             <span><i class="bi bi-paperclip"></i> Вложения ({% if email.attachments.all %}{{ email.attachments.count }}{% else %}0{% endif %})</span>
@@ -93,9 +92,11 @@
             {% include "email_ui/partials/attachments_list.html" %}
         </div>
     </div>
+</div>
 
-    <!-- Тело письма -->
-    <div class="mt-3 border rounded p-3"
+<!-- Тело письма -->
+<div class="detail-body">
+    <div class="border rounded p-3"
          hx-get="{% url 'email_ui:email_body' email.pk %}"
          hx-trigger="load"
          hx-target="this"
@@ -123,7 +124,6 @@ function assignTag(emailId, tagId, tagName, tagColor) {
 }
 
 (function() {
-    // Пометить прочитанным при закрытии вкладки
     window.addEventListener('beforeunload', function() {
         navigator.sendBeacon('{% url "email_ui:mark_email_as_read" email.pk %}');
     });
