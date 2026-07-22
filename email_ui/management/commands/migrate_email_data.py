@@ -44,13 +44,13 @@ class Command(BaseCommand):
     @transaction.atomic
     def _migrate_contacts(self, dry_run):
         self.stdout.write('Извлечение контактов из существующих писем...')
-        sender_map = defaultdict(set)
+        sender_map = defaultdict(list)
         for email in Email.objects.exclude(sender__isnull=True).exclude(sender=''):
             for addr in self._extract_email_addresses(email.sender):
-                sender_map[addr].add(email.sender)
+                sender_map[addr].append(email.sender)
         for email in Email.objects.exclude(receiver__isnull=True).exclude(receiver=''):
             for addr in self._extract_email_addresses(email.receiver):
-                sender_map[addr].add(email.receiver)
+                sender_map[addr].append(email.receiver)
 
         created = 0
         skipped = 0
@@ -58,8 +58,9 @@ class Command(BaseCommand):
             if ContactEmail.objects.filter(email=addr).exists():
                 skipped += 1
                 continue
-            raw = next(iter(raw_senders), '')
-            name = raw.split('<')[0].strip(' "\'') if '<' in raw else raw.split('@')[0].strip(' "\'')
+            # Ищем лучший raw-источник для извлечения имени
+            best_raw = self._find_best_raw_for_name(addr, raw_senders)
+            name = self._extract_name(best_raw, addr)
             contact = Contact.objects.create(name=name or addr.split('@')[0])
             ContactEmail.objects.create(contact=contact, email=addr, is_primary=True)
             created += 1
@@ -69,6 +70,41 @@ class Command(BaseCommand):
             self.stdout.write(f'[DRY-RUN] Будет создано: {len(sender_map)} контактов')
         else:
             self.stdout.write(self.style.SUCCESS(msg))
+
+    @staticmethod
+    def _find_best_raw_for_name(addr, raw_list):
+        """Находит лучшую строку для извлечения имени контакта."""
+        addr_lower = addr.lower().rstrip('.')
+        # Лучший кандидат — самая короткая строка содержащая email (короткие = чистые имена)
+        candidates = [r for r in raw_list if addr_lower in r.lower()]
+        if not candidates:
+            return raw_list[0] if raw_list else addr
+        # Из кандидатов выбираем самую короткую
+        return min(candidates, key=len)
+
+    @staticmethod
+    def _extract_name(raw, email_addr):
+        """Извлекает имя контакта из строки отправителя."""
+        if not raw:
+            return email_addr.split('@')[0]
+
+        # Формат "Name <email@domain>" или "['Name'] <email@domain>"
+        if '<' in raw:
+            before_bracket = raw.split('<')[0].strip()
+            # Убираем скобки/кавычки/запятые из списка имён: "['Name1', 'Name2']" -> ищем имя для email
+            before_bracket = before_bracket.strip("[]'\" ")
+            if ',' in before_bracket:
+                # Список имён — для данного email имя не найдено
+                before_bracket = ''
+            if before_bracket and '@' not in before_bracket:
+                return before_bracket
+
+        # Простая строка без @ — это имя
+        clean = raw.strip().strip("[]'\"")
+        if '@' not in clean:
+            return clean
+
+        return email_addr.split('@')[0]
 
     @transaction.atomic
     def _create_default_smtp(self, dry_run):
@@ -97,14 +133,16 @@ class Command(BaseCommand):
 
         if not dry_run:
             SMTPAccount.objects.create(
-                name='Yandex IMAP',
-                host=host,
-                port=587,
+                name='Yandex SMTP',
+                host='smtp.yandex.ru',
+                port=465,
                 username=user,
                 password=password,
                 from_email=user,
                 from_name=user.split('@')[0],
                 is_default=True,
+                use_ssl=True,
+                use_tls=False,
             )
             self.stdout.write(self.style.SUCCESS('SMTP аккаунт создан'))
         else:

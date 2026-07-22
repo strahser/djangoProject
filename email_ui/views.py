@@ -572,11 +572,12 @@ def open_attachment_folder(request, pk):
 
 @login_required
 def compose_modal(request):
-    """Модальное окно для создания нового письма."""
+    """Редактор для создания нового письма."""
     form = ComposeEmailForm()
     return render(request, 'email_ui/partials/compose_modal.html', {
         'form': form,
         'mode': 'compose',
+        'tab_id': 'compose',
     })
 
 
@@ -620,6 +621,7 @@ def reply_modal(request, pk, reply_type='reply'):
         'to': to_addr,
         'cc': cc_addr,
         'body': body_text,
+        'tab_id': f'{reply_type}-{pk}',
     }
     return render(request, 'email_ui/partials/compose_modal.html', context)
 

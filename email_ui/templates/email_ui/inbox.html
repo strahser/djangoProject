@@ -1,82 +1,92 @@
 {% extends "email_ui/base.html" %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>
-        {% if folder == 'inbox' %}Входящие
-        {% elif folder == 'sent' %}Отправленные
-        {% elif folder == 'drafts' %}Черновики
-        {% elif folder == 'archive' %}Архив
-        {% elif folder == 'trash' %}Корзина
-        {% endif %}
-    </h2>
-    <div>
-        <!-- Кнопка получения почты -->
-        <form method="post" action="{% url 'email_ui:fetch_emails' %}" class="d-inline">
-            {% csrf_token %}
-            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-            <input type="hidden" name="mail_count" value="10"> <!-- Можно изменить на выбор пользователя -->
-            <button type="submit" class="btn btn-success me-2">
-                <i class="bi bi-envelope-paper"></i> Получить почту
-            </button>
-        </form>
-        <button class="btn btn-primary"
-                hx-get="{% url 'email_ui:compose_modal' %}"
-                hx-target="#composeModal .modal-content"
-                hx-trigger="click"
-                data-bs-toggle="modal"
-                data-bs-target="#composeModal">
-            <i class="bi bi-pencil-square"></i> Написать
-        </button>
-    </div>
-</div>
+<div class="split-panel">
+    <!-- Left panel: email list -->
+    <div class="list-panel">
+        <div class="list-panel-header p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="mb-0">
+                    {% if folder == 'inbox' %}Входящие
+                    {% elif folder == 'sent' %}Отправленные
+                    {% elif folder == 'drafts' %}Черновики
+                    {% elif folder == 'archive' %}Архив
+                    {% elif folder == 'trash' %}Корзина
+                    {% endif %}
+                </h5>
+                <div>
+                    <form method="post" action="{% url 'email_ui:fetch_emails' %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <input type="hidden" name="mail_count" value="10">
+                        <button type="submit" class="btn btn-success btn-sm me-1" title="Получить почту">
+                            <i class="bi bi-arrow-down-circle"></i>
+                        </button>
+                    </form>
+                    <button class="btn btn-primary btn-sm" title="Написать"
+                            onclick="MailApp.openTab('compose', 'Новое письмо', '{% url 'email_ui:compose_modal' %}'); return false;">
+                        <i class="bi bi-pencil-square"></i>
+                    </button>
+                </div>
+            </div>
 
-<!-- Фильтры -->
-<div class="card mb-3">
-    <div class="card-body">
-        {% include "email_ui/partials/filter_form.html" %}
-    </div>
-</div>
+            <!-- Фильтры -->
+            <div class="collapsible-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span><i class="bi bi-funnel"></i> Фильтры</span>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+                <div class="section-body">
+                    {% include "email_ui/partials/filter_form.html" %}
+                </div>
+            </div>
 
-<!-- Массовые действия -->
-<div id="bulk-action-bar" class="mb-2 d-none">
-    <form id="bulk-form" method="post"
-          hx-post="{% url 'email_ui:bulk_action' %}"
-          hx-target="#email-list-container"
-          hx-swap="innerHTML"
-          hx-push-url="false">
-        {% csrf_token %}
-        <input type="hidden" name="folder" value="{{ folder }}">
-        <div class="btn-group" role="group">
-            <button type="submit" name="action" value="move" class="btn btn-sm btn-outline-secondary" disabled>Переместить</button>
-            <button type="submit" name="action" value="mark_read" class="btn btn-sm btn-outline-secondary" disabled>Прочитано</button>
-            <button type="submit" name="action" value="mark_unread" class="btn btn-sm btn-outline-secondary" disabled>Не прочитано</button>
-            <button type="submit" name="action" value="mark_important" class="btn btn-sm btn-outline-secondary" disabled>Важное</button>
-            <button type="submit" name="action" value="mark_unimportant" class="btn btn-sm btn-outline-secondary" disabled>Не важное</button>
-            <button type="submit" name="action" value="delete" class="btn btn-sm btn-outline-danger" disabled>В корзину</button>
+            <!-- Массовые действия -->
+            <div id="bulk-action-bar" class="mt-2 d-none">
+                <form id="bulk-form" method="post"
+                      hx-post="{% url 'email_ui:bulk_action' %}"
+                      hx-target="#email-list-container"
+                      hx-swap="innerHTML"
+                      hx-push-url="false">
+                    {% csrf_token %}
+                    <input type="hidden" name="folder" value="{{ folder }}">
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button type="submit" name="action" value="mark_read" class="btn btn-outline-secondary" disabled>Прочитано</button>
+                        <button type="submit" name="action" value="mark_unread" class="btn btn-outline-secondary" disabled>Не прочитано</button>
+                        <button type="submit" name="action" value="delete" class="btn btn-outline-danger" disabled>В корзину</button>
+                    </div>
+                </form>
+            </div>
         </div>
-    </form>
-</div>
-<!-- Модальное окно для списка вложений -->
-<div class="modal fade" id="attachmentsModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content">
-            <!-- Содержимое будет загружено через HTMX -->
-            <div class="modal-body text-center p-4">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Загрузка...</span>
+
+        <div class="list-panel-body" id="email-list-container">
+            {% include "email_ui/partials/email_list.html" %}
+        </div>
+    </div>
+
+    <!-- Right panel: detail / compose -->
+    <div class="detail-panel">
+        <div class="detail-tabs">
+            <ul class="nav nav-tabs" id="detail-tabs-list"></ul>
+        </div>
+        <div class="detail-content" id="detail-content">
+            <div class="empty-state">
+                <div class="text-center">
+                    <i class="bi bi-envelope" style="font-size: 48px; opacity: 0.3;"></i>
+                    <p class="mt-2 text-muted">Выберите письмо</p>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-
-<!-- Список писем -->
-<div id="email-list-container">
-    {% include "email_ui/partials/email_list.html" %}
-</div>
-
-<!-- Данные для JavaScript (преобразование ID в названия) -->
 {{ filter_data|json_script:"filter-data" }}
+
+<script>
+function toggleSection(header) {
+    header.classList.toggle('collapsed');
+    const body = header.nextElementSibling;
+    body.classList.toggle('show');
+}
+</script>
 {% endblock %}

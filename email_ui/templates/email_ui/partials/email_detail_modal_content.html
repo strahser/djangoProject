@@ -1,121 +1,131 @@
-<div class="modal-header">
-    <h5 class="modal-title">{{ email.subject }}</h5>
-    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-</div>
-<div class="modal-body">
-    <p><strong>От:</strong> {{ email.sender }}</p>
-    <p><strong>Кому:</strong> {{ email.receiver }}</p>
-    <p><strong>Дата:</strong> {{ email.email_stamp }}</p>
-
-    <!-- Теги -->
-    <div class="mb-2">
-        <strong>Теги:</strong>
+<!-- Toolbar (header) -->
+<div style="border-bottom: 1px solid #dee2e6; padding: 10px 16px; background: #f8f9fa;">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <button class="btn btn-sm btn-outline-primary"
+                onclick="MailApp.openTab('reply-{{ email.pk }}', 'Re: {{ email.subject|truncatechars:20|escapejs }}', '{% url 'email_ui:reply_modal' email.pk 'reply' %}')">
+            <i class="bi bi-reply"></i> Ответить
+        </button>
+        <button class="btn btn-sm btn-outline-primary"
+                onclick="MailApp.openTab('replyall-{{ email.pk }}', 'Re: {{ email.subject|truncatechars:20|escapejs }}', '{% url 'email_ui:reply_modal' email.pk 'reply_all' %}')">
+            <i class="bi bi-reply-all"></i> Всем
+        </button>
+        <button class="btn btn-sm btn-outline-primary"
+                onclick="MailApp.openTab('fwd-{{ email.pk }}', 'Fwd: {{ email.subject|truncatechars:20|escapejs }}', '{% url 'email_ui:reply_modal' email.pk 'forward' %}')">
+            <i class="bi bi-forward"></i> Переслать
+        </button>
+        <div class="vr"></div>
+        <!-- Теги (инлайн) -->
         <span id="email-tags-{{ email.pk }}">
             {% for et in email.email_tags.all %}
             <span class="badge rounded-pill" style="background-color: {{ et.tag.color }}">
                 {{ et.tag.name }}
-                <a href="#" hx-post="{% url 'email_ui:remove_tag' email.pk et.tag.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white text-decoration-none">✖</a>
+                <a href="#" hx-post="{% url 'email_ui:remove_tag' email.pk et.tag.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white text-decoration-none">&times;</a>
             </span>
-            {% empty %}
-            <span class="text-muted">нет</span>
             {% endfor %}
         </span>
-        <button class="btn btn-sm btn-link" hx-get="{% url 'email_ui:tag_list' %}" hx-target="#tag-selector-{{ email.pk }}" hx-trigger="click" onclick="document.getElementById('tag-selector-{{ email.pk }}').style.display='block'">
-            <i class="bi bi-tag"></i>
-        </button>
-        <div id="tag-selector-{{ email.pk }}" style="display:none" class="mt-1">
-            <select class="form-select form-select-sm d-inline-block w-auto" id="tag-select-{{ email.pk }}">
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">Тег</button>
+            <ul class="dropdown-menu">
                 {% for tag in all_tags %}
-                <option value="{{ tag.id }}">{{ tag.name }}</option>
+                <li><a class="dropdown-item" href="#" onclick="assignTag({{ email.pk }}, {{ tag.id }}, '{{ tag.name }}', '{{ tag.color }}')">{{ tag.name }}</a></li>
+                {% empty %}
+                <li><span class="dropdown-item text-muted">Нет тегов</span></li>
                 {% endfor %}
-            </select>
-            <button class="btn btn-sm btn-primary" 
-                    hx-post="{% url 'email_ui:assign_tag' %}" 
-                    hx-vars='{"email_id": "{{ email.pk }}", "tag_id": document.getElementById("tag-select-{{ email.pk }}").value}' 
-                    hx-target="#email-tags-{{ email.pk }}" 
-                    hx-swap="outerHTML">
-                Добавить
-            </button>
+            </ul>
+        </div>
+        <div class="ms-auto">
+            {% if not email.is_read %}
+            <span class="badge bg-primary">Новое</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Мета-информация -->
+<div style="padding: 16px;">
+    <h5>{{ email.subject }}</h5>
+    <div class="row mb-3">
+        <div class="col-md-8">
+            <p class="mb-1"><strong>От:</strong> {{ email.sender }}</p>
+            <p class="mb-1"><strong>Кому:</strong> {{ email.receiver }}</p>
+            {% if email.cc %}<p class="mb-1"><strong>Копия:</strong> {{ email.cc }}</p>{% endif %}
+            <p class="mb-1"><strong>Дата:</strong> {{ email.email_stamp|date:"d.m.Y H:i" }}</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <!-- Метаданные (редактируемые) -->
+            <div id="metadata-block-{{ email.pk }}">
+                {% include "email_ui/partials/metadata_display.html" %}
+            </div>
         </div>
     </div>
 
-    <!-- Метаданные (редактируемые) -->
-    <div id="metadata-block-{{ email.pk }}">
-        {% include "email_ui/partials/metadata_display.html" %}
+    <!-- Задачи (collapsible) -->
+    <div class="collapsible-section">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span><i class="bi bi-list-task"></i> Задачи ({% if email.tasks.all %}{{ email.tasks.count }}{% else %}0{% endif %})</span>
+            <i class="bi bi-chevron-down"></i>
+        </div>
+        <div class="section-body">
+            {% for task in email.tasks.all %}
+                <span class="badge bg-info mb-1">
+                    {{ task.name }}
+                    <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white">&times;</a>
+                </span>
+            {% empty %}
+                <span class="text-muted">Нет привязанных задач</span>
+            {% endfor %}
+            <button class="btn btn-sm btn-outline-primary ms-2"
+                    hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}"
+                    hx-target="#task-modal-container"
+                    hx-trigger="click"
+                    data-bs-toggle="modal"
+                    data-bs-target="#taskModal">+</button>
+        </div>
     </div>
 
-    <!-- Привязка к задачам -->
-    <div class="mt-2">
-        <strong>Задачи:</strong>
-        {% for task in email.tasks.all %}
-            <span class="badge bg-info">
-                {{ task.name }}
-                <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white">✖</a>
-            </span>
-        {% empty %}
-            <span>нет</span>
-        {% endfor %}
-        <button class="btn btn-sm btn-link"
-                hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}"
-                hx-target="#task-modal-container"
-                hx-trigger="click"
-                data-bs-toggle="modal"
-                data-bs-target="#taskModal">Прикрепить</button>
-    </div>
-
-    <!-- Вложения -->
-    <div id="attachments-{{ email.pk }}" class="mt-3">
-        {% include "email_ui/partials/attachments_list.html" %}
+    <!-- Вложения (collapsible) -->
+    <div class="collapsible-section">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span><i class="bi bi-paperclip"></i> Вложения ({% if email.attachments.all %}{{ email.attachments.count }}{% else %}0{% endif %})</span>
+            <i class="bi bi-chevron-down"></i>
+        </div>
+        <div class="section-body">
+            {% include "email_ui/partials/attachments_list.html" %}
+        </div>
     </div>
 
     <!-- Тело письма -->
-    <div class="mt-3 border p-2"
+    <div class="mt-3 border rounded p-3"
          hx-get="{% url 'email_ui:email_body' email.pk %}"
          hx-trigger="load"
-         hx-target="this">
-        Загрузка...
+         hx-target="this"
+         style="min-height: 200px; background: #fff;">
+        <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
     </div>
-</div>
-<div class="modal-footer">
-    <button type="button" class="btn btn-outline-primary"
-            hx-get="{% url 'email_ui:reply_modal' email.pk 'reply' %}"
-            hx-target="#composeModal .modal-content"
-            hx-trigger="click"
-            data-bs-toggle="modal"
-            data-bs-target="#composeModal">
-        <i class="bi bi-reply"></i> Ответить
-    </button>
-    <button type="button" class="btn btn-outline-primary"
-            hx-get="{% url 'email_ui:reply_modal' email.pk 'reply_all' %}"
-            hx-target="#composeModal .modal-content"
-            hx-trigger="click"
-            data-bs-toggle="modal"
-            data-bs-target="#composeModal">
-        <i class="bi bi-reply-all"></i> Ответить всем
-    </button>
-    <button type="button" class="btn btn-outline-primary"
-            hx-get="{% url 'email_ui:reply_modal' email.pk 'forward' %}"
-            hx-target="#composeModal .modal-content"
-            hx-trigger="click"
-            data-bs-toggle="modal"
-            data-bs-target="#composeModal">
-        <i class="bi bi-forward"></i> Переслать
-    </button>
-    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
 </div>
 
 <script>
-    (function() {
-        const modalElement = document.getElementById('emailModal');
-        if (modalElement) {
-            modalElement.addEventListener('hidden.bs.modal', function () {
-                // Отправляем POST-запрос для отметки прочитанным
-                htmx.ajax('POST', '{% url "email_ui:mark_email_as_read" email.pk %}', {
-                    target: '#emailModal',
-                    swap: 'none',
-                    headers: {'X-CSRFToken': '{{ csrf_token }}'}
-                });
-            });
+function assignTag(emailId, tagId, tagName, tagColor) {
+    fetch('{% url "email_ui:assign_tag" %}', {
+        method: 'POST',
+        headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'email_id=' + emailId + '&tag_id=' + tagId
+    }).then(r => r.json()).then(data => {
+        let container = document.getElementById('email-tags-' + emailId);
+        if (container) {
+            let badge = document.createElement('span');
+            badge.className = 'badge rounded-pill';
+            badge.style.backgroundColor = tagColor;
+            badge.innerHTML = tagName + ' <a href="#" onclick="this.parentElement.remove(); return false;" class="text-white text-decoration-none">&times;</a>';
+            container.appendChild(badge);
         }
-    })();
+    });
+}
+
+(function() {
+    // Пометить прочитанным при закрытии вкладки
+    window.addEventListener('beforeunload', function() {
+        navigator.sendBeacon('{% url "email_ui:mark_email_as_read" email.pk %}');
+    });
+})();
 </script>
