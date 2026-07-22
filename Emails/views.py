@@ -10,6 +10,7 @@ from django.views import View
 from Emails.forms import EmailForm, EmailFilterForm
 from Emails.models import Email, EmailType
 from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
+from email_ui.utils import sanitize_id, sanitize_id_list
 from ProjectTDL.models import Task
 from Emails.ЕmailParser.OutlookEmailCreate import parsing_form_for_e_mail_path, make_folder, process_e_mail, \
     add_form_data_to_data_base
@@ -103,7 +104,7 @@ class SelectEmailView(View):
         })
 
     def post(self, request, task_id):
-        selected_email_ids = request.POST.getlist('selected_emails')
+        selected_email_ids = sanitize_id_list(request.POST.getlist('selected_emails'))
         task = Task.objects.get(pk=task_id)
         emails = Email.objects.filter(id__in=selected_email_ids)
         if 'edit_action' in request.POST:

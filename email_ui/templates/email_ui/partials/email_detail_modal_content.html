@@ -7,6 +7,38 @@
     <p><strong>Кому:</strong> {{ email.receiver }}</p>
     <p><strong>Дата:</strong> {{ email.email_stamp }}</p>
 
+    <!-- Теги -->
+    <div class="mb-2">
+        <strong>Теги:</strong>
+        <span id="email-tags-{{ email.pk }}">
+            {% for et in email.email_tags.all %}
+            <span class="badge rounded-pill" style="background-color: {{ et.tag.color }}">
+                {{ et.tag.name }}
+                <a href="#" hx-post="{% url 'email_ui:remove_tag' email.pk et.tag.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white text-decoration-none">✖</a>
+            </span>
+            {% empty %}
+            <span class="text-muted">нет</span>
+            {% endfor %}
+        </span>
+        <button class="btn btn-sm btn-link" hx-get="{% url 'email_ui:tag_list' %}" hx-target="#tag-selector-{{ email.pk }}" hx-trigger="click" onclick="document.getElementById('tag-selector-{{ email.pk }}').style.display='block'">
+            <i class="bi bi-tag"></i>
+        </button>
+        <div id="tag-selector-{{ email.pk }}" style="display:none" class="mt-1">
+            <select class="form-select form-select-sm d-inline-block w-auto" id="tag-select-{{ email.pk }}">
+                {% for tag in all_tags %}
+                <option value="{{ tag.id }}">{{ tag.name }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-sm btn-primary" 
+                    hx-post="{% url 'email_ui:assign_tag' %}" 
+                    hx-vars='{"email_id": "{{ email.pk }}", "tag_id": document.getElementById("tag-select-{{ email.pk }}").value}' 
+                    hx-target="#email-tags-{{ email.pk }}" 
+                    hx-swap="outerHTML">
+                Добавить
+            </button>
+        </div>
+    </div>
+
     <!-- Метаданные (редактируемые) -->
     <div id="metadata-block-{{ email.pk }}">
         {% include "email_ui/partials/metadata_display.html" %}

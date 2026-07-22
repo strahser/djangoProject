@@ -28,6 +28,7 @@ urlpatterns = [
     path('popovers', TemplateView.as_view(template_name="bootstrap_popovers.html"), name="popovers"),
     path('login', auth_views.LoginView.as_view(), name="login"),
     path('email-ui/', include('email_ui.urls')),
+    path('telegram/', include('TelegramParser.urls')),
     re_path(r'^email-files/(?P<path>.*)$', login_required(serve), {
         'document_root': E_MAIL_DIRECTORY
     }),
