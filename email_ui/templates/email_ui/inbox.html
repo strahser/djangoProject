@@ -54,6 +54,7 @@
               hx-push-url="false">
             {% csrf_token %}
             <input type="hidden" name="folder" value="{{ folder }}">
+            <input type="hidden" name="filter_params" value="{{ request.GET.urlencode }}">
             <div class="d-flex align-items-center gap-2">
                 <button type="submit" name="action" value="mark_read" class="btn btn-outline-secondary btn-sm" disabled><i class="bi bi-envelope-open"></i> Прочитано</button>
                 <button type="submit" name="action" value="mark_unread" class="btn btn-outline-secondary btn-sm" disabled><i class="bi bi-envelope"></i> Не прочитано</button>

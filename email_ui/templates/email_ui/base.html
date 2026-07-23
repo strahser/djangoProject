@@ -389,10 +389,8 @@
                     this.clearDirty();
                     var m = this.getModal();
                     var params = new URLSearchParams(window.location.search);
-                    var next = params.get('next');
-                    if (next) {
-                        url += (url.indexOf('?') === -1 ? '?' : '&') + 'next=' + encodeURIComponent(next);
-                    }
+                    var next = params.get('next') || window.location.pathname + window.location.search;
+                    url += (url.indexOf('?') === -1 ? '?' : '&') + 'next=' + encodeURIComponent(next);
                     htmx.ajax('GET', url, { target: '#emailModalContent', swap: 'innerHTML' });
                     if (m) m.show();
                 });

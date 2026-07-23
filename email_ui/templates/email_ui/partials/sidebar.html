@@ -50,7 +50,7 @@
             <a class="nav-link" href="#"
                hx-get="{% url 'email_ui:email_list_partial' %}?folder={{ request.GET.folder|default:'inbox' }}&is_important=1"
                hx-target="#email-list-container"
-               hx-push-url="false">Важные
+               hx-push-url="{% url 'email_ui:inbox' request.GET.folder|default:'inbox' %}?is_important=1">Важные
                <span class="badge bg-secondary" id="count-important">0</span></a>
         </li>
         <li class="nav-item">

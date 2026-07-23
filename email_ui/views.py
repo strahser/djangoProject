@@ -454,7 +454,10 @@ def bulk_action(request):
         emails = Email.objects.filter(folder=folder).select_related(
             'project_site', 'contractor'
         ).prefetch_related('attachments')
-        filter_form = EmailFilterForm(request.GET)
+        filter_params = request.POST.get('filter_params', '')
+        from django.http import QueryDict
+        filter_qd = QueryDict(filter_params)
+        filter_form = EmailFilterForm(filter_qd)
         if filter_form.is_valid():
             emails = filter_emails(emails, filter_form.cleaned_data)
     else:
@@ -483,17 +486,20 @@ def bulk_action(request):
     else:
         return HttpResponseBadRequest('Неизвестное действие')
 
-    folder = request.GET.get('folder', folder)
+    folder = request.POST.get('folder', 'inbox')
+
     # При HTMX-запросе возвращаем частичное обновление, а не редирект
-    # (иначе весь HTML страницы вставится внутрь #email-list-container)
     if request.headers.get('HX-Request'):
         emails = Email.objects.filter(folder=folder).select_related(
             'project_site', 'contractor'
         ).prefetch_related('attachments')
-        # Применяем те же фильтры, что были
-        filter_form = EmailFilterForm(request.GET)
-        if filter_form.is_valid():
-            emails = filter_emails(emails, filter_form.cleaned_data)
+        filter_params = request.POST.get('filter_params', '')
+        if filter_params:
+            from django.http import QueryDict
+            filter_qd = QueryDict(filter_params)
+            filter_form = EmailFilterForm(filter_qd)
+            if filter_form.is_valid():
+                emails = filter_emails(emails, filter_form.cleaned_data)
         emails, current_sort, current_order = apply_sorting(emails, request)
         paginator = Paginator(emails, PER_PAGE)
         page_obj = paginator.get_page(1)
@@ -864,7 +870,7 @@ def send_email(request):
             if attachment_objs:
                 Attachment.objects.filter(id__in=[a.id for a in attachment_objs]).update(email=email_obj)
 
-            next_url = request.POST.get('next', reverse('email_ui:inbox_default'))
+            next_url = request.POST.get('next') or reverse('email_ui:inbox_default')
             messages.success(request, 'Письмо отправлено')
             return render(request, 'email_ui/partials/send_success.html', {
                 'message': 'Письмо отправлено',
@@ -955,7 +961,7 @@ def reply_send(request, pk):
                     content_type=att.content_type,
                 )
 
-        next_url = request.POST.get('next', reverse('email_ui:inbox_default'))
+        next_url = request.POST.get('next') or reverse('email_ui:inbox_default')
         messages.success(request, 'Письмо отправлено')
         return render(request, 'email_ui/partials/send_success.html', {
             'message': 'Письмо отправлено',
