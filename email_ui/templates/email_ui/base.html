@@ -8,45 +8,113 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.3/tinymce.min.js"></script>
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <style>
-        body { background: #f5f6fa; }
-        .sidebar { min-height: calc(100vh - 56px); border-right: 1px solid #dee2e6; background: #fff; }
-        .sidebar .nav-link { color: #333; border-radius: 0; padding: 10px 16px; }
-        .sidebar .nav-link:hover { background: #e9ecef; }
-        .sidebar .nav-link.active { background: #e3f2fd; color: #0d6efd; font-weight: 600; }
+        :root {
+            --bg-body: #f5f6fa;
+            --bg-card: #fff;
+            --bg-sidebar: #fff;
+            --bg-table-header: #f8f9fa;
+            --bg-table-row-hover: #f0f4ff;
+            --bg-table-row-unread: #fafbff;
+            --text-color: #333;
+            --text-muted: #6c757d;
+            --border-color: #dee2e6;
+            --sidebar-border: #dee2e6;
+            --table-stripe: #fff;
+        }
+        body.dark-mode {
+            --bg-body: #1a1d23;
+            --bg-card: #2d323e;
+            --bg-sidebar: #2d323e;
+            --bg-table-header: #363b48;
+            --bg-table-row-hover: #3a4050;
+            --bg-table-row-unread: #323846;
+            --text-color: #e0e0e0;
+            --text-muted: #a0a0a0;
+            --border-color: #4a4f5e;
+            --sidebar-border: #4a4f5e;
+            --table-stripe: #2a2f3a;
+        }
+        body.dark-mode .table { color: var(--text-color); }
+        body.dark-mode .text-muted { color: var(--text-muted) !important; }
+        body.dark-mode .btn-close { filter: invert(1); }
+        body.dark-mode .bg-white { background: var(--bg-card) !important; color: var(--text-color); }
+        body.dark-mode .table-email tbody tr:hover { background: var(--bg-table-row-hover); }
+        body.dark-mode .table-email tbody tr.unread { background: var(--bg-table-row-unread); }
+        /* Email body (HTMX-loaded HTML content) */
+        body.dark-mode .detail-body .border.rounded.p-4 { background: #222731 !important; color: #d0d0d0; }
+        body.dark-mode .detail-body .border.rounded.p-4 * { color: #d0d0d0; }
+        body.dark-mode .detail-body .border.rounded.p-4 a { color: #6ea8fe; }
+        body.dark-mode .detail-body .border.rounded.p-4 h1,
+        body.dark-mode .detail-body .border.rounded.p-4 h2,
+        body.dark-mode .detail-body .border.rounded.p-4 h3,
+        body.dark-mode .detail-body .border.rounded.p-4 h4,
+        body.dark-mode .detail-body .border.rounded.p-4 h5,
+        body.dark-mode .detail-body .border.rounded.p-4 h6 { color: #e8e8e8; }
+        /* TinyMCE - minimal baseline, full override via JS-injected CSS */
+        /* Form controls */
+        body.dark-mode .form-control, body.dark-mode .form-select { background: #363b48; color: #e0e0e0; border-color: var(--border-color); }
+        body.dark-mode .form-control:focus, body.dark-mode .form-select:focus { background: #3a4050; color: #e0e0e0; }
+        body.dark-mode .card .border.rounded.p-4 { background: #222731 !important; color: #d0d0d0; }
+        body.dark-mode .card .border.rounded.p-4 * { color: #d0d0d0; }
+        body.dark-mode .card .border.rounded.p-4 a { color: #6ea8fe; }
+        body.dark-mode .collapsible-section .section-header { background: var(--bg-table-header); }
+        body.dark-mode .collapsible-section .section-body { background: var(--bg-card); }
+        body.dark-mode .table-email td { border: none; border-bottom: 1px solid var(--border-color); }
+        body.dark-mode .table-email thead th { border: none; border-bottom: 2px solid var(--border-color); }
+        /* Sender combobox dropdown */
+        body.dark-mode #sender-dropdown .list-group-item { background: #2d323e; color: #e0e0e0; border-color: #4a4f5e; }
+        body.dark-mode #sender-dropdown .list-group-item:hover { background: #3a4050; }
+        /* Contacts dropdown */
+        body.dark-mode #contacts-dropdown .dropdown-menu { background: #2d323e; border-color: #4a4f5e; }
+        body.dark-mode #contacts-dropdown .dropdown-item { color: #e0e0e0; }
+        body.dark-mode #contacts-dropdown .dropdown-item:hover { background: #3a4050; }
+        body.dark-mode #contacts-dropdown .form-control { background: #363b48; color: #e0e0e0; border-color: #4a4f5e; }
+        body { background: var(--bg-body); color: var(--text-color); transition: background .3s, color .3s; }
+        .sidebar { min-height: calc(100vh - 56px); border-right: 1px solid var(--sidebar-border); background: var(--bg-sidebar); }
+        .sidebar .nav-link { color: var(--text-color); border-radius: 0; padding: 6px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sidebar .nav-link:hover { background: rgba(0,0,0,0.06); border-radius: 4px; }
+        .sidebar .nav-link.active { background: rgba(13,110,253,0.08); color: #0d6efd; font-weight: 600; border-radius: 4px; }
+        body.dark-mode .sidebar .nav-link:hover { background: rgba(255,255,255,0.08); }
+        body.dark-mode .sidebar .nav-link.active { background: rgba(13,110,253,0.2); color: #6ea8fe; }
+        .card { background: var(--bg-card); border-color: var(--border-color); }
 
-        .email-row:hover { background-color: #f0f4ff; cursor: pointer; }
-        .email-row.unread { font-weight: 600; background: #fafbff; }
-        .email-row.unread td { border-left: 3px solid #0d6efd; }
+        .email-row:hover { background-color: var(--bg-table-row-hover); cursor: pointer; }
+        .email-row.unread { font-weight: 600; background: var(--bg-table-row-unread); }
 
-        .table-email { font-size: 13px; }
-        .table-email thead th { background: #f8f9fa; border-bottom: 2px solid #dee2e6; position: sticky; top: 0; z-index: 1; }
+        .table-email { margin-bottom: 0; border-collapse: collapse; }
+        .table-email thead th { border: none; border-bottom: 2px solid var(--border-color); background: var(--bg-table-header); position: sticky; top: 0; z-index: 1; color: var(--text-color); padding: 8px 8px; }
+        .table-email td { border: none; border-bottom: 1px solid var(--border-color); vertical-align: middle; padding: 8px 8px; }
+        .email-row.unread td:first-child { box-shadow: inset 3px 0 0 0 #0d6efd; }
 
         /* Full-screen modal */
-        .modal-fullscreen { max-width: 100%; margin: 0; }
         .modal-fullscreen .modal-content { border-radius: 0; border: none; min-height: 100vh; }
-        .modal-fullscreen .modal-header { border-bottom: 1px solid #dee2e6; background: #f8f9fa; padding: 12px 20px; }
+        .modal-fullscreen .modal-header { border-bottom: 1px solid var(--border-color); background: var(--bg-table-header); padding: 12px 20px; }
         .modal-fullscreen .modal-body { padding: 0; overflow-y: auto; }
-        .modal-fullscreen .modal-footer { border-top: 1px solid #dee2e6; background: #f8f9fa; }
+        .modal-fullscreen .modal-footer { border-top: 1px solid var(--border-color); background: var(--bg-table-header); }
+        .modal-content { background: var(--bg-card); color: var(--text-color); }
 
-        /* Detail toolbar */
-        .detail-toolbar { padding: 12px 20px; border-bottom: 1px solid #dee2e6; background: #fff; }
-        .detail-meta { padding: 20px; background: #fff; border-bottom: 1px solid #eee; }
-        .detail-body { padding: 20px; background: #fff; }
+        .detail-toolbar { padding: 12px 20px; border-bottom: 1px solid var(--border-color); background: var(--bg-card); }
+        .detail-meta { padding: 20px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
+        .detail-body { padding: 20px; background: var(--bg-card); }
 
-        /* Compose */
-        .compose-fields { padding: 16px 20px; background: #fff; border-bottom: 1px solid #eee; }
+        .compose-fields { padding: 16px 20px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
         .compose-editor { padding: 0; }
         .compose-editor textarea { border: none; resize: none; outline: none; font-size: 14px; width: 100%; min-height: 500px; padding: 20px; }
         .compose-editor textarea:focus { box-shadow: none; }
-        .compose-footer { padding: 12px 20px; background: #fff; border-top: 1px solid #dee2e6; }
+        .compose-footer { padding: 12px 20px; background: var(--bg-card); border-top: 1px solid var(--border-color); }
 
-        .collapsible-section { border: 1px solid #dee2e6; border-radius: 6px; margin-bottom: 8px; }
-        .collapsible-section .section-header { padding: 8px 12px; cursor: pointer; background: #f8f9fa; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; user-select: none; }
-        .collapsible-section .section-header:hover { background: #e9ecef; }
+        .collapsible-section { border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 8px; background: var(--bg-card); }
+        .collapsible-section .section-header { padding: 8px 12px; cursor: pointer; background: var(--bg-table-header); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; user-select: none; color: var(--text-color); }
+        .collapsible-section .section-header:hover { filter: brightness(0.95); }
         .collapsible-section .section-header.collapsed .bi-chevron-down { transform: rotate(-90deg); }
         .collapsible-section .section-body { padding: 8px 12px; display: none; }
         .collapsible-section .section-body.show { display: block; }
+
+        .night-toggle { cursor: pointer; }
+        .font-size-control { display: flex; align-items: center; gap: 4px; }
+        .font-size-control input[type="range"] { width: 60px; height: 4px; }
     </style>
 </head>
 <body>
@@ -54,8 +122,16 @@
         <span class="navbar-brand mb-0 h1">
             <i class="bi bi-envelope"></i> Почтовый клиент
         </span>
-        <div class="d-flex align-items-center">
-            <a href="/admin/" class="btn btn-outline-light btn-sm me-2">
+        <div class="d-flex align-items-center gap-2">
+            <div class="font-size-control text-light" style="font-size:12px;">
+                <i class="bi bi-fonts"></i>
+                <input type="range" id="fontSizeSlider" min="11" max="20" value="14" oninput="setTableFontSize(this.value)" title="Размер шрифта таблицы">
+                <span id="fontSizeLabel" style="min-width:20px;">14</span>
+            </div>
+            <button class="btn btn-outline-light btn-sm night-toggle" onclick="toggleNightMode()" title="Ночной режим">
+                <i class="bi bi-moon-stars"></i>
+            </button>
+            <a href="/admin/" class="btn btn-outline-light btn-sm">
                 <i class="bi bi-gear"></i> Админ панель
             </a>
             <a href="/admin/Emails/email/" class="btn btn-outline-light btn-sm">
@@ -64,18 +140,30 @@
         </div>
     </nav>
 
+    {% if messages %}
+    <div class="container-fluid pt-2 px-3 position-absolute" style="z-index:1050;">
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show py-2 mb-1" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close py-2" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
     <div class="d-flex">
+        {% block sidebar %}
         <div class="sidebar" style="width: 200px; flex-shrink: 0;">
             {% include "email_ui/partials/sidebar.html" %}
         </div>
+        {% endblock %}
         <div style="flex: 1; min-width: 0;">
             {% block content %}{% endblock %}
         </div>
     </div>
 
-    <!-- Full-screen modal for email detail / compose -->
-    <div class="modal fade" id="emailModal" tabindex="-1" data-bs-backdrop="static">
-        <div class="modal-dialog modal-fullscreen modal-fullscreen" style="max-width: 100%; margin: 0;">
+    <!-- Full-screen modal for compose / reply / forward -->
+    <div class="modal fade" id="emailModal" tabindex="-1">
+        <div class="modal-dialog modal-fullscreen" style="max-width: 100%; margin: 0;">
             <div class="modal-content" id="emailModalContent" style="min-height: 100vh; border-radius: 0;">
 
             </div>
@@ -119,10 +207,155 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
-    <meta name="csrf-token" content="{{ csrf_token }}">
     <script>
+        function setTableFontSize(size) {
+            document.querySelectorAll('.table-email, .table-email td, .table-email th').forEach(function(el) {
+                el.style.fontSize = size + 'px';
+            });
+            localStorage.setItem('email-font-size', size);
+            document.getElementById('fontSizeLabel').textContent = size;
+        }
+
+        function applyTinyMCEDarkMode(isDark) {
+            var styleId = 'tox-dark-mode-css';
+            var existing = document.getElementById(styleId);
+            if (existing) existing.remove();
+            if (!isDark) return;
+            var bg = '#2d323e';
+            var bg2 = '#363b48';
+            var hover = '#3a4050';
+            var border = '#4a4f5e';
+            var fg = '#e0e0e0';
+            var muted = '#a0a0a0';
+            var link = '#6ea8fe';
+            var css = [
+                '.tox-tinymce{',
+                    'border-color:'+border+'!important;',
+                    'background:'+bg+'!important;',
+                '}',
+                '.tox .tox-toolbar,.tox .tox-toolbar__overflow,.tox .tox-toolbar__primary,.tox-editor-container{',
+                    'background:'+bg+'!important;',
+                '}',
+                '.tox .tox-menubar{background:'+bg+'!important;}',
+                '.tox .tox-mbtn{color:'+fg+'!important;fill:'+fg+'!important;}',
+                '.tox .tox-mbtn:hover{background:'+hover+'!important;}',
+                '.tox .tox-tbtn{color:'+fg+'!important;background:transparent!important;fill:'+fg+'!important;}',
+                '.tox .tox-tbtn svg{fill:'+fg+'!important;}',
+                '.tox .tox-tbtn:hover{background:'+hover+'!important;}',
+                '.tox .tox-tbtn--disabled svg,.tox .tox-tbtn--disabled{fill:'+muted+'!important;color:'+muted+'!important;}',
+                '.tox .tox-tbtn--enabled{background:'+border+'!important;}',
+                '.tox .tox-split-button:hover{box-shadow:0 0 0 1px '+border+' inset!important;}',
+                '.tox .tox-split-button:focus{background:'+hover+'!important;}',
+                '.tox .tox-edit-area{background:#222731!important;}',
+                '.tox .tox-edit-area iframe{background:#222731!important;}',
+                '.tox .tox-statusbar{background:'+bg+'!important;color:'+muted+'!important;}',
+                '.tox .tox-statusbar a{color:'+link+'!important;}',
+                '.tox .tox-menu,.tox .tox-dialog{background:'+bg+'!important;border-color:'+border+'!important;}',
+                '.tox .tox-collection__item{color:'+fg+'!important;}',
+                '.tox .tox-collection__item:hover,.tox .tox-collection__item--active{background:'+hover+'!important;}',
+                '.tox .tox-collection__item-icon svg,.tox .tox-collection__item-caret svg{fill:'+fg+'!important;}',
+                '.tox .tox-collection__item-accessory{color:'+muted+'!important;}',
+                '.tox .tox-collection__item-label{color:'+fg+'!important;}',
+                '.tox .tox-listbox{color:'+fg+'!important;background:'+bg2+'!important;}',
+                '.tox .tox-listbox:hover{background:'+hover+'!important;}',
+                '.tox .tox-insert-table-picker{background:'+bg2+'!important;}',
+                '.tox .tox-insert-table-picker>div{border-color:'+border+'!important;background:'+bg2+'!important;}',
+                '.tox .tox-insert-table-picker .tox-insert-table-picker__selected{background:'+border+'!important;}',
+                '.tox .tox-dialog__header,.tox .tox-dialog__footer{background:'+bg+'!important;}',
+                '.tox .tox-dialog__body{color:'+fg+'!important;}',
+                '.tox .tox-label{color:'+fg+'!important;}',
+                '.tox .tox-textfield{background:'+bg2+'!important;color:'+fg+'!important;border-color:'+border+'!important;}',
+                '.tox .tox-button{background:#0d6efd!important;}',
+                '.tox .tox-button:hover{background:#0b5ed7!important;}',
+                '.tox .tox-button--secondary{background:'+border+'!important;color:'+fg+'!important;}',
+                '.tox .tox-button--secondary:hover{background:'+hover+'!important;}',
+            ].join('');
+            var style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = css;
+            document.head.appendChild(style);
+        }
+
+        function toggleNightMode() {
+            document.body.classList.toggle('dark-mode');
+            var isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('email-dark-mode', isDark ? '1' : '0');
+            var icon = document.querySelector('.night-toggle i');
+            if (icon) {
+                icon.className = isDark ? 'bi bi-sun' : 'bi bi-moon-stars';
+            }
+            applyTinyMCEDarkMode(isDark);
+        }
+        if (localStorage.getItem('email-dark-mode') === '1') {
+            document.body.classList.add('dark-mode');
+            var icon = document.querySelector('.night-toggle i');
+            if (icon) icon.className = 'bi bi-sun-fill';
+            applyTinyMCEDarkMode(true);
+        }
+        var savedSize = localStorage.getItem('email-font-size');
+        if (savedSize) {
+            document.getElementById('fontSizeSlider').value = savedSize;
+            document.getElementById('fontSizeLabel').textContent = savedSize;
+            setTableFontSize(savedSize);
+        }
+
+        function updateSidebarCounters() {
+            fetch('{% url "email_ui:unread_count" %}')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var map = { 'inbox': data.inbox, 'important': data.important, 'attachments': data.attachments, 'unread': data.unread };
+                    Object.keys(map).forEach(function(key) {
+                        var el = document.getElementById('count-' + key);
+                        if (el) {
+                            el.textContent = map[key];
+                            el.style.display = map[key] > 0 ? '' : 'none';
+                        }
+                    });
+                }).catch(function() {});
+        }
+        updateSidebarCounters();
+
         document.body.addEventListener('htmx:configRequest', (evt) => {
             evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+        });
+
+        function updateActiveSidebar() {
+            var path = window.location.pathname;
+            document.querySelectorAll('.sidebar .nav-link').forEach(function(link) {
+                var pushUrl = link.getAttribute('hx-push-url') || '';
+                link.classList.toggle('active', pushUrl && path.indexOf(pushUrl) !== -1);
+            });
+        }
+        updateActiveSidebar();
+
+        document.body.addEventListener('htmx:afterSwap', function() {
+            updateSidebarCounters();
+            updateActiveSidebar();
+        });
+        window.addEventListener('popstate', function() {
+            updateActiveSidebar();
+        });
+
+        // Global event delegation for select-all (survives HTMX swaps)
+        document.addEventListener('click', function(e) {
+            if (e.target.id === 'select-all') {
+                var checked = e.target.checked;
+                document.querySelectorAll('input[name="selected_emails"]').forEach(function(cb) { cb.checked = checked; });
+                if (!checked) document.getElementById('select-all-input').value = '';
+                if (window.toggleBulkActionBar) toggleBulkActionBar();
+            }
+            if (e.target.id === 'select-all-link') {
+                e.preventDefault();
+                document.getElementById('select-all-input').value = '1';
+                var banner = document.getElementById('select-all-banner');
+                if (banner) banner.classList.add('d-none');
+                e.target.textContent = 'Выбраны все';
+            }
+        });
+        document.addEventListener('change', function(e) {
+            if (e.target.name === 'selected_emails' && window.toggleBulkActionBar) {
+                toggleBulkActionBar();
+            }
         });
 
         window.EmailApp = {
@@ -135,18 +368,45 @@
             modal: null,
             modalEl: null,
 
+            getModal: function() {
+                if (!this.modalEl) {
+                    this.modalEl = document.getElementById('emailModal');
+                }
+                if (!this.modal) {
+                    if (this.modalEl) {
+                        try {
+                            this.modal = bootstrap.Modal.getInstance(this.modalEl) || new bootstrap.Modal(this.modalEl);
+                        } catch(e) {
+                            this.modal = new bootstrap.Modal(this.modalEl);
+                        }
+                    }
+                }
+                return this.modal;
+            },
+
             openModal: function(url) {
                 this.checkDirtyThen(() => {
                     this.clearDirty();
-                    this.modalEl = document.getElementById('emailModal');
-                    this.modal = new bootstrap.Modal(this.modalEl, { backdrop: 'static' });
+                    var m = this.getModal();
+                    var params = new URLSearchParams(window.location.search);
+                    var next = params.get('next');
+                    if (next) {
+                        url += (url.indexOf('?') === -1 ? '?' : '&') + 'next=' + encodeURIComponent(next);
+                    }
                     htmx.ajax('GET', url, { target: '#emailModalContent', swap: 'innerHTML' });
-                    this.modal.show();
+                    if (m) m.show();
                 });
             },
 
             closeModal: function() {
-                if (this.modal) this.modal.hide();
+                var m = this.getModal();
+                if (m) {
+                    m.hide();
+                    document.querySelectorAll('.modal-backdrop').forEach(function(el) { el.remove(); });
+                    document.body.classList.remove('modal-open');
+                    document.body.style.removeProperty('overflow');
+                    document.body.style.removeProperty('padding-right');
+                }
             },
 
             checkDirtyThen: function(callback) {
@@ -168,13 +428,18 @@
             var el = document.getElementById('compose-editor');
             if (!el) return;
             if (tinymce.get('compose-editor')) return;
+            var isDark = document.body.classList.contains('dark-mode');
+            var bodyStyle = isDark ? "body { background: #222731; color: #d0d0d0; font-size: 14px; }" : "body { background: #fff; color: #333; font-size: 14px; }";
             tinymce.init({
                 selector: '#compose-editor',
                 height: 500,
                 menubar: false,
-                plugins: 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',
+                content_style: bodyStyle,
                 toolbar: 'undo redo | formatselect | bold italic backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat | code',
                 setup: function(editor) {
+                    editor.on('init', function() {
+                        applyTinyMCEDarkMode(document.body.classList.contains('dark-mode'));
+                    });
                     editor.on('change', function() {
                         editor.save();
                         if (window.EmailApp) EmailApp.markDirty();
@@ -188,7 +453,6 @@
             modal.hide();
             var form = document.getElementById('compose-form');
             if (form) {
-                // Get TinyMCE content if active
                 if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
                     tinymce.activeEditor.save();
                 }
@@ -226,6 +490,20 @@
                 EmailApp.pendingAction();
                 EmailApp.pendingAction = null;
             }
+        });
+
+        document.getElementById('emailModal').addEventListener('hidden.bs.modal', function() {
+            if (typeof tinymce !== 'undefined') {
+                var editor = tinymce.get('compose-editor');
+                if (editor) {
+                    editor.save();
+                    editor.remove();
+                }
+            }
+            document.querySelectorAll('.modal-backdrop').forEach(function(el) { el.remove(); });
+            document.body.classList.remove('modal-open');
+            document.body.style.removeProperty('overflow');
+            document.body.style.removeProperty('padding-right');
         });
     </script>
 </body>

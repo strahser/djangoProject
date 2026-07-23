@@ -12,6 +12,11 @@ class EmailFilterForm(forms.Form):
         label='Поиск',
         widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Поиск...'})
     )
+    sender = forms.CharField(
+        required=False,
+        label='Отправитель',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Выберите отправителя...', 'list': 'sender-datalist', 'autocomplete': 'off'})
+    )
     project_site = forms.ModelMultipleChoiceField(
         queryset=ProjectSite.objects.all(),
         required=False,
@@ -168,10 +173,10 @@ class ComposeEmailForm(forms.Form):
 
 
 class ComposeReplyForm(ComposeEmailForm):
-    include_original = forms.BooleanField(
+    include_attachments = forms.BooleanField(
         required=False,
         initial=True,
-        label='Включить исходное письмо',
+        label='Отправить с вложением',
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
     )
 

@@ -7,7 +7,28 @@
         {% elif mode == 'forward' %}Переслать
         {% else %}Новое письмо{% endif %}
     </h5>
-    <div class="ms-auto d-flex align-items-center gap-1">
+    <div class="ms-auto d-flex align-items-center gap-2">
+        <button type="submit" class="btn btn-success" form="compose-form">
+            <i class="bi bi-send"></i> Отправить
+        </button>
+        {% if mode != 'compose' %}
+        <div class="form-check form-check-inline mb-0">
+            <input type="checkbox" name="include_attachments" class="form-check-input" id="include-attachments"
+                   form="compose-form"
+                   {% if mode == 'forward' %}checked{% endif %}>
+            <label class="form-check-label small" for="include-attachments">
+                <i class="bi bi-paperclip"></i> Отправить с вложением
+            </label>
+        </div>
+        <input type="hidden" name="mode" value="{{ mode }}" form="compose-form">
+        {% endif %}
+        <div class="d-flex align-items-center gap-1">
+            <label class="btn btn-sm btn-warning mb-0" title="Прикрепить файлы">
+                <i class="bi bi-paperclip"></i>
+                <input type="file" name="attachment_files" class="d-none" multiple onchange="updateFileList(this)">
+            </label>
+            <span id="file-count-compose" class="badge bg-warning text-dark" style="display:none;"></span>
+        </div>
         <button type="button" class="btn btn-sm btn-outline-success" title="Сохранить черновик"
                 onclick="saveDraft()">
             <i class="bi bi-save"></i>
@@ -24,6 +45,7 @@
       enctype="multipart/form-data" id="compose-form"
       onsubmit="if(typeof tinymce!=='undefined'&&tinymce.activeEditor){tinymce.activeEditor.save()}">
     {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next|default:'' }}">
 
     <div class="modal-body p-0 d-flex flex-column" style="min-height: calc(100vh - 120px);">
         {% if error %}
@@ -33,35 +55,45 @@
         </div>
         {% endif %}
 
-        <div class="compose-fields">
+        <div class="compose-fields" style="max-width:700px;">
             <div class="mb-2">
                 <label class="form-label small text-muted mb-1">Кому <span class="text-danger">*</span></label>
-                <input type="text" name="to" class="form-control form-control-sm" value="{{ to|default:'' }}"
-                       placeholder="email1@example.com, email2@example.com"
-                       list="contacts-datalist"
-                       oninput="EmailApp.markDirty()">
-                <datalist id="contacts-datalist">
-                    {% for contact in contacts %}
-                    {% with primary_email=contact.primary_email %}
-                    {% if primary_email %}
-                    <option value="{{ primary_email.email }}" label="{{ contact.name }}">
-                    {% endif %}
-                    {% endwith %}
-                    {% endfor %}
-                </datalist>
+                <div class="d-flex gap-1">
+                    <textarea name="to" class="form-control form-control-sm" rows="1"
+                              placeholder="email1@example.com, email2@example.com"
+                              oninput="autoResize(this);EmailApp.markDirty()"
+                              style="overflow:hidden;resize:none;">{{ to|default:'' }}</textarea>
+                    <div class="dropdown" id="contacts-dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Выбрать из контактов">
+                            <i class="bi bi-book"></i>
+                        </button>
+                        <div class="dropdown-menu dropdown-menu-end" style="min-width:280px;">
+                            <div class="px-2 py-1">
+                                <input type="text" class="form-control form-control-sm" id="contacts-search" placeholder="Поиск контактов..." oninput="filterContacts(this.value)">
+                            </div>
+                            <ul class="list-unstyled mb-0" id="contacts-list" style="max-height: 260px; overflow-y: auto;">
+                                {% for contact in contacts %}
+                                <li><a class="dropdown-item small" href="#" data-email="{{ contact.primary_email.email|default:'' }}" data-field="to" onclick="addContactTo(this); return false;" data-search="{{ contact.name|lower }} {{ contact.primary_email.email|default:''|lower }}">{{ contact.name }} — {{ contact.primary_email.email|default:'нет email' }}</a></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="row mb-2">
                 <div class="col">
                     <label class="form-label small text-muted mb-1">Копия</label>
-                    <input type="text" name="cc" class="form-control form-control-sm" value="{{ cc|default:'' }}"
-                           placeholder="email@example.com"
-                           oninput="EmailApp.markDirty()">
+                    <textarea name="cc" class="form-control form-control-sm" rows="1"
+                              placeholder="email@example.com"
+                              oninput="autoResize(this);EmailApp.markDirty()"
+                              style="overflow:hidden;resize:none;">{{ cc|default:'' }}</textarea>
                 </div>
                 <div class="col">
                     <label class="form-label small text-muted mb-1">Скрытая копия</label>
-                    <input type="text" name="bcc" class="form-control form-control-sm"
-                           placeholder="email@example.com"
-                           oninput="EmailApp.markDirty()">
+                    <textarea name="bcc" class="form-control form-control-sm" rows="1"
+                              placeholder="email@example.com"
+                              oninput="autoResize(this);EmailApp.markDirty()"
+                              style="overflow:hidden;resize:none;"></textarea>
                 </div>
             </div>
             <div class="mb-0">
@@ -79,38 +111,81 @@
 
     <div class="modal-footer">
         <div class="d-flex align-items-center gap-2 flex-wrap w-100">
-            <button type="submit" class="btn btn-primary">
-                <i class="bi bi-send"></i> Отправить
-            </button>
-            {% if mode != 'compose' %}
-            <div class="form-check form-check-inline mb-0">
-                <input type="checkbox" name="include_original" class="form-check-input" id="include-original" checked>
-                <label class="form-check-label small" for="include-original">Включить исходное письмо</label>
+            <div id="file-list-compose" class="d-flex align-items-center gap-1 flex-wrap"></div>
+            {% if mode == 'compose' %}
+            <div class="form-check form-check-inline mb-0 ms-auto">
+                <input type="checkbox" name="use_outlook" class="form-check-input" id="use-outlook">
+                <label class="form-check-label small" for="use-outlook">Outlook</label>
             </div>
-            <input type="hidden" name="mode" value="{{ mode }}">
             {% endif %}
-            <div class="ms-auto d-flex align-items-center gap-2">
-                {% if mode == 'compose' %}
-                <label class="btn btn-outline-secondary btn-sm mb-0">
-                    <i class="bi bi-paperclip"></i> Вложения
-                    <input type="file" name="attachment_files" class="d-none" multiple onchange="updateFileList(this)">
-                </label>
-                <span id="file-count-compose" class="text-muted small"></span>
-                <div class="form-check form-check-inline mb-0">
-                    <input type="checkbox" name="use_outlook" class="form-check-input" id="use-outlook">
-                    <label class="form-check-label small" for="use-outlook">Outlook</label>
-                </div>
-                {% endif %}
-            </div>
         </div>
     </div>
 </form>
 
 <script>
+function filterContacts(query) {
+    var q = query.toLowerCase().trim();
+    document.querySelectorAll('#contacts-list .dropdown-item').forEach(function(item) {
+        var searchData = item.getAttribute('data-search') || '';
+        item.style.display = (!q || searchData.indexOf(q) !== -1) ? '' : 'none';
+    });
+}
+
+function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+}
+
+function addContactTo(anchor) {
+    var email = anchor.getAttribute('data-email');
+    var fieldName = anchor.getAttribute('data-field') || 'to';
+    if (!email) return;
+    var input = document.querySelector('textarea[name="' + fieldName + '"]');
+    if (!input) return;
+    if (input.value && input.value.trim()) {
+        input.value += ', ' + email;
+    } else {
+        input.value = email;
+    }
+    autoResize(input);
+    input.dispatchEvent(new Event('input'));
+    if (window.EmailApp) EmailApp.markDirty();
+}
+
 function updateFileList(input) {
-    let count = input.files.length;
-    let span = document.getElementById('file-count-compose');
-    if (span) span.textContent = count > 0 ? count + ' файл(ов)' : '';
+    var span = document.getElementById('file-count-compose');
+    if (input.files.length > 0) {
+        if (span) { span.textContent = input.files.length; span.style.display = ''; }
+    } else {
+        if (span) span.style.display = 'none';
+    }
+    var list = document.getElementById('file-list-compose');
+    if (!list) return;
+    list.innerHTML = '';
+    Array.from(input.files).forEach(function(file, i) {
+        var badge = document.createElement('span');
+        badge.className = 'badge bg-warning text-dark d-inline-flex align-items-center gap-1 py-1 px-2';
+        var ext = file.name.split('.').pop().toLowerCase();
+        var icon = 'bi-file-earmark';
+        if (['pdf'].indexOf(ext) !== -1) icon = 'bi-file-pdf';
+        else if (['doc','docx'].indexOf(ext) !== -1) icon = 'bi-file-word';
+        else if (['xls','xlsx'].indexOf(ext) !== -1) icon = 'bi-file-excel';
+        else if (['jpg','jpeg','png','gif','bmp'].indexOf(ext) !== -1) icon = 'bi-file-image';
+        else if (['zip','rar','7z'].indexOf(ext) !== -1) icon = 'bi-file-zip';
+        badge.innerHTML = '<i class="bi ' + icon + '"></i> ' + file.name + ' <a href="#" class="text-danger text-decoration-none fw-bold" data-idx="' + i + '" onclick="removeAttachment(this); return false;">&times;</a>';
+        list.appendChild(badge);
+    });
+}
+function removeAttachment(el) {
+    var idx = parseInt(el.getAttribute('data-idx'));
+    var input = document.querySelector('input[name="attachment_files"]');
+    if (!input || !input.files) return;
+    var dt = new DataTransfer();
+    Array.from(input.files).forEach(function(file, i) {
+        if (i !== idx) dt.items.add(file);
+    });
+    input.files = dt.files;
+    updateFileList(input);
 }
 
 function saveDraft() {
@@ -125,6 +200,8 @@ function saveDraft() {
         var el = form.elements[name];
         if (el) params.append(name, el.value);
     });
+    var urlParams = new URLSearchParams(window.location.search);
+    var nextUrl = urlParams.get('next') || '{% url "email_ui:inbox_default" %}';
     fetch('{% url "email_ui:save_draft" %}', {
         method: 'POST',
         headers: {'X-CSRFToken': '{{ csrf_token }}'},
@@ -133,6 +210,7 @@ function saveDraft() {
         if (r.ok || r.status === 204) {
             EmailApp.clearDirty();
             EmailApp.closeModal();
+            window.location.href = nextUrl;
         }
     });
 }

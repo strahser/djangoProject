@@ -1,0 +1,212 @@
+{% extends "email_ui/base.html" %}
+
+{% block sidebar %}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4">
+    <!-- Header -->
+    <div class="d-flex align-items-center mb-3">
+        <h4 class="mb-0 text-truncate">
+            {{ email.subject|default:"Без темы" }}
+        </h4>
+        {% if not email.is_read %}
+        <span class="badge bg-primary ms-2">Новое</span>
+        {% endif %}
+        {% if email.is_important %}
+        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-star-fill"></i> Важно</span>
+        {% endif %}
+    </div>
+
+    <!-- Toolbar -->
+    <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+        <button class="btn btn-sm btn-outline-primary"
+                onclick="EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'reply' %}'); return false;">
+            <i class="bi bi-reply"></i> Ответить
+        </button>
+        <button class="btn btn-sm btn-outline-primary"
+                onclick="EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'reply_all' %}'); return false;">
+            <i class="bi bi-reply-all"></i> Всем
+        </button>
+        <button class="btn btn-sm btn-outline-primary"
+                onclick="EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'forward' %}'); return false;">
+            <i class="bi bi-forward"></i> Переслать
+        </button>
+        <button class="btn btn-sm {% if email.is_important %}btn-warning{% else %}btn-outline-secondary{% endif %}"
+                onclick="toggleImportant({{ email.pk }}, this)" title="Важно">
+            <i class="bi bi-star{% if not email.is_important %}-empty{% endif %}"></i>
+        </button>
+        <div class="vr"></div>
+        <span id="email-tags-{{ email.pk }}" class="d-flex align-items-center gap-1 flex-wrap">
+            {% for et in email.email_tags.all %}
+            <span class="badge rounded-pill" style="background-color: {{ et.tag.color }}">
+                {{ et.tag.name }}
+                <a href="#" hx-post="{% url 'email_ui:remove_tag' email.pk et.tag.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white text-decoration-none ms-1">&times;</a>
+            </span>
+            {% endfor %}
+        </span>
+        <div class="dropdown d-inline-block">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle py-0" data-bs-toggle="dropdown">
+                <i class="bi bi-tag"></i>
+            </button>
+            <ul class="dropdown-menu">
+                {% for tag in all_tags %}
+                <li><a class="dropdown-item" href="#" onclick="assignTag({{ email.pk }}, {{ tag.id }}, '{{ tag.name }}', '{{ tag.color }}')">{{ tag.name }}</a></li>
+                {% empty %}
+                <li><span class="dropdown-item text-muted">Нет тегов</span></li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <!-- Meta info -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <table class="table table-sm table-borderless mb-2" style="max-width: 700px;">
+                <tr>
+                    <td class="text-muted" style="width: 80px;">От:</td>
+                    <td><strong>{{ email.sender|default:"—" }}</strong></td>
+                </tr>
+                <tr>
+                    <td class="text-muted">Кому:</td>
+                    <td>{{ email.receiver|default:"—" }}</td>
+                </tr>
+                {% if email.cc %}
+                <tr>
+                    <td class="text-muted">Копия:</td>
+                    <td>{{ email.cc }}</td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <td class="text-muted">Дата:</td>
+                    <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td>
+                </tr>
+            </table>
+
+            <!-- Metadata under expander -->
+            <div class="collapsible-section">
+                <div class="section-header collapsed" onclick="toggleSection(this)">
+                    <span><i class="bi bi-info-circle"></i> Дополнительные данные</span>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+                <div class="section-body" id="metadata-block-{{ email.pk }}">
+                    {% include "email_ui/partials/metadata_display.html" %}
+                </div>
+            </div>
+            {% if email.project_site and email.contractor %}
+            <div class="mt-2">
+                <form method="post" action="{% url 'email_ui:copy_email' email.pk %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.GET.next|default:'' }}">
+                    <button type="submit" class="btn btn-sm btn-outline-success">
+                        <i class="bi bi-folder-plus"></i> Скопировать в структуру проекта
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Tasks & Attachments -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="collapsible-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span><i class="bi bi-list-task"></i> Задачи ({% if email.tasks.all %}{{ email.tasks.count }}{% else %}0{% endif %})</span>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+                <div class="section-body">
+                    {% for task in email.tasks.all %}
+                        <span class="badge bg-info mb-1 me-1">
+                            {{ task.name }}
+                            <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white text-decoration-none ms-1">&times;</a>
+                        </span>
+                    {% empty %}
+                        <span class="text-muted">Нет привязанных задач</span>
+                    {% endfor %}
+                    <button class="btn btn-sm btn-outline-primary ms-2"
+                            hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}"
+                            hx-target="#task-modal-container"
+                            hx-trigger="click"
+                            data-bs-toggle="modal"
+                            data-bs-target="#taskModal">+</button>
+                </div>
+            </div>
+
+            <div class="collapsible-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span><i class="bi bi-paperclip"></i> Вложения ({% if email.attachments.all %}{{ email.attachments.count }}{% else %}0{% endif %})</span>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+                <div class="section-body">
+                    {% include "email_ui/partials/attachments_list.html" %}
+                    <!-- Add attachment form -->
+                    <form method="post" action="{% url 'email_ui:add_attachment' email.pk %}" enctype="multipart/form-data" class="mt-2">
+                        {% csrf_token %}
+                        <div class="input-group input-group-sm">
+                            <input type="file" name="attachment_file" class="form-control form-control-sm" required>
+                            <button type="submit" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-plus-circle"></i> Добавить
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Body -->
+    <div class="card">
+        <div class="card-body p-4">
+            <div class="border rounded p-4"
+                 hx-get="{% url 'email_ui:email_body' email.pk %}"
+                 hx-trigger="load"
+                 hx-target="this"
+                 style="min-height: 200px;">
+                <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function assignTag(emailId, tagId, tagName, tagColor) {
+    fetch('{% url "email_ui:assign_tag" %}', {
+        method: 'POST',
+        headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'email_id=' + emailId + '&tag_id=' + tagId
+    }).then(r => r.json()).then(data => {
+        let container = document.getElementById('email-tags-' + emailId);
+        if (container) {
+            let badge = document.createElement('span');
+            badge.className = 'badge rounded-pill';
+            badge.style.backgroundColor = tagColor;
+            badge.innerHTML = tagName + ' <a href="#" class="text-white text-decoration-none ms-1">&times;</a>';
+            badge.querySelector('a').addEventListener('click', function(e) {
+                e.preventDefault();
+                badge.remove();
+            });
+            container.appendChild(badge);
+        }
+    });
+}
+
+function toggleSection(header) {
+    header.classList.toggle('collapsed');
+    const body = header.nextElementSibling;
+    body.classList.toggle('show');
+}
+
+function toggleImportant(emailId, btn) {
+    fetch('{% url "email_ui:toggle_important" 0 %}'.replace('0', emailId), {
+        method: 'POST',
+        headers: {'X-CSRFToken': '{{ csrf_token }}'}
+    }).then(r => r.json()).then(data => {
+        var isImportant = data.is_important;
+        btn.classList.toggle('btn-warning', isImportant);
+        btn.classList.toggle('btn-outline-secondary', !isImportant);
+        var icon = btn.querySelector('i');
+        icon.className = isImportant ? 'bi bi-star-fill' : 'bi bi-star';
+    });
+}
+</script>
+{% endblock %}

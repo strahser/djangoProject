@@ -11,6 +11,7 @@ urlpatterns = [
     path('unread-count/', views.unread_count, name='unread_count'),
 
     # --- Email detail / body ---
+    path('email/<int:pk>/', views.email_detail, name='email_detail'),
     path('email/<int:pk>/modal/', views.email_detail_modal, name='email_detail_modal'),
     path('email/<int:pk>/body/', views.email_body, name='email_body'),
     path('email/<int:pk>/mark-read/', views.mark_email_as_read, name='mark_email_as_read'),
@@ -24,6 +25,7 @@ urlpatterns = [
     path('email/<int:pk>/metadata-display/', views.metadata_display, name='metadata_display'),
 
     # --- Folder / Bulk actions ---
+    path('email/<int:pk>/add-attachment/', views.add_attachment, name='add_attachment'),
     path('email/<int:pk>/move-to-folder/', views.move_to_folder, name='move_to_folder'),
     path('bulk-action/', views.bulk_action, name='bulk_action'),
 
@@ -59,11 +61,13 @@ urlpatterns = [
     path('tags/assign/', views.assign_tag, name='assign_tag'),
     path('tags/<int:email_id>/remove/<int:tag_id>/', views.remove_tag, name='remove_tag'),
     path('tags/bulk-assign/', views.bulk_assign_tag, name='bulk_assign_tag'),
+    path('email/<int:pk>/toggle-important/', views.toggle_important, name='toggle_important'),
 
     # --- Phase 4: Email ↔ Task ---
     path('link-to-task/', views.link_email_to_task, name='link_email_to_task'),
     path('unlink-from-task/<int:link_id>/', views.unlink_email_from_task, name='unlink_email_from_task'),
     path('email/<int:pk>/create-task/', views.create_task_from_email, name='create_task_from_email'),
+    path('email/<int:pk>/copy-email/', views.copy_email, name='copy_email'),
     path('email/<int:pk>/attach-to-tasks-modal/', views.attach_to_tasks_modal, name='attach_to_tasks_modal'),
     path('email/<int:pk>/attach-tasks/', views.attach_tasks, name='attach_tasks'),
     path('email/<int:pk>/detach-task/<int:task_id>/', views.detach_task, name='detach_task'),

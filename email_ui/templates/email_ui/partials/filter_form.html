@@ -12,12 +12,42 @@
                   hx-push-url="false">
                 <input type="hidden" name="folder" value="{{ folder }}">
                 <div class="input-group">
+                    <div class="position-relative" style="min-width:200px;">
+                        {{ filter_form.sender }}
+                        <div id="sender-dropdown" class="list-group position-absolute w-100" style="display:none; z-index:1000; max-height:200px; overflow-y:auto; border:1px solid var(--border-color); border-radius:4px; background:var(--bg-card);"></div>
+                    </div>
+                    <datalist id="sender-datalist">
+                        {% for s in all_senders %}
+                        <option value="{{ s }}">
+                        {% endfor %}
+                    </datalist>
                     {{ filter_form.search }}
                     <button class="btn btn-outline-secondary" type="submit" id="button-search">
                         <i class="bi bi-search"></i> Найти
                     </button>
                 </div>
             </form>
+        </div>
+        <div class="col-auto d-flex align-items-center">
+            <div class="form-check form-check-inline mb-0" id="has-attachments-top-wrapper">
+                {{ filter_form.has_attachments }}
+                <label class="form-check-label small text-nowrap" for="{{ filter_form.has_attachments.id_for_label }}" title="Только с вложениями">
+                    <i class="bi bi-paperclip"></i>
+                </label>
+            </div>
+            <script>
+                (function() {
+                    var cb = document.getElementById('{{ filter_form.has_attachments.id_for_label }}');
+                    if (cb) cb.addEventListener('change', function() {
+                        var advForm = document.getElementById('filter-form-advanced');
+                        if (advForm) {
+                            var advCb = advForm.querySelector('input[name="has_attachments"]');
+                            if (advCb) advCb.checked = this.checked;
+                            advForm.requestSubmit();
+                        }
+                    });
+                })();
+            </script>
         </div>
         <div class="col-md-4 text-end">
             <button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#filterCollapse" aria-expanded="false" aria-controls="filterCollapse">
@@ -242,4 +272,74 @@
 
     // Инициализация при загрузке
     document.addEventListener('DOMContentLoaded', updateSummary);
+
+    // Searchable sender combobox
+    (function() {
+        var senderInput = document.getElementById('id_sender');
+        var senderDropdown = document.getElementById('sender-dropdown');
+        if (!senderInput || !senderDropdown) return;
+        var allSenders = [];
+        var datalist = document.getElementById('sender-datalist');
+        if (datalist) {
+            Array.from(datalist.options).forEach(function(opt) {
+                allSenders.push(opt.value);
+            });
+        }
+
+        function filterSenders(query) {
+            var q = query.toLowerCase();
+            return allSenders.filter(function(s) {
+                return s.toLowerCase().indexOf(q) !== -1;
+            });
+        }
+
+        function renderDropdown(items) {
+            if (items.length === 0) {
+                senderDropdown.style.display = 'none';
+                return;
+            }
+            senderDropdown.innerHTML = '';
+            items.forEach(function(item) {
+                var el = document.createElement('button');
+                el.type = 'button';
+                el.className = 'list-group-item list-group-item-action py-1 small';
+                el.textContent = item;
+                el.style.cursor = 'pointer';
+                el.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                    senderInput.value = item;
+                    senderDropdown.style.display = 'none';
+                    senderInput.dispatchEvent(new Event('change'));
+                    var form = senderInput.closest('form');
+                    if (form) form.requestSubmit();
+                });
+                senderDropdown.appendChild(el);
+            });
+            senderDropdown.style.display = 'block';
+        }
+
+        senderInput.addEventListener('input', function() {
+            var items = filterSenders(this.value);
+            renderDropdown(items);
+        });
+
+        senderInput.addEventListener('focus', function() {
+            var items = filterSenders(this.value);
+            renderDropdown(items);
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!senderInput.contains(e.target) && !senderDropdown.contains(e.target)) {
+                senderDropdown.style.display = 'none';
+            }
+        });
+
+        senderInput.addEventListener('blur', function() {
+            setTimeout(function() {
+                if (!senderDropdown.contains(document.activeElement)) {
+                    senderDropdown.style.display = 'none';
+                }
+            }, 200);
+        });
+    })();
 </script>

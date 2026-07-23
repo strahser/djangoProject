@@ -1,16 +1,12 @@
 {% for email in page_obj %}
-<tr class="{% if not email.is_read %}unread{% endif %}">
-    <td>
+<tr class="email-row{% if not email.is_read %} unread{% endif %}"
+    onclick="location.href='{% url 'email_ui:email_detail' email.pk %}?next={{ request.get_full_path|urlencode }}'; return false;">
+    <td onclick="event.stopPropagation()">
         <input type="checkbox" name="selected_emails" value="{{ email.pk }}" form="bulk-form">
     </td>
     <td>{{ email.sender|default:"Неизвестно" }}</td>
     <td>
-        <a href="#"
-           data-bs-toggle="modal"
-           data-bs-target="#emailModal"
-           hx-get="{% url 'email_ui:email_detail_modal' email.pk %}"
-           hx-target="#emailModal .modal-content"
-           hx-trigger="click">
+        <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ request.get_full_path|urlencode }}">
             {{ email.subject|truncatechars:50 }}
         </a>
     </td>
@@ -36,7 +32,7 @@
 
 {% if page_obj.has_next %}
 <tr id="load-marker"
-    hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&{{ request.GET.urlencode }}&_infinite=1"
+    hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&{{ clean_params }}&_infinite=1"
     hx-trigger="revealed"
     hx-target="#load-marker"
     hx-swap="outerHTML">

@@ -4,3 +4,14 @@
         <p class="mt-2">{{ message|default:"Письмо отправлено" }}</p>
     </div>
 </div>
+<script>
+    (function() {
+        var next = '{{ next|escapejs }}';
+        if (next) {
+            try { EmailApp.closeModal(); } catch(e) {}
+            setTimeout(function() {
+                window.location.href = next;
+            }, 1500);
+        }
+    })();
+</script>

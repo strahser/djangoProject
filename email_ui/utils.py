@@ -117,7 +117,8 @@ def resolve_sender_to_email(sender: str) -> str:
     Resolve a sender string to an email address.
     If the sender string contains an email, extract it.
     If it's just a name, try to look up the Contact model.
-    Falls back to returning the original string.
+    If still not found, search other emails where the same sender
+    appears with an email in angle brackets (e.g. "Name <email>").
     """
     if not sender:
         return ''
@@ -127,6 +128,7 @@ def resolve_sender_to_email(sender: str) -> str:
         return email
 
     from .models import Contact, ContactEmail
+
     contacts = Contact.objects.filter(is_active=True, name__icontains=sender.strip())
     for contact in contacts:
         primary = contact.primary_email
@@ -136,4 +138,30 @@ def resolve_sender_to_email(sender: str) -> str:
         if first:
             return first.email
 
-    return sender
+    words = sender.strip().lower().split()
+    if words:
+        for word in words:
+            if len(word) > 2:
+                contacts = Contact.objects.filter(is_active=True, name__icontains=word)
+                for contact in contacts:
+                    primary = contact.primary_email
+                    if primary:
+                        return primary.email
+                    first = contact.emails.first()
+                    if first:
+                        return first.email
+
+    from Emails.models import Email as EmailModel
+    similar = EmailModel.objects.filter(
+        sender__icontains=sender.strip()
+    ).exclude(
+        sender=sender.strip()
+    ).exclude(
+        sender__regex=r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$'
+    ).values_list('sender', flat=True)[:10]
+    for s in similar:
+        found = extract_email_address(s)
+        if found:
+            return found
+
+    return ''

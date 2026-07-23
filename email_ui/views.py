@@ -40,9 +40,17 @@ from .utils import (
     sanitize_id, sanitize_id_list,
 )
 PER_PAGE = 50
-# Разрешённые поля для сортировки
-
 ALLOWED_SORT_FIELDS = ['sender', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
+
+
+def _clean_query_string(request, remove_params=None):
+    """Remove specified params from query string and return URL-encoded string."""
+    if remove_params is None:
+        remove_params = ['sort', 'order']
+    params = request.GET.copy()
+    for key in remove_params:
+        params.pop(key, None)
+    return params.urlencode()
 
 
 def apply_sorting(queryset, request):
@@ -59,6 +67,8 @@ def apply_sorting(queryset, request):
 
 
 def filter_emails(queryset, cleaned_data):
+    if cleaned_data.get('sender'):
+        queryset = queryset.filter(sender=cleaned_data['sender'])
     if cleaned_data.get('project_site'):
         queryset = queryset.filter(project_site__in=cleaned_data['project_site'])
     if cleaned_data.get('contractor'):
@@ -144,6 +154,8 @@ def inbox_view(request, folder='inbox'):
         'selected_tags': selected_tags,
         'filter_data': filter_data,
         'all_tags': EmailTag.objects.all(),
+        'clean_params': _clean_query_string(request),
+        'all_senders': Email.objects.exclude(sender='').values_list('sender', flat=True).distinct().order_by('sender'),
     }
     return render(request, 'email_ui/inbox.html', context)
 
@@ -171,6 +183,7 @@ def email_list_partial(request):
     if request.GET.get('_infinite'):
         context = {
             'page_obj': page_obj,
+            'clean_params': _clean_query_string(request),
         }
         return render(request, 'email_ui/partials/email_rows.html', context)
 
@@ -180,6 +193,7 @@ def email_list_partial(request):
         'page_obj': page_obj,
         'current_sort': current_sort,
         'current_order': current_order,
+        'clean_params': _clean_query_string(request),
     }
     return render(request, 'email_ui/partials/email_list.html', context)
 
@@ -203,6 +217,30 @@ def filter_form_partial(request):
 
 
 @login_required
+def email_detail(request, pk):
+    """Полноценная страница просмотра письма."""
+    email = get_object_or_404(
+        Email.objects.select_related(
+            'project_site', 'contractor', 'category', 'building_type'
+        ).prefetch_related('attachments', 'tasks'),
+        pk=pk
+    )
+    if not email.is_read:
+        email.is_read = True
+        email.save(update_fields=['is_read'])
+
+    next_url = request.GET.get('next', reverse('email_ui:inbox_default'))
+
+    context = {
+        'email': email,
+        'metadata_form': EmailMetadataForm(instance=email),
+        'all_tags': EmailTag.objects.all(),
+        'next_url': next_url,
+    }
+    return render(request, 'email_ui/email_detail.html', context)
+
+
+@login_required
 def email_detail_modal(request, pk):
     """Возвращает фрагмент с деталями письма для модального окна."""
     email = get_object_or_404(
@@ -211,10 +249,9 @@ def email_detail_modal(request, pk):
         ).prefetch_related('attachments', 'tasks'),
         pk=pk
     )
-    # Удалено: помечание прочитанным сразу при открытии
-    # if not email.is_read:
-    #     email.is_read = True
-    #     email.save(update_fields=['is_read'])
+    if not email.is_read:
+        email.is_read = True
+        email.save(update_fields=['is_read'])
 
     context = {
         'email': email,
@@ -272,6 +309,11 @@ def edit_metadata(request, pk):
     email = get_object_or_404(Email, pk=pk)
     form = EmailMetadataForm(request.POST, instance=email)
     if form.is_valid():
+        cd = form.cleaned_data
+        # If any metadata field is filled, auto-mark as important
+        has_metadata = any(v for k, v in cd.items() if k in ('project_site', 'contractor', 'building_type', 'category') and v)
+        if has_metadata and not email.is_important:
+            email.is_important = True
         form.save()
         return render(request, 'email_ui/partials/metadata_display.html', {'email': email})
     else:
@@ -279,6 +321,37 @@ def edit_metadata(request, pk):
             'email': email,
             'metadata_form': form,
         }, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def add_attachment(request, pk):
+    """Добавить вложение к письму."""
+    email = get_object_or_404(Email, pk=pk)
+    uploaded_file = request.FILES.get('attachment_file')
+    if not uploaded_file:
+        return HttpResponseBadRequest('Файл не выбран')
+    try:
+        att = Attachment.objects.create(
+            email=email,
+            file_path='',
+            filename=uploaded_file.name,
+            size=uploaded_file.size or 0,
+            content_type=uploaded_file.content_type or '',
+        )
+        os.makedirs(os.path.dirname(email.link or ''), exist_ok=True)
+        if email.link:
+            file_path = os.path.join(email.link, uploaded_file.name)
+            with open(file_path, 'wb+') as dest:
+                for chunk in uploaded_file.chunks():
+                    dest.write(chunk)
+            att.file_path = file_path
+            att.save(update_fields=['file_path'])
+        messages.success(request, f'Файл "{uploaded_file.name}" добавлен')
+        return redirect(reverse('email_ui:email_detail', args=[pk]))
+    except Exception as e:
+        messages.error(request, f'Ошибка добавления файла: {e}')
+        return redirect(reverse('email_ui:email_detail', args=[pk]))
 
 
 @login_required
@@ -291,9 +364,19 @@ def edit_metadata_form(request, pk):
 
 @login_required
 def metadata_display(request, pk):
-    """Возвращает отображение метаданных (для отмены редактирования)."""
+    """Возвращает отображение метаданных."""
     email = get_object_or_404(Email, pk=pk)
     return render(request, 'email_ui/partials/metadata_display.html', {'email': email})
+
+
+@login_required
+@require_http_methods(['POST'])
+def toggle_important(request, pk):
+    """Переключить флаг важности письма."""
+    email = get_object_or_404(Email, pk=pk)
+    email.is_important = not email.is_important
+    email.save(update_fields=['is_important'])
+    return JsonResponse({'is_important': email.is_important})
 
 
 @login_required
@@ -354,17 +437,28 @@ def detach_task(request, pk, task_id):
 def bulk_action(request):
     """Массовые операции над выбранными письмами."""
     action = request.POST.get('action')
-    raw_ids = request.POST.getlist('selected_emails')
-    email_ids = sanitize_id_list(raw_ids)
-    if not email_ids:
-        return HttpResponseBadRequest('Нет писем')
+    select_all = request.POST.get('select_all')
+    folder = request.POST.get('folder', 'inbox')
 
-    emails = Email.objects.filter(id__in=email_ids)
+    if select_all == '1':
+        # Apply action to ALL emails matching current filters
+        emails = Email.objects.filter(folder=folder).select_related(
+            'project_site', 'contractor'
+        ).prefetch_related('attachments')
+        filter_form = EmailFilterForm(request.GET)
+        if filter_form.is_valid():
+            emails = filter_emails(emails, filter_form.cleaned_data)
+    else:
+        raw_ids = request.POST.getlist('selected_emails')
+        email_ids = sanitize_id_list(raw_ids)
+        if not email_ids:
+            return HttpResponseBadRequest('Нет писем')
+        emails = Email.objects.filter(id__in=email_ids)
 
     if action == 'move':
-        folder = request.POST.get('folder')
-        if folder in dict(Email.FOLDER_CHOICES):
-            emails.update(folder=folder)
+        target_folder = request.POST.get('move_to') or request.POST.get('folder')
+        if target_folder in dict(Email.FOLDER_CHOICES):
+            emails.update(folder=target_folder)
             messages.success(request, f'{emails.count()} писем перемещено')
     elif action == 'mark_read':
         emails.update(is_read=True)
@@ -380,7 +474,7 @@ def bulk_action(request):
     else:
         return HttpResponseBadRequest('Неизвестное действие')
 
-    folder = request.GET.get('folder', 'inbox')
+    folder = request.GET.get('folder', folder)
     # При HTMX-запросе возвращаем частичное обновление, а не редирект
     # (иначе весь HTML страницы вставится внутрь #email-list-container)
     if request.headers.get('HX-Request'):
@@ -399,6 +493,7 @@ def bulk_action(request):
             'page_obj': page_obj,
             'current_sort': current_sort,
             'current_order': current_order,
+            'clean_params': _clean_query_string(request),
         }
         return render(request, 'email_ui/partials/email_list.html', context)
     return redirect(reverse('email_ui:inbox', args=[folder]))
@@ -484,9 +579,17 @@ def filter_field_modal(request, field_name):
 
 @login_required
 def unread_count(request):
-    """Возвращает количество непрочитанных писем (для боковой панели)."""
-    count = Email.objects.filter(folder='inbox', is_read=False).count()
-    return HttpResponse(str(count))
+    """Возвращает JSON со счётчиками для боковой панели."""
+    base = Email.objects.filter(folder='inbox')
+    data = {
+        'inbox': base.filter(is_read=False).count(),
+        'important': base.filter(is_important=True).count(),
+        'attachments': base.filter(attachments__isnull=False).distinct().count(),
+        'unread': base.filter(is_read=False).count(),
+    }
+    if request.headers.get('HX-Request') == 'true':
+        return HttpResponse(str(data['inbox']))
+    return JsonResponse(data)
 
 
 def _get_list_from_request(request, param_name):
@@ -582,6 +685,7 @@ def compose_modal(request):
         'form': form,
         'mode': 'compose',
         'contacts': contacts,
+        'next': request.GET.get('next', ''),
     })
 
 
@@ -589,7 +693,7 @@ def compose_modal(request):
 def reply_modal(request, pk, reply_type='reply'):
     """Модальное окно для ответа/пересылки."""
     email = get_object_or_404(Email, pk=pk)
-    form = ComposeReplyForm(initial={'include_original': True})
+    form = ComposeReplyForm(initial={'include_attachments': reply_type == 'forward'})
 
     subject_map = {
         'reply': f'Re: {email.subject}',
@@ -598,29 +702,56 @@ def reply_modal(request, pk, reply_type='reply'):
     }
 
     # Подгружаем тело исходного письма для цитирования
-    # Для forward: предзаполняем тело письма (пользователь редактирует его)
-    # Для reply: тело пустое, исходное письмо добавляется при отправке (include_original)
     body_text = ''
-    if reply_type == 'forward':
+    load_original = reply_type in ('reply', 'reply_all', 'forward')
+    if load_original:
         html_path = email.get_html_file_path()
         if html_path and os.path.exists(html_path):
             try:
                 with open(html_path, 'r', encoding='utf-8') as f:
-                    body_text = f.read()
+                    orig = f.read()
+                    body_text = f'<br><hr><blockquote>{orig}</blockquote>'
             except Exception:
                 pass
 
     to_addr = ''
     cc_addr = ''
+    user_email = (request.user.email or '').lower() if request.user and hasattr(request.user, 'email') else ''
     if reply_type == 'reply':
         to_addr = resolve_sender_to_email(email.sender or '')
     elif reply_type == 'reply_all':
-        to_addr = resolve_sender_to_email(email.sender or '')
-        cc_addr = email.cc or ''
+        sender_email = resolve_sender_to_email(email.sender or '')
+        to_addr = sender_email
+        # CC: receiver addresses (excluding sender + current user) + original CC (excluding current user)
+        cc_set = set()
+        if email.receiver:
+            for r in email.receiver.split(','):
+                r = r.strip()
+                if not r:
+                    continue
+                addr = resolve_sender_to_email(r) or r
+                if addr.lower() != user_email and addr.lower() != sender_email.lower():
+                    cc_set.add(addr)
+        if email.cc:
+            for c in email.cc.split(','):
+                c = c.strip()
+                if not c:
+                    continue
+                addr = resolve_sender_to_email(c) or c
+                if addr.lower() != user_email:
+                    cc_set.add(addr)
+        cc_addr = ', '.join(sorted(cc_set)) if cc_set else ''
+    elif reply_type == 'forward':
+        to_addr = ''
     elif reply_type == 'forward':
         to_addr = ''
 
     contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
+    # Для forward: передаём вложения оригинального письма
+    forward_attachments = []
+    if reply_type == 'forward':
+        forward_attachments = list(email.attachments.all())
+
     context = {
         'form': form,
         'email': email,
@@ -630,6 +761,8 @@ def reply_modal(request, pk, reply_type='reply'):
         'cc': cc_addr,
         'body': body_text,
         'contacts': contacts,
+        'forward_attachments': forward_attachments,
+        'next': request.GET.get('next', ''),
     }
     return render(request, 'email_ui/partials/compose_modal.html', context)
 
@@ -722,9 +855,11 @@ def send_email(request):
             if attachment_objs:
                 Attachment.objects.filter(id__in=[a.id for a in attachment_objs]).update(email=email_obj)
 
+            next_url = request.POST.get('next', reverse('email_ui:inbox_default'))
             messages.success(request, 'Письмо отправлено')
             return render(request, 'email_ui/partials/send_success.html', {
                 'message': 'Письмо отправлено',
+                'next': next_url,
             })
 
     except Exception as e:
@@ -750,15 +885,6 @@ def reply_send(request, pk):
 
     cd = form.cleaned_data
     body = cd.get('body', '')
-
-    # Добавляем исходное письмо, если нужно (только для reply, не forward)
-    if cd.get('include_original') and mode != 'forward':
-        original_body = ''
-        html_path = email.get_html_file_path()
-        if html_path and os.path.exists(html_path):
-            with open(html_path, 'r', encoding='utf-8') as f:
-                original_body = f'<hr><blockquote>{f.read()}</blockquote>'
-        body = body + original_body
 
     # Формируем получателей
     to_raw = cd.get('to', '')
@@ -794,7 +920,7 @@ def reply_send(request, pk):
         )
 
         # Create reply/forward record
-        Email.objects.create(
+        new_email = Email.objects.create(
             email_type='OUT',
             subject=subject,
             sender=sender.smtp_account.from_email if sender.smtp_account else '',
@@ -808,9 +934,23 @@ def reply_send(request, pk):
             thread_id=email.thread_id if mode != 'forward' else None,
         )
 
+        # Copy original attachments when include_attachments is checked
+        include_attachments = cd.get('include_attachments', False) or mode == 'forward'
+        if include_attachments:
+            for att in email.attachments.all():
+                Attachment.objects.create(
+                    email=new_email,
+                    filename=att.filename,
+                    file_path=att.file_path,
+                    size=att.size,
+                    content_type=att.content_type,
+                )
+
+        next_url = request.POST.get('next', reverse('email_ui:inbox_default'))
         messages.success(request, 'Письмо отправлено')
         return render(request, 'email_ui/partials/send_success.html', {
             'message': 'Письмо отправлено',
+            'next': next_url,
         })
     except Exception as e:
         logger.exception(f'Ошибка отправки ответа: {e}')
@@ -1122,6 +1262,54 @@ def unlink_email_from_task(request, link_id):
     link = get_object_or_404(EmailTaskLink, pk=link_id)
     link.delete()
     return HttpResponse(status=204)
+
+
+@login_required
+@require_http_methods(['POST'])
+def copy_email(request, pk):
+    """Скопировать письмо в структуру проекта (как в админке)."""
+    email = get_object_or_404(Email, pk=pk)
+    next_url = request.POST.get('next', reverse('email_ui:email_detail', args=[pk]))
+    if not email.project_site or not email.contractor:
+        messages.error(request, 'Для копирования нужно указать проект и подрядчика')
+        return redirect(next_url)
+
+    try:
+        from shutil import copytree
+        from datetime import datetime
+        from django.utils.text import slugify
+
+        email_type = getattr(EmailType, email.email_type).value
+        year = str(datetime.today().year)
+        today = datetime.today().strftime('%Y_%m_%d')
+        folder_name = email.name if email.name else slugify(email.subject)[:50]
+        _directory = os.path.join(
+            E_MAIL_DIRECTORY,
+            email.project_site.name,
+            email.contractor.name,
+            email_type,
+            year,
+            f'{today}_{folder_name}',
+        )
+        os.makedirs(_directory, exist_ok=True)
+        if email.link and os.path.exists(email.link):
+            copytree(email.link, _directory, dirs_exist_ok=True)
+        if os.path.exists(_directory):
+            try:
+                import win32clipboard
+                win32clipboard.OpenClipboard()
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardText(_directory, win32clipboard.CF_UNICODETEXT)
+                win32clipboard.CloseClipboard()
+            except Exception:
+                pass
+            messages.success(request, f'Файлы скопированы в папку {_directory}')
+        else:
+            messages.error(request, f'Директория не создана: {_directory}')
+    except Exception as e:
+        messages.error(request, f'Ошибка копирования: {e}')
+
+    return redirect(next_url)
 
 
 @login_required

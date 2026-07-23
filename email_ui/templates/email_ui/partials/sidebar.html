@@ -2,19 +2,16 @@
     <h5>Папки</h5>
     <ul class="nav flex-column">
         <li class="nav-item">
-            <a class="nav-link" href="#"
+            <a class="nav-link{% if folder == 'inbox' %} active{% endif %}" href="#"
                hx-get="{% url 'email_ui:email_list_partial' %}?folder=inbox"
                hx-target="#email-list-container"
                hx-push-url="{% url 'email_ui:inbox' 'inbox' %}">
                 Входящие
-                <span class="badge bg-secondary"
-                      hx-get="{% url 'email_ui:unread_count' %}"
-                      hx-trigger="load"
-                      hx-target="this">0</span>
+                <span class="badge bg-secondary" id="count-inbox" title="Непрочитанные">0</span>
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" href="#"
+            <a class="nav-link{% if folder == 'sent' %} active{% endif %}" href="#"
                hx-get="{% url 'email_ui:email_list_partial' %}?folder=sent"
                hx-target="#email-list-container"
                hx-push-url="{% url 'email_ui:inbox' 'sent' %}">
@@ -22,7 +19,7 @@
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" href="#"
+            <a class="nav-link{% if folder == 'drafts' %} active{% endif %}" href="#"
                hx-get="{% url 'email_ui:email_list_partial' %}?folder=drafts"
                hx-target="#email-list-container"
                hx-push-url="{% url 'email_ui:inbox' 'drafts' %}">
@@ -30,7 +27,7 @@
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" href="#"
+            <a class="nav-link{% if folder == 'archive' %} active{% endif %}" href="#"
                hx-get="{% url 'email_ui:email_list_partial' %}?folder=archive"
                hx-target="#email-list-container"
                hx-push-url="{% url 'email_ui:inbox' 'archive' %}">
@@ -38,7 +35,7 @@
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" href="#"
+            <a class="nav-link{% if folder == 'trash' %} active{% endif %}" href="#"
                hx-get="{% url 'email_ui:email_list_partial' %}?folder=trash"
                hx-target="#email-list-container"
                hx-push-url="{% url 'email_ui:inbox' 'trash' %}">
@@ -53,19 +50,22 @@
             <a class="nav-link" href="#"
                hx-get="{% url 'email_ui:email_list_partial' %}?folder={{ request.GET.folder|default:'inbox' }}&is_important=1"
                hx-target="#email-list-container"
-               hx-push-url="false">Важные</a>
+               hx-push-url="false">Важные
+               <span class="badge bg-secondary" id="count-important">0</span></a>
         </li>
         <li class="nav-item">
             <a class="nav-link" href="#"
                hx-get="{% url 'email_ui:email_list_partial' %}?folder={{ request.GET.folder|default:'inbox' }}&has_attachments=1"
                hx-target="#email-list-container"
-               hx-push-url="false">С вложениями</a>
+               hx-push-url="false">С вложениями
+               <span class="badge bg-secondary" id="count-attachments">0</span></a>
         </li>
         <li class="nav-item">
             <a class="nav-link" href="#"
                hx-get="{% url 'email_ui:email_list_partial' %}?folder={{ request.GET.folder|default:'inbox' }}&is_unread=1"
                hx-target="#email-list-container"
-               hx-push-url="false">Непрочитанные</a>
+               hx-push-url="false">Непрочитанные
+               <span class="badge bg-secondary" id="count-unread">0</span></a>
         </li>
     </ul>
 </div>

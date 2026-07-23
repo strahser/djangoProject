@@ -608,7 +608,11 @@ class UnreadCountTest(CategoryMixin, TestCase, ViewTestCaseMixin):
     def test_unread_count(self):
         response = self.client.get(reverse('email_ui:unread_count'))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content.decode(), '2')
+        data = response.json()
+        self.assertEqual(data['inbox'], 2)
+        self.assertEqual(data['unread'], 2)
+        self.assertEqual(data['important'], 0)
+        self.assertEqual(data['attachments'], 0)
 
 
 class MetadataEditTest(CategoryMixin, TestCase, ViewTestCaseMixin):
@@ -1060,7 +1064,7 @@ class ResolveSenderToEmailTest(TestCase):
 
     def test_name_only_no_contact(self):
         result = resolve_sender_to_email('Unknown Person')
-        self.assertEqual(result, 'Unknown Person')
+        self.assertEqual(result, '')
 
     def test_empty(self):
         self.assertEqual(resolve_sender_to_email(''), '')
@@ -1119,7 +1123,7 @@ class ReplyModalViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         response = self.client.get(
             reverse('email_ui:reply_modal', args=[self.email.pk, 'reply_all'])
         )
-        self.assertEqual(response.context['to'], 'strakhov.s@cimrus.com')
+        self.assertIn('strakhov.s@cimrus.com', response.context['to'])
 
     def test_forward_modal_to_empty(self):
         response = self.client.get(
