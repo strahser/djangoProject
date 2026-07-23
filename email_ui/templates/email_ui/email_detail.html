@@ -32,8 +32,9 @@
             <i class="bi bi-forward"></i> Переслать
         </button>
         <button class="btn btn-sm {% if email.is_important %}btn-warning{% else %}btn-outline-secondary{% endif %}"
-                onclick="toggleImportant({{ email.pk }}, this)" title="Важно">
-            <i class="bi bi-star{% if not email.is_important %}-empty{% endif %}"></i>
+                hx-post="{% url 'email_ui:toggle_important' email.pk %}"
+                hx-target="this" hx-swap="outerHTML" title="Важно">
+            <i class="bi {% if email.is_important %}bi-star-fill{% else %}bi-star{% endif %}"></i>
         </button>
         <div class="vr"></div>
         <span id="email-tags-{{ email.pk }}" class="d-flex align-items-center gap-1 flex-wrap">
@@ -194,19 +195,6 @@ function toggleSection(header) {
     header.classList.toggle('collapsed');
     const body = header.nextElementSibling;
     body.classList.toggle('show');
-}
-
-function toggleImportant(emailId, btn) {
-    fetch('{% url "email_ui:toggle_important" 0 %}'.replace('0', emailId), {
-        method: 'POST',
-        headers: {'X-CSRFToken': '{{ csrf_token }}'}
-    }).then(r => r.json()).then(data => {
-        var isImportant = data.is_important;
-        btn.classList.toggle('btn-warning', isImportant);
-        btn.classList.toggle('btn-outline-secondary', !isImportant);
-        var icon = btn.querySelector('i');
-        icon.className = isImportant ? 'bi bi-star-fill' : 'bi bi-star';
-    });
 }
 </script>
 {% endblock %}

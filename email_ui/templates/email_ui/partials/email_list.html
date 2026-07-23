@@ -41,7 +41,8 @@
             <tr class="email-row{% if not email.is_read %} unread{% endif %}"
                 onclick="location.href='{% url 'email_ui:email_detail' email.pk %}?next={{ request.get_full_path|urlencode }}'; return false;">
                 <td onclick="event.stopPropagation()">
-                    <input type="checkbox" name="selected_emails" value="{{ email.pk }}" form="bulk-form">
+                    <input type="checkbox" name="selected_emails" value="{{ email.pk }}" form="bulk-form"
+                           onchange="if(window.toggleBulkActionBar) toggleBulkActionBar()">
                 </td>
                 <td>{{ email.sender|truncatechars:20|default:"Неизвестно" }}</td>
                 <td>

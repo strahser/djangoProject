@@ -376,6 +376,15 @@ def toggle_important(request, pk):
     email = get_object_or_404(Email, pk=pk)
     email.is_important = not email.is_important
     email.save(update_fields=['is_important'])
+    if request.headers.get('HX-Request'):
+        btn_class = 'btn-warning' if email.is_important else 'btn-outline-secondary'
+        icon_class = 'bi-star-fill' if email.is_important else 'bi-star'
+        return HttpResponse(
+            f'<button class="btn btn-sm {btn_class}" hx-post="{reverse("email_ui:toggle_important", args=[pk])}" '
+            f'hx-target="this" hx-swap="outerHTML" title="Важно">'
+            f'<i class="bi {icon_class}"></i>'
+            f'</button>'
+        )
     return JsonResponse({'is_important': email.is_important})
 
 

@@ -1,51 +1,50 @@
-<!-- Header -->
-<div class="modal-header d-flex align-items-center">
-    <h5 class="modal-title">
-        <i class="bi bi-pencil-square me-2"></i>
-        {% if mode == 'reply' %}Ответить
-        {% elif mode == 'reply_all' %}Ответить всем
-        {% elif mode == 'forward' %}Переслать
-        {% else %}Новое письмо{% endif %}
-    </h5>
-    <div class="ms-auto d-flex align-items-center gap-2">
-        <button type="submit" class="btn btn-success" form="compose-form">
-            <i class="bi bi-send"></i> Отправить
-        </button>
-        {% if mode != 'compose' %}
-        <div class="form-check form-check-inline mb-0">
-            <input type="checkbox" name="include_attachments" class="form-check-input" id="include-attachments"
-                   form="compose-form"
-                   {% if mode == 'forward' %}checked{% endif %}>
-            <label class="form-check-label small" for="include-attachments">
-                <i class="bi bi-paperclip"></i> Отправить с вложением
-            </label>
-        </div>
-        <input type="hidden" name="mode" value="{{ mode }}" form="compose-form">
-        {% endif %}
-        <div class="d-flex align-items-center gap-1">
-            <label class="btn btn-sm btn-warning mb-0" title="Прикрепить файлы">
-                <i class="bi bi-paperclip"></i>
-                <input type="file" name="attachment_files" class="d-none" multiple onchange="updateFileList(this)">
-            </label>
-            <span id="file-count-compose" class="badge bg-warning text-dark" style="display:none;"></span>
-        </div>
-        <button type="button" class="btn btn-sm btn-outline-success" title="Сохранить черновик"
-                onclick="saveDraft()">
-            <i class="bi bi-save"></i>
-        </button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" title="Закрыть"
-                onclick="EmailApp.checkDirtyThen(function(){ EmailApp.clearDirty(); EmailApp.closeModal(); })">
-            <i class="bi bi-x-lg"></i>
-        </button>
-    </div>
-</div>
-
 <form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
       hx-target="#emailModalContent" hx-swap="innerHTML"
       enctype="multipart/form-data" id="compose-form"
       onsubmit="if(typeof tinymce!=='undefined'&&tinymce.activeEditor){tinymce.activeEditor.save()}">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ next|default:'' }}">
+
+    <!-- Header -->
+    <div class="modal-header d-flex align-items-center">
+        <h5 class="modal-title">
+            <i class="bi bi-pencil-square me-2"></i>
+            {% if mode == 'reply' %}Ответить
+            {% elif mode == 'reply_all' %}Ответить всем
+            {% elif mode == 'forward' %}Переслать
+            {% else %}Новое письмо{% endif %}
+        </h5>
+        <div class="ms-auto d-flex align-items-center gap-2">
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-send"></i> Отправить
+            </button>
+            {% if mode != 'compose' %}
+            <div class="form-check form-check-inline mb-0">
+                <input type="checkbox" name="include_attachments" class="form-check-input" id="include-attachments"
+                       {% if mode == 'forward' %}checked{% endif %}>
+                <label class="form-check-label small" for="include-attachments">
+                    <i class="bi bi-paperclip"></i> Отправить с вложением
+                </label>
+            </div>
+            <input type="hidden" name="mode" value="{{ mode }}">
+            {% endif %}
+            <div class="d-flex align-items-center gap-1">
+                <label class="btn btn-sm btn-warning mb-0" title="Прикрепить файлы">
+                    <i class="bi bi-paperclip"></i>
+                    <input type="file" name="attachment_files" class="d-none" multiple onchange="updateFileList(this)">
+                </label>
+                <span id="file-count-compose" class="badge bg-warning text-dark" style="display:none;"></span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-success" title="Сохранить черновик"
+                    onclick="saveDraft()">
+                <i class="bi bi-save"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="Закрыть"
+                    onclick="EmailApp.checkDirtyThen(function(){ EmailApp.clearDirty(); EmailApp.closeModal(); })">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </div>
 
     <div class="modal-body p-0 d-flex flex-column" style="min-height: calc(100vh - 120px);">
         {% if error %}
