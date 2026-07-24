@@ -360,15 +360,21 @@
             if (e.target.id === 'select-all') {
                 var checked = e.target.checked;
                 document.querySelectorAll('input[name="selected_emails"]').forEach(function(cb) { cb.checked = checked; });
-                if (!checked) document.getElementById('select-all-input').value = '';
+                var selectAllInput = document.getElementById('select-all-input');
+                if (selectAllInput) selectAllInput.value = checked ? '1' : '';
                 if (window.toggleBulkActionBar) toggleBulkActionBar();
             }
             if (e.target.id === 'select-all-link') {
                 e.preventDefault();
-                document.getElementById('select-all-input').value = '1';
+                var selectAllInput = document.getElementById('select-all-input');
+                if (selectAllInput) selectAllInput.value = '1';
+                var header = document.getElementById('select-all');
+                if (header) header.checked = true;
+                document.querySelectorAll('input[name="selected_emails"]').forEach(function(cb) { cb.checked = true; });
                 var banner = document.getElementById('select-all-banner');
                 if (banner) banner.classList.add('d-none');
                 e.target.textContent = 'Выбраны все';
+                if (window.toggleBulkActionBar) toggleBulkActionBar();
             }
         });
         document.addEventListener('change', function(e) {

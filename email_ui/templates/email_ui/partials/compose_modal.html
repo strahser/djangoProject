@@ -60,6 +60,34 @@
         </div>
         {% endif %}
 
+        {% if forward_attachments %}
+        <div class="px-3 pt-2">
+            <div class="collapsible-section">
+                <div class="section-header collapsed" onclick="toggleSection(this)">
+                    <span><i class="bi bi-paperclip"></i> Вложения ({{ forward_attachments|length }})</span>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+                <div class="section-body show">
+                    <ul class="list-unstyled mb-2" id="forward-attachments-list">
+                        {% for att in forward_attachments %}
+                        <li class="d-flex justify-content-between align-items-center py-1 attachment-item" data-att-id="{{ att.pk }}">
+                            <div>
+                                <i class="bi {{ att.icon_class }} me-1"></i>
+                                <span>{{ att.filename }}</span>
+                                <small class="text-muted">({{ att.size|filesizeformat }})</small>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeForwardAttachment(this, {{ att.pk }})" title="Не пересылать">
+                                <i class="bi bi-trash"></i> Удалить
+                            </button>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div id="excluded-attachments-container"></div>
+        {% endif %}
+
         <div class="compose-fields" style="max-width:700px;">
             <div class="mb-2">
                 <label class="form-label small text-muted mb-1">Кому <span class="text-danger">*</span></label>
@@ -113,33 +141,6 @@
             <textarea name="body" class="form-control" id="compose-editor" placeholder="Напишите сообщение...">{{ body|default:'' }}</textarea>
         </div>
 
-        {% if forward_attachments %}
-        <div class="px-3 pb-2">
-            <div class="collapsible-section">
-                <div class="section-header collapsed" onclick="toggleSection(this)">
-                    <span><i class="bi bi-paperclip"></i> Вложения ({{ forward_attachments|length }})</span>
-                    <i class="bi bi-chevron-down"></i>
-                </div>
-                <div class="section-body show">
-                    <ul class="list-unstyled mb-2" id="forward-attachments-list">
-                        {% for att in forward_attachments %}
-                        <li class="d-flex justify-content-between align-items-center py-1 attachment-item" data-att-id="{{ att.pk }}">
-                            <div>
-                                <i class="bi {{ att.icon_class }} me-1"></i>
-                                <span>{{ att.filename }}</span>
-                                <small class="text-muted">({{ att.size|filesizeformat }})</small>
-                            </div>
-                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeForwardAttachment(this, {{ att.pk }})" title="Не пересылать">
-                                <i class="bi bi-trash"></i> Удалить
-                            </button>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </div>
-            </div>
-        </div>
-        <div id="excluded-attachments-container"></div>
-        {% endif %}
     </div>
 
     <div class="modal-footer">
@@ -249,8 +250,8 @@ function saveDraft() {
         var el = form.elements[name];
         if (el) params.append(name, el.value);
     });
-    var urlParams = new URLSearchParams(window.location.search);
-    var nextUrl = urlParams.get('next') || '{% url "email_ui:inbox_default" %}';
+    var nextInput = form.querySelector('input[name="next"]');
+    var nextUrl = (nextInput && nextInput.value) || '{% url "email_ui:inbox_default" %}';
     fetch('{% url "email_ui:save_draft" %}', {
         method: 'POST',
         headers: {'X-CSRFToken': '{{ csrf_token }}'},

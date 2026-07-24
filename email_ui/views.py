@@ -80,6 +80,15 @@ def _clean_query_string(request, remove_params=None):
     return params.urlencode()
 
 
+def _build_back_url(request, folder='inbox'):
+    """Build a full-page back URL for email list, avoiding /partial/ paths."""
+    qs = _clean_query_string(request)
+    url = reverse('email_ui:inbox', args=[folder])
+    if qs:
+        url += '?' + qs
+    return url
+
+
 def apply_sorting(queryset, request):
     sort_field = request.GET.get('sort', 'email_stamp')
     sort_order = request.GET.get('order', 'desc')
@@ -183,6 +192,7 @@ def inbox_view(request, folder='inbox'):
         'all_tags': EmailTag.objects.all(),
         'clean_params': _clean_query_string(request),
         'all_senders': Email.objects.exclude(sender='').values_list('sender', flat=True).distinct().order_by('sender'),
+        'email_list_back_url': _build_back_url(request, folder),
     }
     return render(request, 'email_ui/inbox.html', context)
 
@@ -211,6 +221,7 @@ def email_list_partial(request):
         context = {
             'page_obj': page_obj,
             'clean_params': _clean_query_string(request),
+            'email_list_back_url': _build_back_url(request, folder),
         }
         return render(request, 'email_ui/partials/email_rows.html', context)
 
@@ -221,6 +232,7 @@ def email_list_partial(request):
         'current_sort': current_sort,
         'current_order': current_order,
         'clean_params': _clean_query_string(request),
+        'email_list_back_url': _build_back_url(request, folder),
     }
     return render(request, 'email_ui/partials/email_list.html', context)
 
@@ -256,7 +268,7 @@ def email_detail(request, pk):
         email.is_read = True
         email.save(update_fields=['is_read'])
 
-    next_url = request.GET.get('next', reverse('email_ui:inbox_default'))
+    next_url = _sanitize_next_url(request.GET.get('next', reverse('email_ui:inbox_default')))
 
     context = {
         'email': email,
@@ -536,9 +548,14 @@ def bulk_action(request):
             'current_sort': current_sort,
             'current_order': current_order,
             'clean_params': _clean_query_string(request),
+            'email_list_back_url': _build_back_url(request, folder),
         }
         return render(request, 'email_ui/partials/email_list.html', context)
-    return redirect(reverse('email_ui:inbox', args=[folder]))
+    filter_params = request.POST.get('filter_params', '')
+    url = reverse('email_ui:inbox', args=[folder])
+    if filter_params:
+        url += '?' + filter_params
+    return redirect(url)
 
 
 @login_required
