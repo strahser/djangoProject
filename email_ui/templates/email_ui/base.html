@@ -336,6 +336,25 @@
             updateActiveSidebar();
         });
 
+        window.allFilteredCount = window.allFilteredCount || 0;
+        window.toggleBulkActionBar = window.toggleBulkActionBar || function() {
+            var checked = document.querySelectorAll('input[name="selected_emails"]:checked');
+            var count = checked.length;
+            var bulkBar = document.getElementById('bulk-action-bar');
+            var banner = document.getElementById('select-all-banner');
+            if (bulkBar) bulkBar.classList.toggle('d-none', count === 0);
+            document.querySelectorAll('#bulk-action-bar .btn').forEach(function(btn) { btn.disabled = count === 0; });
+            if (banner) {
+                if (count > 0 && count < window.allFilteredCount) {
+                    banner.classList.remove('d-none');
+                    var cnt = document.getElementById('select-all-count');
+                    if (cnt) cnt.textContent = count;
+                } else {
+                    banner.classList.add('d-none');
+                }
+            }
+        };
+
         // Global event delegation for select-all (survives HTMX swaps)
         document.addEventListener('click', function(e) {
             if (e.target.id === 'select-all') {
@@ -502,6 +521,10 @@
             document.body.classList.remove('modal-open');
             document.body.style.removeProperty('overflow');
             document.body.style.removeProperty('padding-right');
+        });
+
+        document.querySelectorAll('.alert-dismissible').forEach(function(el) {
+            setTimeout(function() { bootstrap.Alert.getOrCreateInstance(el).close(); }, 5000);
         });
     </script>
 </body>

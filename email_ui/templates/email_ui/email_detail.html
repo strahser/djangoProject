@@ -6,6 +6,10 @@
 <div class="container-fluid p-4">
     <!-- Header -->
     <div class="d-flex align-items-center mb-3">
+        <button class="btn btn-sm btn-outline-secondary me-3" title="Вернуться к списку писем"
+                onclick="handleDetailClose()">
+            <i class="bi bi-arrow-left"></i> Закрыть
+        </button>
         <h4 class="mb-0 text-truncate">
             {{ email.subject|default:"Без темы" }}
         </h4>
@@ -170,12 +174,68 @@
 </div>
 
 <script>
+var detailIsDirty = false;
+var detailNextUrl = '{{ next_url|default:"/" }}';
+
+function markDetailDirty() { detailIsDirty = true; }
+function clearDetailDirty() { detailIsDirty = false; }
+
+function handleDetailClose() {
+    if (!detailIsDirty) {
+        window.location.href = detailNextUrl;
+        return;
+    }
+    var m = new bootstrap.Modal(document.getElementById('detailDraftModal'));
+    m.show();
+}
+
+document.getElementById('detail-draft-save-btn').addEventListener('click', function() {
+    var modal = bootstrap.Modal.getInstance(document.getElementById('detailDraftModal'));
+    modal.hide();
+    clearDetailDirty();
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{% url "email_ui:copy_to_draft" email.pk %}';
+    var csrf = document.createElement('input');
+    csrf.type = 'hidden';
+    csrf.name = 'csrfmiddlewaretoken';
+    csrf.value = '{{ csrf_token }}';
+    form.appendChild(csrf);
+    var next = document.createElement('input');
+    next.type = 'hidden';
+    next.name = 'next';
+    next.value = detailNextUrl;
+    form.appendChild(next);
+    document.body.appendChild(form);
+    form.submit();
+});
+
+document.getElementById('detail-draft-discard-btn').addEventListener('click', function() {
+    var modal = bootstrap.Modal.getInstance(document.getElementById('detailDraftModal'));
+    modal.hide();
+    clearDetailDirty();
+    window.location.href = detailNextUrl;
+});
+
+document.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.xhr && evt.detail.xhr.status >= 200 && evt.detail.xhr.status < 300) {
+        var url = evt.detail.requestConfig?.path || evt.detail.xhr?.responseURL || '';
+        if (url.indexOf('edit-metadata') !== -1 || url.indexOf('add-attachment') !== -1 ||
+            url.indexOf('attach-tasks') !== -1 || url.indexOf('detach-task') !== -1 ||
+            url.indexOf('toggle-important') !== -1 || url.indexOf('remove_tag') !== -1 ||
+            url.indexOf('assign_tag') !== -1) {
+            markDetailDirty();
+        }
+    }
+});
+
 function assignTag(emailId, tagId, tagName, tagColor) {
     fetch('{% url "email_ui:assign_tag" %}', {
         method: 'POST',
         headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
         body: 'email_id=' + emailId + '&tag_id=' + tagId
     }).then(r => r.json()).then(data => {
+        markDetailDirty();
         let container = document.getElementById('email-tags-' + emailId);
         if (container) {
             let badge = document.createElement('span');
@@ -197,4 +257,26 @@ function toggleSection(header) {
     body.classList.toggle('show');
 }
 </script>
+
+<!-- Draft confirm modal for email detail -->
+<div class="modal fade" id="detailDraftModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Несохранённые изменения</h6>
+            </div>
+            <div class="modal-body py-3">
+                <p class="mb-0">Сохранить письмо как черновик?</p>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" id="detail-draft-discard-btn">
+                    <i class="bi bi-x-circle"></i> Не сохранять
+                </button>
+                <button type="button" class="btn btn-sm btn-primary" id="detail-draft-save-btn">
+                    <i class="bi bi-save"></i> Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

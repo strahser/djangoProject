@@ -87,6 +87,34 @@
 
 {{ filter_data|json_script:"filter-data" }}
 <script>
+window.allFilteredCount = {{ page_obj.paginator.count|default:0 }};
+
+window.toggleBulkActionBar = function() {
+    var checked = document.querySelectorAll('input[name="selected_emails"]:checked');
+    var count = checked.length;
+    var bulkBar = document.getElementById('bulk-action-bar');
+    var banner = document.getElementById('select-all-banner');
+    if (bulkBar) bulkBar.classList.toggle('d-none', count === 0);
+    document.querySelectorAll('#bulk-action-bar .btn').forEach(function(btn) { btn.disabled = count === 0; });
+    if (banner) {
+        if (count > 0 && count < allFilteredCount) {
+            banner.classList.remove('d-none');
+            var cnt = document.getElementById('select-all-count');
+            if (cnt) cnt.textContent = count;
+        } else {
+            banner.classList.add('d-none');
+        }
+    }
+};
+
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'email-list-container' || evt.detail.target.id === 'load-marker') {
+        var paginator = evt.detail.target.querySelector('[data-total-count]');
+        if (paginator) allFilteredCount = parseInt(paginator.dataset.totalCount) || 0;
+        toggleBulkActionBar();
+    }
+});
+
 function moveToFolder(folderName) {
     document.getElementById('move-to-input').value = folderName;
     var form = document.getElementById('bulk-form');

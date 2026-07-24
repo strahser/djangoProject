@@ -42,6 +42,7 @@ urlpatterns = [
     path('send/', views.send_email, name='send_email'),
     path('email/<int:pk>/reply-send/', views.reply_send, name='reply_send'),
     path('save-draft/', views.save_draft, name='save_draft'),
+    path('email/<int:pk>/copy-to-draft/', views.copy_to_draft, name='copy_to_draft'),
 
     # --- Phase 7: Contacts ---
     path('contacts/', views.contact_list, name='contact_list'),

@@ -1,7 +1,6 @@
 <form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
       hx-target="#emailModalContent" hx-swap="innerHTML"
-      enctype="multipart/form-data" id="compose-form"
-      onsubmit="if(typeof tinymce!=='undefined'&&tinymce.activeEditor){tinymce.activeEditor.save()}">
+      enctype="multipart/form-data" id="compose-form">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ next|default:'' }}">
 
@@ -53,6 +52,13 @@
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
         {% endif %}
+        {% if form.errors %}
+        <div class="alert alert-warning m-3 mb-0" role="alert">
+            {% for field, errors in form.errors.items %}
+            <div><strong>{{ field }}:</strong> {{ errors|join:", " }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
 
         <div class="compose-fields" style="max-width:700px;">
             <div class="mb-2">
@@ -61,7 +67,7 @@
                     <textarea name="to" class="form-control form-control-sm" rows="1"
                               placeholder="email1@example.com, email2@example.com"
                               oninput="autoResize(this);EmailApp.markDirty()"
-                              style="overflow:hidden;resize:none;">{{ to|default:'' }}</textarea>
+                              style="resize:none;">{{ to|default:'' }}</textarea>
                     <div class="dropdown" id="contacts-dropdown">
                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Выбрать из контактов">
                             <i class="bi bi-book"></i>
@@ -85,14 +91,14 @@
                     <textarea name="cc" class="form-control form-control-sm" rows="1"
                               placeholder="email@example.com"
                               oninput="autoResize(this);EmailApp.markDirty()"
-                              style="overflow:hidden;resize:none;">{{ cc|default:'' }}</textarea>
+                              style="resize:none;">{{ cc|default:'' }}</textarea>
                 </div>
                 <div class="col">
                     <label class="form-label small text-muted mb-1">Скрытая копия</label>
                     <textarea name="bcc" class="form-control form-control-sm" rows="1"
                               placeholder="email@example.com"
                               oninput="autoResize(this);EmailApp.markDirty()"
-                              style="overflow:hidden;resize:none;"></textarea>
+                              style="resize:none;"></textarea>
                 </div>
             </div>
             <div class="mb-0">
@@ -106,6 +112,34 @@
         <div class="compose-editor flex-fill">
             <textarea name="body" class="form-control" id="compose-editor" placeholder="Напишите сообщение...">{{ body|default:'' }}</textarea>
         </div>
+
+        {% if forward_attachments %}
+        <div class="px-3 pb-2">
+            <div class="collapsible-section">
+                <div class="section-header collapsed" onclick="toggleSection(this)">
+                    <span><i class="bi bi-paperclip"></i> Вложения ({{ forward_attachments|length }})</span>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+                <div class="section-body show">
+                    <ul class="list-unstyled mb-2" id="forward-attachments-list">
+                        {% for att in forward_attachments %}
+                        <li class="d-flex justify-content-between align-items-center py-1 attachment-item" data-att-id="{{ att.pk }}">
+                            <div>
+                                <i class="bi {{ att.icon_class }} me-1"></i>
+                                <span>{{ att.filename }}</span>
+                                <small class="text-muted">({{ att.size|filesizeformat }})</small>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeForwardAttachment(this, {{ att.pk }})" title="Не пересылать">
+                                <i class="bi bi-trash"></i> Удалить
+                            </button>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div id="excluded-attachments-container"></div>
+        {% endif %}
     </div>
 
     <div class="modal-footer">
@@ -122,6 +156,22 @@
 </form>
 
 <script>
+document.body.addEventListener('htmx:configRequest', function(evt) {
+    var form = document.getElementById('compose-form');
+    if (!form) return;
+    if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
+        tinymce.activeEditor.save();
+    }
+    var bodyEl = form.querySelector('textarea[name="body"], #compose-editor');
+    if (bodyEl) {
+        evt.detail.parameters['body'] = bodyEl.value || '';
+    }
+    var subjEl = form.querySelector('input[name="subject"]');
+    if (subjEl) {
+        evt.detail.parameters['subject'] = subjEl.value || '';
+    }
+});
+
 function filterContacts(query) {
     var q = query.toLowerCase().trim();
     document.querySelectorAll('#contacts-list .dropdown-item').forEach(function(item) {
@@ -213,4 +263,39 @@ function saveDraft() {
         }
     });
 }
+
+function removeForwardAttachment(btn, attId) {
+    var li = btn.closest('li');
+    if (li) li.remove();
+    var container = document.getElementById('excluded-attachments-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'excluded-attachments-container';
+        var form = document.getElementById('compose-form');
+        if (form) form.appendChild(container);
+    }
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'exclude_attachments';
+    hidden.value = attId;
+    container.appendChild(hidden);
+    var list = document.getElementById('forward-attachments-list');
+    if (list) {
+        var count = list.querySelectorAll('li').length;
+        var header = list.closest('.collapsible-section').querySelector('.section-header span');
+        if (header) header.innerHTML = '<i class="bi bi-paperclip"></i> Вложения (' + count + ')';
+        if (count === 0) {
+            var section = list.closest('.collapsible-section');
+            if (section) section.style.display = 'none';
+        }
+    }
+}
+
+function toggleSection(header) {
+    header.classList.toggle('collapsed');
+    var body = header.nextElementSibling;
+    body.classList.toggle('show');
+}
+
+document.querySelectorAll('#compose-form textarea').forEach(function(ta) { autoResize(ta); });
 </script>

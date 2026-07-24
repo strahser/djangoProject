@@ -1,4 +1,5 @@
 import logging
+import os
 import smtplib
 import ssl
 from email.mime.application import MIMEApplication
@@ -48,7 +49,7 @@ class EmailSenderService:
         if not account:
             raise ValueError('Нет активного SMTP аккаунта')
 
-        msg = MIMEMultipart('alternative')
+        msg = MIMEMultipart('mixed')
         msg['Subject'] = subject
         msg['From'] = formataddr((from_name or account.from_name or account.from_email, from_email or account.from_email))
         msg['To'] = ', '.join(to_emails)
@@ -65,20 +66,33 @@ class EmailSenderService:
         if references:
             msg['References'] = references
 
-        msg.attach(MIMEText(body_html, 'html', 'utf-8'))
+        body_part = MIMEMultipart('alternative')
+        body_part.attach(MIMEText(body_html, 'html', 'utf-8'))
+        msg.attach(body_part)
 
         # Attachments
         if attachments:
             for att in attachments:
                 try:
-                    with open(att.file_path, 'rb') as f:
-                        part = MIMEApplication(f.read(), Name=att.filename)
-                    part['Content-Disposition'] = f'attachment; filename="{att.filename}"'
-                    if att.content_id:
-                        part['Content-ID'] = f'<{att.content_id}>'
-                    msg.attach(part)
+                    if hasattr(att, 'file_path') and att.file_path and os.path.exists(att.file_path):
+                        with open(att.file_path, 'rb') as f:
+                            part = MIMEApplication(f.read(), Name=att.filename)
+                        part['Content-Disposition'] = f'attachment; filename="{att.filename}"'
+                        if hasattr(att, 'content_id') and att.content_id:
+                            part['Content-ID'] = f'<{att.content_id}>'
+                        msg.attach(part)
+                    elif hasattr(att, 'read'):
+                        data = att.read()
+                        fname = att.name if hasattr(att, 'name') else 'attachment'
+                        part = MIMEApplication(data, Name=fname)
+                        part['Content-Disposition'] = f'attachment; filename="{fname}"'
+                        msg.attach(part)
                 except FileNotFoundError:
-                    logger.warning(f'Вложение не найдено: {att.file_path}')
+                    fname = getattr(att, 'filename', getattr(att, 'name', 'unknown'))
+                    logger.warning(f'Вложение не найдено: {fname}')
+                except Exception as e:
+                    fname = getattr(att, 'filename', getattr(att, 'name', 'unknown'))
+                    logger.warning(f'Ошибка прикрепления {fname}: {e}')
 
         all_recipients = to_emails + (cc or []) + (bcc or [])
 

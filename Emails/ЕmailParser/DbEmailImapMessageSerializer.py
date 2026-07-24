@@ -12,17 +12,25 @@ class DbEmailImapMessageSerializer:
         self.subject = msg.subject
         self.link = link
         self.body = EmailBody(msg).created_body
-        self.sender = msg.from_values.name
+        self.sender = msg.from_values.addr_spec
         self.receiver = msg.to_values
         self.email_stamp = msg.date
         self.creation_stamp = datetime.datetime.now()
 
+    def _format_address(self, addr):
+        """Format as 'Name <email>' if name exists, else just email."""
+        name = getattr(addr, 'name', None) or ''
+        email = getattr(addr, 'addr_spec', '') or str(addr)
+        if name:
+            return f'{name} <{email}>'
+        return email
+
     def create_record(self):
         receiver_name = None
         if len(self.receiver) == 1:
-            receiver_name = self.receiver[0].name
+            receiver_name = self._format_address(self.receiver[0])
         elif len(self.receiver) > 1:
-            receiver_name = ', '.join([val.name for val in self.receiver])
+            receiver_name = ', '.join([self._format_address(val) for val in self.receiver])
 
         folder = 'inbox' if self.email_type == 'IN' else 'sent'
 

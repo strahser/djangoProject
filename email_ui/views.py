@@ -43,6 +43,33 @@ PER_PAGE = 50
 ALLOWED_SORT_FIELDS = ['sender', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
 
 
+def _sanitize_next_url(next_url):
+    """Ensure 'next' always points to a full page, not a partial/ URL."""
+    from django.http import QueryDict
+    if not next_url:
+        return reverse('email_ui:inbox_default')
+    if '/partial/' in next_url:
+        try:
+            folder = 'inbox'
+            qd = QueryDict('')
+            if '?' in next_url:
+                qs = next_url.split('?', 1)[1]
+                qd = QueryDict(qs)
+                folder = qd.get('folder', 'inbox')
+            url = reverse('email_ui:inbox', args=[folder])
+            params = []
+            for key in ('has_attachments', 'is_important', 'is_unread', 'search'):
+                val = qd.get(key)
+                if val:
+                    params.append(f'{key}={val}')
+            if params:
+                url += '?' + '&'.join(params)
+            return url
+        except Exception:
+            return reverse('email_ui:inbox_default')
+    return next_url
+
+
 def _clean_query_string(request, remove_params=None):
     """Remove specified params from query string and return URL-encoded string."""
     if remove_params is None:
@@ -733,11 +760,10 @@ def reply_modal(request, pk, reply_type='reply'):
     cc_addr = ''
     user_email = (request.user.email or '').lower() if request.user and hasattr(request.user, 'email') else ''
     if reply_type == 'reply':
-        to_addr = resolve_sender_to_email(email.sender or '')
+        to_addr = resolve_sender_to_email(email.sender or '') or (email.sender or '')
     elif reply_type == 'reply_all':
         sender_email = resolve_sender_to_email(email.sender or '')
-        to_addr = sender_email
-        # CC: receiver addresses (excluding sender + current user) + original CC (excluding current user)
+        to_addr = sender_email or (email.sender or '')
         cc_set = set()
         if email.receiver:
             for r in email.receiver.split(','):
@@ -745,7 +771,7 @@ def reply_modal(request, pk, reply_type='reply'):
                 if not r:
                     continue
                 addr = resolve_sender_to_email(r) or r
-                if addr.lower() != user_email and addr.lower() != sender_email.lower():
+                if addr.lower() != user_email and addr.lower() != (sender_email or '').lower():
                     cc_set.add(addr)
         if email.cc:
             for c in email.cc.split(','):
@@ -758,14 +784,10 @@ def reply_modal(request, pk, reply_type='reply'):
         cc_addr = ', '.join(sorted(cc_set)) if cc_set else ''
     elif reply_type == 'forward':
         to_addr = ''
-    elif reply_type == 'forward':
-        to_addr = ''
 
     contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
-    # Для forward: передаём вложения оригинального письма
-    forward_attachments = []
-    if reply_type == 'forward':
-        forward_attachments = list(email.attachments.all())
+    # Для reply/reply_all/forward: передаём вложения оригинального письма
+    forward_attachments = list(email.attachments.all()) if reply_type in ('reply', 'reply_all', 'forward') else []
 
     context = {
         'form': form,
@@ -789,6 +811,7 @@ def send_email(request):
     contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
     form = ComposeEmailForm(request.POST, request.FILES)
     if not form.is_valid():
+        logger.warning(f'send_email form errors: {form.errors}')
         return render(request, 'email_ui/partials/compose_modal.html', {
             'form': form, 'mode': 'compose', 'contacts': contacts,
         }, status=400)
@@ -804,19 +827,7 @@ def send_email(request):
     use_outlook = cd.get('use_outlook', False)
 
     try:
-        # Prepare attachments from uploaded files
-        attachment_objs = []
         uploaded_files = request.FILES.getlist('attachment_files')
-        for f in uploaded_files:
-            # Save temporarily and create Attachment record
-            att = Attachment.objects.create(
-                email=None,
-                file_path='',
-                filename=f.name,
-                size=f.size or 0,
-                content_type=f.content_type or '',
-            )
-            attachment_objs.append(att)
 
         # Send
         sender = EmailSenderService(
@@ -850,6 +861,7 @@ def send_email(request):
             from_name=sender.smtp_account.from_name if sender.smtp_account else None,
             cc=cc_list if cc_list else None,
             bcc=bcc_list if bcc_list else None,
+            attachments=uploaded_files if uploaded_files else None,
         )
 
         if result:
@@ -866,12 +878,28 @@ def send_email(request):
                 sent_at=timezone.now(),
                 is_read=True,
             )
-            # Update attachments with email FK
-            if attachment_objs:
-                Attachment.objects.filter(id__in=[a.id for a in attachment_objs]).update(email=email_obj)
+            # Save uploaded files to disk and create Attachment records
+            for f in uploaded_files:
+                try:
+                    att = Attachment(
+                        email=email_obj,
+                        filename=f.name,
+                        size=f.size or 0,
+                        content_type=f.content_type or '',
+                        file_path='',
+                    )
+                    if email_obj.link:
+                        os.makedirs(email_obj.link, exist_ok=True)
+                        file_path = os.path.join(email_obj.link, f.name)
+                        with open(file_path, 'wb+') as dest:
+                            for chunk in f.chunks():
+                                dest.write(chunk)
+                        att.file_path = file_path
+                    att.save()
+                except Exception as e:
+                    logger.warning(f'Ошибка сохранения вложения {f.name}: {e}')
 
-            next_url = request.POST.get('next') or reverse('email_ui:inbox_default')
-            messages.success(request, 'Письмо отправлено')
+            next_url = _sanitize_next_url(request.POST.get('next', ''))
             return render(request, 'email_ui/partials/send_success.html', {
                 'message': 'Письмо отправлено',
                 'next': next_url,
@@ -904,14 +932,19 @@ def reply_send(request, pk):
     # Формируем получателей
     to_raw = cd.get('to', '')
     if not to_raw and mode in ('reply', 'reply_all'):
-        to_raw = resolve_sender_to_email(email.sender or '')
+        to_raw = resolve_sender_to_email(email.sender or '') or (email.sender or '')
     to_list = extract_all_email_addresses(to_raw)
     if not to_list:
         to_list = [addr.strip() for addr in to_raw.split(',') if addr.strip()]
 
     cc_raw = cd.get('cc', '')
-    if not cc_raw and mode == 'reply_all' and email.cc:
-        cc_raw = email.cc
+    if not cc_raw and mode == 'reply_all':
+        cc_parts = []
+        if email.receiver:
+            cc_parts.append(email.receiver)
+        if email.cc:
+            cc_parts.append(email.cc)
+        cc_raw = ', '.join(cc_parts)
     cc_list = extract_all_email_addresses(cc_raw)
     if not cc_list:
         cc_list = [addr.strip() for addr in cc_raw.split(',') if addr.strip()]
@@ -923,6 +956,27 @@ def reply_send(request, pk):
         else:
             subject = f'Re: {email.subject}' if email.subject else 'Re:'
 
+    # Collect excluded attachment IDs from form
+    excluded_ids = set()
+    for val in request.POST.getlist('exclude_attachments'):
+        try:
+            excluded_ids.add(sanitize_id(val))
+        except (ValueError, TypeError):
+            continue
+
+    # Determine which attachments to forward
+    include_attachments = cd.get('include_attachments', False) or mode == 'forward'
+    attachment_objs = []
+    if include_attachments:
+        for att in email.attachments.all():
+            if att.pk in excluded_ids:
+                continue
+            attachment_objs.append(att)
+
+    # Include newly uploaded files
+    for f in request.FILES.getlist('attachment_files'):
+        attachment_objs.append(f)
+
     try:
         sender = EmailSenderService()
         sender.send_via_smtp(
@@ -932,6 +986,7 @@ def reply_send(request, pk):
             cc=cc_list if cc_list else None,
             in_reply_to=email.message_id if mode != 'forward' else None,
             references=email.references or email.message_id if mode != 'forward' else None,
+            attachments=attachment_objs if attachment_objs else None,
         )
 
         # Create reply/forward record
@@ -949,10 +1004,11 @@ def reply_send(request, pk):
             thread_id=email.thread_id if mode != 'forward' else None,
         )
 
-        # Copy original attachments when include_attachments is checked
-        include_attachments = cd.get('include_attachments', False) or mode == 'forward'
+        # Save forwarded attachments to DB
         if include_attachments:
             for att in email.attachments.all():
+                if att.pk in excluded_ids:
+                    continue
                 Attachment.objects.create(
                     email=new_email,
                     filename=att.filename,
@@ -961,8 +1017,7 @@ def reply_send(request, pk):
                     content_type=att.content_type,
                 )
 
-        next_url = request.POST.get('next') or reverse('email_ui:inbox_default')
-        messages.success(request, 'Письмо отправлено')
+        next_url = _sanitize_next_url(request.POST.get('next', ''))
         return render(request, 'email_ui/partials/send_success.html', {
             'message': 'Письмо отправлено',
             'next': next_url,
@@ -1018,6 +1073,70 @@ def save_draft(request):
     )
 
     return HttpResponse(status=204)
+
+
+@login_required
+@require_http_methods(['POST'])
+def copy_to_draft(request, pk):
+    """Дублировать письмо в черновики."""
+    email = get_object_or_404(Email, pk=pk)
+    next_url = _sanitize_next_url(request.POST.get('next', reverse('email_ui:inbox_default')))
+
+    try:
+        from django.conf import settings as django_settings
+        draft_dir = os.path.join(django_settings.DRAFT_DIRECTORY)
+        os.makedirs(draft_dir, exist_ok=True)
+
+        ts = timezone.now().strftime('%Y%m%d_%H%M%S')
+        subject_clean = (email.subject or 'no_subject')[:50]
+        safe_subject = ''.join(c if c.isalnum() or c in ' -_.,()' else '_' for c in subject_clean).strip()
+        email_dir = os.path.join(draft_dir, f'{ts}_{safe_subject}')
+        os.makedirs(email_dir, exist_ok=True)
+
+        if email.link and os.path.exists(email.link):
+            from shutil import copytree
+            copytree(email.link, email_dir, dirs_exist_ok=True)
+
+        html_path = email.get_html_file_path()
+        if html_path and os.path.exists(html_path):
+            from shutil import copy2
+            body_name = os.path.basename(html_path)
+            copy2(html_path, os.path.join(email_dir, body_name))
+
+        new_email = Email.objects.create(
+            email_type='OUT',
+            subject=email.subject,
+            sender=email.sender,
+            receiver=email.receiver,
+            cc=email.cc,
+            bcc=email.bcc,
+            link=email_dir,
+            folder='drafts',
+            sent_status='draft',
+            is_read=True,
+            project_site=email.project_site,
+            contractor=email.contractor,
+            building_type=email.building_type,
+            category=email.category,
+            info=email.info,
+            is_important=email.is_important,
+        )
+
+        for att in email.attachments.all():
+            Attachment.objects.create(
+                email=new_email,
+                file_path=att.file_path,
+                filename=att.filename,
+                size=att.size,
+                content_type=att.content_type,
+            )
+
+        messages.success(request, 'Письмо сохранено как черновик')
+    except Exception as e:
+        logger.exception(f'Ошибка дублирования в черновик: {e}')
+        messages.error(request, f'Ошибка сохранения черновика: {e}')
+
+    return redirect(next_url)
 
 
 # ==================== Phase 7: Contact Management ====================

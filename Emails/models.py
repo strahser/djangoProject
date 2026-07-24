@@ -240,4 +240,3 @@ class Attachment(models.Model):
     class Meta:
         verbose_name = 'Вложение'
         verbose_name_plural = 'Вложения'
-        unique_together = [['email', 'filename']]
