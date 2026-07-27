@@ -32,8 +32,10 @@ class Command(BaseCommand):
         tags_extracted = 0
         for msg in messages.iterator():
             raw_tags = msg.tags
-            if not raw_tags and msg.html_text:
-                raw_tags = extract_hashtags_from_html(msg.html_text)
+            if not raw_tags:
+                html_text = msg.get_html()
+                if html_text:
+                    raw_tags = extract_hashtags_from_html(html_text)
                 if raw_tags:
                     msg.tags = raw_tags
                     msg.save(update_fields=['tags'])

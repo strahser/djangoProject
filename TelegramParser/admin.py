@@ -69,16 +69,17 @@ class TelegramMessageAdmin(admin.ModelAdmin):
     filter_horizontal = ('tag_objects',)
     readonly_fields = (
         'telegram_id', 'importance', 'total_reactions',
-        'creation_stamp', 'update_stamp'
+        'creation_stamp', 'update_stamp', 'content_path'
     )
     list_per_page = 25
     actions = [duplicate_event]
 
     @admin.display(description='Текст')
     def text_short(self, obj):
-        if not obj.text:
+        text = obj.get_text()
+        if not text:
             return '(медиа)'
-        return obj.text[:100] + '...' if len(obj.text) > 100 else obj.text
+        return text[:100] + '...' if len(text) > 100 else text
 
     @admin.display(description='Важность', ordering='importance')
     def importance_badge(self, obj):

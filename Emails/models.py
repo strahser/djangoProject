@@ -98,6 +98,9 @@ class Email(models.Model):
         verbose_name='Задачи'
     )
 
+    # Имя отправителя (из заголовка письма, без email)
+    sender_name = models.CharField(max_length=200, blank=True, default='', verbose_name='Имя отправителя')
+
     # Поля для отправки
     reply_to = models.CharField(max_length=300, blank=True, null=True, verbose_name='Ответить кому')
     cc = models.TextField(blank=True, null=True, verbose_name='Копия')

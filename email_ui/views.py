@@ -40,7 +40,7 @@ from .utils import (
     sanitize_id, sanitize_id_list,
 )
 PER_PAGE = 50
-ALLOWED_SORT_FIELDS = ['sender', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
+ALLOWED_SORT_FIELDS = ['sender', 'receiver', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
 
 
 def _sanitize_next_url(next_url):
@@ -104,7 +104,10 @@ def apply_sorting(queryset, request):
 
 def filter_emails(queryset, cleaned_data):
     if cleaned_data.get('sender'):
-        queryset = queryset.filter(sender=cleaned_data['sender'])
+        s = cleaned_data['sender']
+        queryset = queryset.filter(Q(sender__icontains=s) | Q(sender_name__icontains=s))
+    if cleaned_data.get('receiver'):
+        queryset = queryset.filter(receiver__icontains=cleaned_data['receiver'])
     if cleaned_data.get('project_site'):
         queryset = queryset.filter(project_site__in=cleaned_data['project_site'])
     if cleaned_data.get('contractor'):
@@ -136,6 +139,7 @@ def filter_emails(queryset, cleaned_data):
         queryset = queryset.filter(
             Q(subject__icontains=query) |
             Q(sender__icontains=query) |
+            Q(sender_name__icontains=query) |
             Q(receiver__icontains=query) |
             Q(name__icontains=query)
         )
@@ -777,9 +781,9 @@ def reply_modal(request, pk, reply_type='reply'):
     cc_addr = ''
     user_email = (request.user.email or '').lower() if request.user and hasattr(request.user, 'email') else ''
     if reply_type == 'reply':
-        to_addr = resolve_sender_to_email(email.sender or '') or (email.sender or '')
+        to_addr = resolve_sender_to_email(email.sender or '', sender_name=email.sender_name) or (email.sender or '')
     elif reply_type == 'reply_all':
-        sender_email = resolve_sender_to_email(email.sender or '')
+        sender_email = resolve_sender_to_email(email.sender or '', sender_name=email.sender_name)
         to_addr = sender_email or (email.sender or '')
         cc_set = set()
         if email.receiver:
@@ -949,7 +953,7 @@ def reply_send(request, pk):
     # Формируем получателей
     to_raw = cd.get('to', '')
     if not to_raw and mode in ('reply', 'reply_all'):
-        to_raw = resolve_sender_to_email(email.sender or '') or (email.sender or '')
+        to_raw = resolve_sender_to_email(email.sender or '', sender_name=email.sender_name) or (email.sender or '')
     to_list = extract_all_email_addresses(to_raw)
     if not to_list:
         to_list = [addr.strip() for addr in to_raw.split(',') if addr.strip()]

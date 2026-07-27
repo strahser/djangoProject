@@ -1,3 +1,4 @@
+{% load email_filters %}
 {% for email in page_obj %}
 {% with back_url=email_list_back_url|default:"/" %}
 <tr class="email-row{% if not email.is_read %} unread{% endif %}"
@@ -6,42 +7,57 @@
         <input type="checkbox" name="selected_emails" value="{{ email.pk }}" form="bulk-form"
                onchange="if(window.toggleBulkActionBar) toggleBulkActionBar()">
     </td>
-    <td>{{ email.sender|default:"Неизвестно" }}</td>
-    <td>
-        <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ back_url|urlencode }}">
-            {{ email.subject|truncatechars:50 }}
-        </a>
+    <td onclick="event.stopPropagation()">
+        {% if folder == 'sent' or folder == 'drafts' %}
+            {% with who=email.receiver|default:"?" %}
+            <span class="email-avatar" style="background-color:{{ who|avatar_color }};">{{ who|avatar_initials }}</span>
+            {% endwith %}
+        {% else %}
+            {% with who=email.sender_name|default:email.sender|default:"?" %}
+            <span class="email-avatar" style="background-color:{{ who|avatar_color }};">{{ who|avatar_initials }}</span>
+            {% endwith %}
+        {% endif %}
     </td>
-    <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td>
-    <td class="attachments-cell">
-        {% with count=email.attachments.count %}
-            {% if count > 0 %}
-                <span class="attachment-icon"
-                      hx-post="{% url 'email_ui:open_attachment_folder' email.pk %}"
-                      hx-trigger="click"
-                      hx-swap="none"
-                      title="Открыть папку с вложениями ({{ count }} файлов)">
-                    <i class="bi bi-paperclip"></i>
-                    <span class="badge">{{ count }}</span>
-                </span>
-            {% else %}
-                <span class="text-muted">—</span>
+    <td>
+        {% if folder == 'sent' or folder == 'drafts' %}
+            {{ email.receiver|truncatechars:28|default:"—" }}
+        {% else %}
+            {{ email.sender_name|default:email.sender|truncatechars:28|default:"Неизвестно" }}
+        {% endif %}
+    </td>
+    <td>
+            <div>
+                <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ back_url|urlencode }}"
+                   class="text-decoration-none text-dark">{{ email.subject|truncatechars:70|default:"Без темы" }}</a>
+                {% if email.is_important %}<i class="bi bi-star-fill text-warning ms-1" style="font-size:12px;"></i>{% endif %}
+            </div>
+        {% with atts=email.attachments.all %}
+        {% if atts %}
+        <div class="att-chips">
+            {% for att in atts|slice:":3" %}
+            <span class="att-chip" title="{{ att.filename }} ({{ att.size|filesizeformat }})">
+                <i class="bi {{ att.icon_class }}"></i>
+                <span class="att-name">{{ att.filename|truncate_filename:18 }}</span>
+            </span>
+            {% endfor %}
+            {% if atts|length > 3 %}
+            <span class="att-chip att-chip-more">+{{ atts|length|add:"-3" }}</span>
             {% endif %}
+        </div>
+        {% endif %}
         {% endwith %}
     </td>
+    <td class="text-nowrap text-muted">{{ email.email_stamp|date:"d.m.Y" }}</td>
+    <td>{% if email.is_important %}<i class="bi bi-star-fill text-warning"></i>{% endif %}</td>
 </tr>
+{% endwith %}
 {% endfor %}
-
 {% if page_obj.has_next %}
 <tr id="load-marker"
-    hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&{{ clean_params }}&_infinite=1"
-    hx-trigger="revealed"
-    hx-target="#load-marker"
-    hx-swap="outerHTML">
-    <td colspan="5" class="text-center">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Загрузка...</span>
-        </div>
+    hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&folder={{ folder }}&{{ clean_params }}&_infinite=1"
+    hx-trigger="revealed" hx-target="#load-marker" hx-swap="outerHTML">
+    <td colspan="7" class="text-center py-3">
+        <div class="spinner-border spinner-border-sm text-primary"></div>
     </td>
 </tr>
 {% endif %}

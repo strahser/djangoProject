@@ -1,3 +1,8 @@
+import json
+import os
+from pathlib import Path
+
+from django.conf import settings
 from django.db import models
 from django.contrib import admin
 from django.contrib.admin import display as admin_display
@@ -90,6 +95,11 @@ class TelegramMessage(models.Model):
         verbose_name='Источник'
     )
 
+    content_path = models.CharField(
+        max_length=500, blank=True, default='',
+        verbose_name='Путь к файлу контента'
+    )
+
     creation_stamp = models.DateTimeField(auto_now_add=True, verbose_name='дата создания')
     update_stamp = models.DateTimeField(auto_now=True, verbose_name='дата изменения')
 
@@ -98,8 +108,61 @@ class TelegramMessage(models.Model):
         verbose_name_plural = 'Сообщения Telegram'
         ordering = ['-date']
 
+    def _get_content_dir(self):
+        return getattr(settings, 'TELEGRAM_CONTENT_DIR',
+                       os.path.join(settings.BASE_DIR, 'telegram_content'))
+
+    def _content_filepath(self):
+        d = os.path.join(self._get_content_dir(), 'telegram_messages')
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, f'{self.telegram_id}.json')
+
+    def write_content(self, text='', html_text=''):
+        data = {'text': text, 'html_text': html_text}
+        fp = self._content_filepath()
+        with open(fp, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        self.content_path = os.path.relpath(fp, self._get_content_dir())
+
+    def read_content(self):
+        if not self.content_path:
+            return None
+        fp = os.path.join(self._get_content_dir(), self.content_path)
+        if not os.path.exists(fp):
+            return None
+        try:
+            with open(fp, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
+
+    def get_text(self):
+        if self.text:
+            return self.text
+        content = self.read_content()
+        if content:
+            return content.get('text', '')
+        return ''
+
+    def get_html(self):
+        if self.html_text:
+            return self.html_text
+        content = self.read_content()
+        if content:
+            return content.get('html_text', '')
+        return ''
+
+    def save(self, *args, **kwargs):
+        text_val = self.text or ''
+        html_val = self.html_text or ''
+        if text_val or html_val:
+            self.write_content(text=text_val, html_text=html_val)
+            self.text = ''
+            self.html_text = ''
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        preview = self.text[:80].replace('\n', ' ') if self.text else '(медиа)'
+        preview = self.get_text()[:80].replace('\n', ' ') if self.get_text() else '(медиа)'
         return f"[{self.channel_name}] {preview}"
 
     @admin_display(description='Важность', ordering='importance')

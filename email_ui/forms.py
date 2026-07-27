@@ -14,8 +14,22 @@ class EmailFilterForm(forms.Form):
     )
     sender = forms.CharField(
         required=False,
-        label='Отправитель',
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Выберите отправителя...', 'list': 'sender-datalist', 'autocomplete': 'off'})
+        label='От кого',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Отправитель...',
+            'list': 'sender-datalist',
+            'autocomplete': 'off',
+        })
+    )
+    receiver = forms.CharField(
+        required=False,
+        label='Кому',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Получатель...',
+            'autocomplete': 'off',
+        })
     )
     project_site = forms.ModelMultipleChoiceField(
         queryset=ProjectSite.objects.all(),

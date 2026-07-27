@@ -154,7 +154,8 @@ def parse_channel(channel_username, api_id=None, api_hash=None,
 
             data = parse_message(msg, channel_name)
             data['channel'] = channel_obj
-            msg_obj = TelegramMessage.objects.create(**data)
+            msg_obj = TelegramMessage(**data)
+            msg_obj.save()
 
             if data['tags']:
                 link_tags_to_message(msg_obj)

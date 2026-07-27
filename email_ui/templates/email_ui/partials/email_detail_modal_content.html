@@ -58,10 +58,10 @@
 
     <!-- Meta info -->
     <div class="detail-meta">
-        <table class="table table-sm table-borderless mb-2" style="max-width: 700px;">
+        <table class="table table-sm table-borderless mb-2">
             <tr>
                 <td class="text-muted" style="width: 80px;">От:</td>
-                <td><strong>{{ email.sender|default:"—" }}</strong></td>
+                <td><strong>{% if email.sender_name %}{{ email.sender_name }} <{{ email.sender }}>{% else %}{{ email.sender|default:"—" }}{% endif %}</strong></td>
             </tr>
             <tr>
                 <td class="text-muted">Кому:</td>

@@ -1,537 +1,461 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Почта</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.3/tinymce.min.js"></script>
-    <meta name="csrf-token" content="{{ csrf_token }}">
-    <style>
-        :root {
-            --bg-body: #f5f6fa;
-            --bg-card: #fff;
-            --bg-sidebar: #fff;
-            --bg-table-header: #f8f9fa;
-            --bg-table-row-hover: #f0f4ff;
-            --bg-table-row-unread: #fafbff;
-            --text-color: #333;
-            --text-muted: #6c757d;
-            --border-color: #dee2e6;
-            --sidebar-border: #dee2e6;
-            --table-stripe: #fff;
-        }
-        body.dark-mode {
-            --bg-body: #1a1d23;
-            --bg-card: #2d323e;
-            --bg-sidebar: #2d323e;
-            --bg-table-header: #363b48;
-            --bg-table-row-hover: #3a4050;
-            --bg-table-row-unread: #323846;
-            --text-color: #e0e0e0;
-            --text-muted: #a0a0a0;
-            --border-color: #4a4f5e;
-            --sidebar-border: #4a4f5e;
-            --table-stripe: #2a2f3a;
-        }
-        body.dark-mode .table { color: var(--text-color); }
-        body.dark-mode .text-muted { color: var(--text-muted) !important; }
-        body.dark-mode .btn-close { filter: invert(1); }
-        body.dark-mode .bg-white { background: var(--bg-card) !important; color: var(--text-color); }
-        body.dark-mode .table-email tbody tr:hover { background: var(--bg-table-row-hover); }
-        body.dark-mode .table-email tbody tr.unread { background: var(--bg-table-row-unread); }
-        /* Email body (HTMX-loaded HTML content) */
-        body.dark-mode .detail-body .border.rounded.p-4 { background: #222731 !important; color: #d0d0d0; }
-        body.dark-mode .detail-body .border.rounded.p-4 * { color: #d0d0d0; }
-        body.dark-mode .detail-body .border.rounded.p-4 a { color: #6ea8fe; }
-        body.dark-mode .detail-body .border.rounded.p-4 h1,
-        body.dark-mode .detail-body .border.rounded.p-4 h2,
-        body.dark-mode .detail-body .border.rounded.p-4 h3,
-        body.dark-mode .detail-body .border.rounded.p-4 h4,
-        body.dark-mode .detail-body .border.rounded.p-4 h5,
-        body.dark-mode .detail-body .border.rounded.p-4 h6 { color: #e8e8e8; }
-        /* TinyMCE - minimal baseline, full override via JS-injected CSS */
-        /* Form controls */
-        body.dark-mode .form-control, body.dark-mode .form-select { background: #363b48; color: #e0e0e0; border-color: var(--border-color); }
-        body.dark-mode .form-control:focus, body.dark-mode .form-select:focus { background: #3a4050; color: #e0e0e0; }
-        body.dark-mode .card .border.rounded.p-4 { background: #222731 !important; color: #d0d0d0; }
-        body.dark-mode .card .border.rounded.p-4 * { color: #d0d0d0; }
-        body.dark-mode .card .border.rounded.p-4 a { color: #6ea8fe; }
-        body.dark-mode .collapsible-section .section-header { background: var(--bg-table-header); }
-        body.dark-mode .collapsible-section .section-body { background: var(--bg-card); }
-        body.dark-mode .table-email td { border: none; border-bottom: 1px solid var(--border-color); }
-        body.dark-mode .table-email thead th { border: none; border-bottom: 2px solid var(--border-color); }
-        /* Sender combobox dropdown */
-        body.dark-mode #sender-dropdown .list-group-item { background: #2d323e; color: #e0e0e0; border-color: #4a4f5e; }
-        body.dark-mode #sender-dropdown .list-group-item:hover { background: #3a4050; }
-        /* Contacts dropdown */
-        body.dark-mode #contacts-dropdown .dropdown-menu { background: #2d323e; border-color: #4a4f5e; }
-        body.dark-mode #contacts-dropdown .dropdown-item { color: #e0e0e0; }
-        body.dark-mode #contacts-dropdown .dropdown-item:hover { background: #3a4050; }
-        body.dark-mode #contacts-dropdown .form-control { background: #363b48; color: #e0e0e0; border-color: #4a4f5e; }
-        body { background: var(--bg-body); color: var(--text-color); transition: background .3s, color .3s; }
-        .sidebar { min-height: calc(100vh - 56px); border-right: 1px solid var(--sidebar-border); background: var(--bg-sidebar); }
-        .sidebar .nav-link { color: var(--text-color); border-radius: 0; padding: 6px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .sidebar .nav-link:hover { background: rgba(0,0,0,0.06); border-radius: 4px; }
-        .sidebar .nav-link.active { background: rgba(13,110,253,0.08); color: #0d6efd; font-weight: 600; border-radius: 4px; }
-        body.dark-mode .sidebar .nav-link:hover { background: rgba(255,255,255,0.08); }
-        body.dark-mode .sidebar .nav-link.active { background: rgba(13,110,253,0.2); color: #6ea8fe; }
-        .card { background: var(--bg-card); border-color: var(--border-color); }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Почта</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.3/tinymce.min.js"></script>
+<meta name="csrf-token" content="{{ csrf_token }}">
+<style>
+:root {
+    --bg-body: #f5f6fa;
+    --bg-card: #fff;
+    --bg-sidebar: #fff;
+    --bg-table-header: #f8f9fa;
+    --bg-table-row-hover: #f0f4ff;
+    --bg-table-row-unread: #fafbff;
+    --text-color: #333;
+    --text-muted: #6c757d;
+    --border-color: #dee2e6;
+    --sidebar-border: #dee2e6;
+    --table-stripe: #fff;
+    --ya-yellow: #ffc107;
+    --border-light: #e9ecef;
+}
+body.dark-mode {
+    --bg-body: #1a1d23;
+    --bg-card: #2d323e;
+    --bg-sidebar: #2d323e;
+    --bg-table-header: #363b48;
+    --bg-table-row-hover: #3a4050;
+    --bg-table-row-unread: #323846;
+    --text-color: #e0e0e0;
+    --text-muted: #a0a0a0;
+    --border-color: #4a4f5e;
+    --sidebar-border: #4a4f5e;
+    --table-stripe: #2a2f3a;
+    --border-light: #3a4050;
+}
+body.dark-mode .table { color: var(--text-color); }
+body.dark-mode .text-muted { color: var(--text-muted) !important; }
+body.dark-mode .btn-close { filter: invert(1); }
+body.dark-mode .bg-white { background: var(--bg-card) !important; color: var(--text-color); }
+body.dark-mode .table-email tbody tr:hover { background: var(--bg-table-row-hover); }
+body.dark-mode .table-email tbody tr.unread { background: var(--bg-table-row-unread); }
+body.dark-mode .form-control, body.dark-mode .form-select { background: #363b48; color: #e0e0e0; border-color: var(--border-color); }
+body.dark-mode .form-control:focus, body.dark-mode .form-select:focus { background: #3a4050; color: #e0e0e0; }
+body.dark-mode .collapsible-section .section-header { background: var(--bg-table-header); }
+body.dark-mode .collapsible-section .section-body { background: var(--bg-card); }
+body.dark-mode .table-email td { border: none; border-bottom: 1px solid var(--border-color); }
+body.dark-mode .table-email thead th { border: none; border-bottom: 2px solid var(--border-color); }
+body.dark-mode .table-email a.text-dark { color: var(--text-color) !important; }
+body.dark-mode #sender-dropdown .list-group-item { background: #2d323e; color: #e0e0e0; border-color: #4a4f5e; }
+body.dark-mode #sender-dropdown .list-group-item:hover { background: #3a4050; }
+body.dark-mode #contacts-dropdown .dropdown-menu { background: #2d323e; border-color: #4a4f5e; }
+body.dark-mode #contacts-dropdown .dropdown-item { color: #e0e0e0; }
+body.dark-mode #contacts-dropdown .dropdown-item:hover { background: #3a4050; }
+body.dark-mode #contacts-dropdown .form-control { background: #363b48; color: #e0e0e0; border-color: #4a4f5e; }
 
-        .email-row:hover { background-color: var(--bg-table-row-hover); cursor: pointer; }
-        .email-row.unread { font-weight: 600; background: var(--bg-table-row-unread); }
+body { background: var(--bg-body); color: var(--text-color); transition: background .3s, color .3s; }
 
-        .table-email { margin-bottom: 0; border-collapse: collapse; }
-        .table-email thead th { border: none; border-bottom: 2px solid var(--border-color); background: var(--bg-table-header); position: sticky; top: 0; z-index: 1; color: var(--text-color); padding: 8px 8px; }
-        .table-email td { border: none; border-bottom: 1px solid var(--border-color); vertical-align: middle; padding: 8px 8px; }
-        .email-row.unread td:first-child { box-shadow: inset 3px 0 0 0 #0d6efd; }
+.sidebar { min-height: calc(100vh - 56px); border-right: 1px solid var(--sidebar-border); background: var(--bg-sidebar); padding-top: 8px; }
+.nav-section { margin-bottom: 4px; }
+.nav-section-title { padding: 8px 16px 4px; font-size: 11px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; font-weight: 600; }
+.sidebar .nav-item { display: flex; align-items: center; gap: 8px; color: var(--text-color); text-decoration: none; padding: 8px 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; transition: background .15s; }
+.sidebar .nav-item:hover { background: rgba(0,0,0,0.06); }
+.sidebar .nav-item.active { background: rgba(13,110,253,0.08); color: #0d6efd; font-weight: 600; }
+body.dark-mode .sidebar .nav-item:hover { background: rgba(255,255,255,0.08); }
+body.dark-mode .sidebar .nav-item.active { background: rgba(13,110,253,0.2); color: #6ea8fe; }
+.sidebar .nav-item i { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+.sidebar .badge { margin-left: auto; font-size: 11px; padding: 2px 6px; border-radius: 10px; background: #0d6efd; color: #fff; font-weight: 600; }
+body.dark-mode .sidebar .badge { background: #6ea8fe; color: #1a1d23; }
 
-        /* Full-screen modal */
-        .modal-fullscreen .modal-content { border-radius: 0; border: none; min-height: 100vh; }
-        .modal-fullscreen .modal-header { border-bottom: 1px solid var(--border-color); background: var(--bg-table-header); padding: 12px 20px; }
-        .modal-fullscreen .modal-body { padding: 0; overflow-y: auto; }
-        .modal-fullscreen .modal-footer { border-top: 1px solid var(--border-color); background: var(--bg-table-header); }
-        .modal-content { background: var(--bg-card); color: var(--text-color); }
+.card { background: var(--bg-card); border-color: var(--border-color); }
 
-        .detail-toolbar { padding: 12px 20px; border-bottom: 1px solid var(--border-color); background: var(--bg-card); }
-        .detail-meta { padding: 20px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
-        .detail-body { padding: 20px; background: var(--bg-card); }
+.table-email { margin-bottom: 0; border-collapse: collapse; width: 100%; }
+.table-email thead th {
+    border: none; border-bottom: 2px solid var(--border-color);
+    background: var(--bg-table-header); position: sticky; top: 0; z-index: 1;
+    color: var(--text-color); padding: 8px 8px; font-size: 13px;
+}
+.table-email td {
+    border: none; border-bottom: 1px solid var(--border-color);
+    vertical-align: middle; padding: 10px 8px;
+}
+.email-row:hover { background-color: var(--bg-table-row-hover); cursor: pointer; }
+.email-row.unread { font-weight: 600; background: var(--bg-table-row-unread); }
+.email-row.unread td:first-child { box-shadow: inset 3px 0 0 0 #0d6efd; }
 
-        .compose-fields { padding: 16px 20px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
-        .compose-editor { padding: 0; }
-        .compose-editor textarea { border: none; resize: none; outline: none; font-size: 14px; width: 100%; min-height: 500px; padding: 20px; }
-        .compose-editor textarea:focus { box-shadow: none; }
-        .compose-footer { padding: 12px 20px; background: var(--bg-card); border-top: 1px solid var(--border-color); }
+.email-avatar {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+    user-select: none;
+    letter-spacing: 0.5px;
+}
 
-        .collapsible-section { border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 8px; background: var(--bg-card); }
-        .collapsible-section .section-header { padding: 8px 12px; cursor: pointer; background: var(--bg-table-header); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; user-select: none; color: var(--text-color); }
-        .collapsible-section .section-header:hover { filter: brightness(0.95); }
-        .collapsible-section .section-header.collapsed .bi-chevron-down { transform: rotate(-90deg); }
-        .collapsible-section .section-body { padding: 8px 12px; display: none; }
-        .collapsible-section .section-body.show { display: block; }
+.att-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 3px;
+}
+.att-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 9px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.6;
+    white-space: nowrap;
+    max-width: 190px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background: #eef2ff;
+    color: #3b5bdb;
+    border: 1px solid #d0d7ff;
+}
+body.dark-mode .att-chip {
+    background: #2e3450;
+    color: #8ea4ff;
+    border-color: #3d4570;
+}
+.att-chip i { font-size: 14px; flex-shrink: 0; }
+.att-chip .att-name { overflow: hidden; text-overflow: ellipsis; }
+.att-chip-more { background: #f1f3f5; color: #868e96; border-color: #dee2e6; cursor: default; }
+body.dark-mode .att-chip-more { background: #363b48; color: #a0a0a0; border-color: #4a4f5e; }
+body.dark-mode h1, body.dark-mode h2, body.dark-mode h3,
+body.dark-mode h4, body.dark-mode h5, body.dark-mode h6 { color: #e0e0e0; }
 
-        .night-toggle { cursor: pointer; }
-        .font-size-control { display: flex; align-items: center; gap: 4px; }
-        .font-size-control input[type="range"] { width: 60px; height: 4px; }
-    </style>
+.filter-header-clickable {
+    cursor: pointer;
+    user-select: none;
+    transition: background .12s;
+}
+.filter-header-clickable:hover {
+    background: var(--bg-table-row-hover);
+}
+.filter-header-clickable .chevron-icon {
+    transition: transform .2s;
+}
+.filter-header-clickable[aria-expanded="true"] .chevron-icon {
+    transform: rotate(180deg);
+}
+
+.modal-fullscreen .modal-content { border-radius: 0; border: none; min-height: 100vh; }
+.modal-fullscreen .modal-header { border-bottom: 1px solid var(--border-color); background: var(--bg-table-header); padding: 12px 20px; }
+.modal-fullscreen .modal-body { padding: 0; overflow-y: auto; }
+.modal-fullscreen .modal-footer { border-top: 1px solid var(--border-color); background: var(--bg-table-header); }
+.modal-content { background: var(--bg-card); color: var(--text-color); }
+
+.detail-toolbar { padding: 12px 20px; border-bottom: 1px solid var(--border-color); background: var(--bg-card); }
+.detail-meta { padding: 20px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
+.detail-body { padding: 20px; background: var(--bg-card); }
+.compose-fields { padding: 16px 20px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
+.compose-editor { padding: 0; }
+.compose-editor textarea { border: none; resize: none; outline: none; font-size: 14px; width: 100%; min-height: 500px; padding: 20px; }
+.compose-editor textarea:focus { box-shadow: none; }
+.compose-footer { padding: 12px 20px; background: var(--bg-card); border-top: 1px solid var(--border-color); }
+
+.collapsible-section { border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 8px; background: var(--bg-card); }
+.collapsible-section .section-header { padding: 8px 12px; cursor: pointer; background: var(--bg-table-header); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; user-select: none; color: var(--text-color); }
+.collapsible-section .section-header:hover { filter: brightness(0.95); }
+.collapsible-section .section-header.collapsed .bi-chevron-down { transform: rotate(-90deg); }
+.collapsible-section .section-body { padding: 8px 12px; display: none; }
+.collapsible-section .section-body.show { display: block; }
+
+.night-toggle { cursor: pointer; }
+.font-size-control { display: flex; align-items: center; gap: 4px; }
+.font-size-control input[type="range"] { width: 60px; height: 4px; }
+</style>
 </head>
 <body>
-    <nav class="navbar navbar-dark bg-dark px-3" style="height: 56px;">
-        <span class="navbar-brand mb-0 h1">
-            <i class="bi bi-envelope"></i> Почтовый клиент
-        </span>
-        <div class="d-flex align-items-center gap-2">
-            <div class="font-size-control text-light" style="font-size:12px;">
-                <i class="bi bi-fonts"></i>
-                <input type="range" id="fontSizeSlider" min="11" max="20" value="14" oninput="setTableFontSize(this.value)" title="Размер шрифта таблицы">
-                <span id="fontSizeLabel" style="min-width:20px;">14</span>
-            </div>
-            <button class="btn btn-outline-light btn-sm night-toggle" onclick="toggleNightMode()" title="Ночной режим">
-                <i class="bi bi-moon-stars"></i>
-            </button>
-            <a href="/admin/" class="btn btn-outline-light btn-sm">
-                <i class="bi bi-gear"></i> Админ панель
-            </a>
-            <a href="/admin/Emails/email/" class="btn btn-outline-light btn-sm">
-                <i class="bi bi-inboxes"></i> БД писем
-            </a>
+<nav class="navbar navbar-dark bg-dark px-3" style="height: 56px;">
+    <a href="{% url 'email_ui:inbox_default' %}" class="navbar-brand">
+        <i class="bi bi-envelope-fill me-2"></i>Почта
+    </a>
+    <div class="d-flex align-items-center gap-3">
+        <div class="font-size-control text-white-50" style="font-size:12px;">
+            <i class="bi bi-fonts"></i>
+            <input type="range" id="fontSizeSlider" min="12" max="18" value="14"
+                   oninput="setTableFontSize(this.value)" title="Размер шрифта">
+            <span id="fontSizeLabel" style="min-width:18px;">14</span>
         </div>
-    </nav>
-
-    {% if messages %}
-    <div class="container-fluid pt-2 px-3 position-absolute" style="z-index:1050;">
-        {% for message in messages %}
-        <div class="alert alert-{{ message.tags }} alert-dismissible fade show py-2 mb-1" role="alert">
-            {{ message }}
-            <button type="button" class="btn-close py-2" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-        {% endfor %}
+        <button class="btn btn-sm btn-outline-light" onclick="toggleNightMode()" title="Тема">
+            <i class="bi bi-moon-stars"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-light" onclick="updateSidebarCounters()" title="Обновить">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+        <a href="/admin/" class="btn btn-sm btn-outline-light" title="Админ-панель"><i class="bi bi-gear"></i></a>
     </div>
-    {% endif %}
-    <div class="d-flex">
+</nav>
+
+{% if messages %}
+<div class="position-fixed top-0 start-50 translate-middle-x mt-2" style="z-index:2000; min-width:320px;">
+    {% for message in messages %}
+    <div class="alert alert-{{ message.tags }} alert-dismissible fade show shadow-sm" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="d-flex">
+    {% block sidebar_wrapper %}
+    <div class="sidebar" style="width:220px;">
         {% block sidebar %}
-        <div class="sidebar" style="width: 200px; flex-shrink: 0;">
             {% include "email_ui/partials/sidebar.html" %}
-        </div>
         {% endblock %}
-        <div style="flex: 1; min-width: 0;">
-            {% block content %}{% endblock %}
-        </div>
     </div>
+    {% endblock %}
+    <main class="flex-grow-1" style="min-width:0;">
+        {% block content %}{% endblock %}
+    </main>
+</div>
 
-    <!-- Full-screen modal for compose / reply / forward -->
-    <div class="modal fade" id="emailModal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen" style="max-width: 100%; margin: 0;">
-            <div class="modal-content" id="emailModalContent" style="min-height: 100vh; border-radius: 0;">
+<div class="modal fade" id="emailModal" tabindex="-1">
+    <div class="modal-dialog modal-fullscreen" style="max-width:100%;margin:0;">
+        <div class="modal-content" id="emailModalContent" style="min-height:100vh;border-radius:0;"></div>
+    </div>
+</div>
 
+<div class="modal fade" id="draftConfirmModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2"><h6 class="modal-title">Несохранённое письмо</h6></div>
+            <div class="modal-body py-3"><p class="mb-0">Сохранить черновик перед закрытием?</p></div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="draft-discard-btn">Не сохранять</button>
+                <button type="button" class="btn btn-sm btn-primary" id="draft-save-btn">Сохранить</button>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- Draft confirm modal -->
-    <div class="modal fade" id="draftConfirmModal" tabindex="-1">
-        <div class="modal-dialog modal-sm modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header py-2">
-                    <h6 class="modal-title">Несохранённое письмо</h6>
-                </div>
-                <div class="modal-body py-3">
-                    <p class="mb-0">Сохранить черновик перед закрытием?</p>
-                </div>
-                <div class="modal-footer py-2">
-                    <button type="button" class="btn btn-sm btn-secondary" id="draft-discard-btn">
-                        <i class="bi bi-x-circle"></i> Не сохранять
-                    </button>
-                    <button type="button" class="btn btn-sm btn-primary" id="draft-save-btn">
-                        <i class="bi bi-save"></i> Сохранить
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
+<div class="modal fade" id="taskModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content" id="task-modal-container"></div></div>
+</div>
 
-    <!-- Task modal (для привязки задач) -->
-    <div class="modal fade" id="taskModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content" id="task-modal-container"></div>
-        </div>
-    </div>
+<div class="modal fade" id="dynamicModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content" id="dynamicModalContent"></div></div>
+</div>
 
-    <!-- Dynamic modal (для фильтров) -->
-    <div class="modal fade" id="dynamicModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content" id="dynamicModalContent"></div>
-        </div>
-    </div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function setTableFontSize(size) {
+    document.querySelectorAll('.table-email, .table-email td, .table-email th').forEach(el => {
+        el.style.fontSize = size + 'px';
+    });
+    localStorage.setItem('email-font-size', size);
+    document.getElementById('fontSizeLabel').textContent = size;
+}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        function setTableFontSize(size) {
-            document.querySelectorAll('.table-email, .table-email td, .table-email th').forEach(function(el) {
-                el.style.fontSize = size + 'px';
-            });
-            localStorage.setItem('email-font-size', size);
-            document.getElementById('fontSizeLabel').textContent = size;
-        }
+function toggleNightMode() {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    localStorage.setItem('email-dark-mode', isDark ? '1' : '0');
+    const icon = document.querySelector('.navbar .btn-outline-light i');
+    if (icon) icon.className = isDark ? 'bi bi-sun-fill' : 'bi bi-moon-stars';
+}
+if (localStorage.getItem('email-dark-mode') === '1') {
+    document.body.classList.add('dark-mode');
+}
+const savedSize = localStorage.getItem('email-font-size');
+if (savedSize) {
+    document.getElementById('fontSizeSlider').value = savedSize;
+    document.getElementById('fontSizeLabel').textContent = savedSize;
+    setTableFontSize(savedSize);
+}
 
-        function applyTinyMCEDarkMode(isDark) {
-            var styleId = 'tox-dark-mode-css';
-            var existing = document.getElementById(styleId);
-            if (existing) existing.remove();
-            if (!isDark) return;
-            var bg = '#2d323e';
-            var bg2 = '#363b48';
-            var hover = '#3a4050';
-            var border = '#4a4f5e';
-            var fg = '#e0e0e0';
-            var muted = '#a0a0a0';
-            var link = '#6ea8fe';
-            var css = [
-                '.tox-tinymce{',
-                    'border-color:'+border+'!important;',
-                    'background:'+bg+'!important;',
-                '}',
-                '.tox .tox-toolbar,.tox .tox-toolbar__overflow,.tox .tox-toolbar__primary,.tox-editor-container{',
-                    'background:'+bg+'!important;',
-                '}',
-                '.tox .tox-menubar{background:'+bg+'!important;}',
-                '.tox .tox-mbtn{color:'+fg+'!important;fill:'+fg+'!important;}',
-                '.tox .tox-mbtn:hover{background:'+hover+'!important;}',
-                '.tox .tox-tbtn{color:'+fg+'!important;background:transparent!important;fill:'+fg+'!important;}',
-                '.tox .tox-tbtn svg{fill:'+fg+'!important;}',
-                '.tox .tox-tbtn:hover{background:'+hover+'!important;}',
-                '.tox .tox-tbtn--disabled svg,.tox .tox-tbtn--disabled{fill:'+muted+'!important;color:'+muted+'!important;}',
-                '.tox .tox-tbtn--enabled{background:'+border+'!important;}',
-                '.tox .tox-split-button:hover{box-shadow:0 0 0 1px '+border+' inset!important;}',
-                '.tox .tox-split-button:focus{background:'+hover+'!important;}',
-                '.tox .tox-edit-area{background:#222731!important;}',
-                '.tox .tox-edit-area iframe{background:#222731!important;}',
-                '.tox .tox-statusbar{background:'+bg+'!important;color:'+muted+'!important;}',
-                '.tox .tox-statusbar a{color:'+link+'!important;}',
-                '.tox .tox-menu,.tox .tox-dialog{background:'+bg+'!important;border-color:'+border+'!important;}',
-                '.tox .tox-collection__item{color:'+fg+'!important;}',
-                '.tox .tox-collection__item:hover,.tox .tox-collection__item--active{background:'+hover+'!important;}',
-                '.tox .tox-collection__item-icon svg,.tox .tox-collection__item-caret svg{fill:'+fg+'!important;}',
-                '.tox .tox-collection__item-accessory{color:'+muted+'!important;}',
-                '.tox .tox-collection__item-label{color:'+fg+'!important;}',
-                '.tox .tox-listbox{color:'+fg+'!important;background:'+bg2+'!important;}',
-                '.tox .tox-listbox:hover{background:'+hover+'!important;}',
-                '.tox .tox-insert-table-picker{background:'+bg2+'!important;}',
-                '.tox .tox-insert-table-picker>div{border-color:'+border+'!important;background:'+bg2+'!important;}',
-                '.tox .tox-insert-table-picker .tox-insert-table-picker__selected{background:'+border+'!important;}',
-                '.tox .tox-dialog__header,.tox .tox-dialog__footer{background:'+bg+'!important;}',
-                '.tox .tox-dialog__body{color:'+fg+'!important;}',
-                '.tox .tox-label{color:'+fg+'!important;}',
-                '.tox .tox-textfield{background:'+bg2+'!important;color:'+fg+'!important;border-color:'+border+'!important;}',
-                '.tox .tox-button{background:#0d6efd!important;}',
-                '.tox .tox-button:hover{background:#0b5ed7!important;}',
-                '.tox .tox-button--secondary{background:'+border+'!important;color:'+fg+'!important;}',
-                '.tox .tox-button--secondary:hover{background:'+hover+'!important;}',
-            ].join('');
-            var style = document.createElement('style');
-            style.id = styleId;
-            style.textContent = css;
-            document.head.appendChild(style);
-        }
-
-        function toggleNightMode() {
-            document.body.classList.toggle('dark-mode');
-            var isDark = document.body.classList.contains('dark-mode');
-            localStorage.setItem('email-dark-mode', isDark ? '1' : '0');
-            var icon = document.querySelector('.night-toggle i');
-            if (icon) {
-                icon.className = isDark ? 'bi bi-sun' : 'bi bi-moon-stars';
-            }
-            applyTinyMCEDarkMode(isDark);
-        }
-        if (localStorage.getItem('email-dark-mode') === '1') {
-            document.body.classList.add('dark-mode');
-            var icon = document.querySelector('.night-toggle i');
-            if (icon) icon.className = 'bi bi-sun-fill';
-            applyTinyMCEDarkMode(true);
-        }
-        var savedSize = localStorage.getItem('email-font-size');
-        if (savedSize) {
-            document.getElementById('fontSizeSlider').value = savedSize;
-            document.getElementById('fontSizeLabel').textContent = savedSize;
-            setTableFontSize(savedSize);
-        }
-
-        function updateSidebarCounters() {
-            fetch('{% url "email_ui:unread_count" %}')
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    var map = { 'inbox': data.inbox, 'important': data.important, 'attachments': data.attachments, 'unread': data.unread };
-                    Object.keys(map).forEach(function(key) {
-                        var el = document.getElementById('count-' + key);
-                        if (el) {
-                            el.textContent = map[key];
-                            el.style.display = map[key] > 0 ? '' : 'none';
-                        }
-                    });
-                }).catch(function() {});
-        }
-        updateSidebarCounters();
-
-        document.body.addEventListener('htmx:configRequest', (evt) => {
-            evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
-        });
-
-        function updateActiveSidebar() {
-            var path = window.location.pathname;
-            document.querySelectorAll('.sidebar .nav-link').forEach(function(link) {
-                var pushUrl = link.getAttribute('hx-push-url') || '';
-                link.classList.toggle('active', pushUrl && path.indexOf(pushUrl) !== -1);
-            });
-        }
-        updateActiveSidebar();
-
-        document.body.addEventListener('htmx:afterSwap', function() {
-            updateSidebarCounters();
-            updateActiveSidebar();
-        });
-        window.addEventListener('popstate', function() {
-            updateActiveSidebar();
-        });
-
-        window.allFilteredCount = window.allFilteredCount || 0;
-        window.toggleBulkActionBar = window.toggleBulkActionBar || function() {
-            var checked = document.querySelectorAll('input[name="selected_emails"]:checked');
-            var count = checked.length;
-            var bulkBar = document.getElementById('bulk-action-bar');
-            var banner = document.getElementById('select-all-banner');
-            if (bulkBar) bulkBar.classList.toggle('d-none', count === 0);
-            document.querySelectorAll('#bulk-action-bar .btn').forEach(function(btn) { btn.disabled = count === 0; });
-            if (banner) {
-                if (count > 0 && count < window.allFilteredCount) {
-                    banner.classList.remove('d-none');
-                    var cnt = document.getElementById('select-all-count');
-                    if (cnt) cnt.textContent = count;
-                } else {
-                    banner.classList.add('d-none');
-                }
-            }
-        };
-
-        // Global event delegation for select-all (survives HTMX swaps)
-        document.addEventListener('click', function(e) {
-            if (e.target.id === 'select-all') {
-                var checked = e.target.checked;
-                document.querySelectorAll('input[name="selected_emails"]').forEach(function(cb) { cb.checked = checked; });
-                var selectAllInput = document.getElementById('select-all-input');
-                if (selectAllInput) selectAllInput.value = checked ? '1' : '';
-                if (window.toggleBulkActionBar) toggleBulkActionBar();
-            }
-            if (e.target.id === 'select-all-link') {
-                e.preventDefault();
-                var selectAllInput = document.getElementById('select-all-input');
-                if (selectAllInput) selectAllInput.value = '1';
-                var header = document.getElementById('select-all');
-                if (header) header.checked = true;
-                document.querySelectorAll('input[name="selected_emails"]').forEach(function(cb) { cb.checked = true; });
-                var banner = document.getElementById('select-all-banner');
-                if (banner) banner.classList.add('d-none');
-                e.target.textContent = 'Выбраны все';
-                if (window.toggleBulkActionBar) toggleBulkActionBar();
-            }
-        });
-        document.addEventListener('change', function(e) {
-            if (e.target.name === 'selected_emails' && window.toggleBulkActionBar) {
-                toggleBulkActionBar();
-            }
-        });
-
-        window.EmailApp = {
-            isDirty: false,
-            pendingAction: null,
-
-            markDirty: function() { this.isDirty = true; },
-            clearDirty: function() { this.isDirty = false; },
-
-            modal: null,
-            modalEl: null,
-
-            getModal: function() {
-                if (!this.modalEl) {
-                    this.modalEl = document.getElementById('emailModal');
-                }
-                if (!this.modal) {
-                    if (this.modalEl) {
-                        try {
-                            this.modal = bootstrap.Modal.getInstance(this.modalEl) || new bootstrap.Modal(this.modalEl);
-                        } catch(e) {
-                            this.modal = new bootstrap.Modal(this.modalEl);
-                        }
-                    }
-                }
-                return this.modal;
-            },
-
-            openModal: function(url) {
-                this.checkDirtyThen(() => {
-                    this.clearDirty();
-                    var m = this.getModal();
-                    var params = new URLSearchParams(window.location.search);
-                    var next = params.get('next') || window.location.pathname + window.location.search;
-                    url += (url.indexOf('?') === -1 ? '?' : '&') + 'next=' + encodeURIComponent(next);
-                    htmx.ajax('GET', url, { target: '#emailModalContent', swap: 'innerHTML' });
-                    if (m) m.show();
-                });
-            },
-
-            closeModal: function() {
-                var m = this.getModal();
-                if (m) {
-                    m.hide();
-                    document.querySelectorAll('.modal-backdrop').forEach(function(el) { el.remove(); });
-                    document.body.classList.remove('modal-open');
-                    document.body.style.removeProperty('overflow');
-                    document.body.style.removeProperty('padding-right');
-                }
-            },
-
-            checkDirtyThen: function(callback) {
-                if (!this.isDirty) { callback(); return; }
-                this.pendingAction = callback;
-                var m = new bootstrap.Modal(document.getElementById('draftConfirmModal'));
-                m.show();
-            }
-        };
-
-        document.addEventListener('htmx:afterSwap', function(evt) {
-            if (evt.detail.target.id === 'emailModalContent' || evt.detail.target.id === 'emailModal') {
-                window.initTinyMCE();
-            }
-        });
-
-        window.initTinyMCE = function() {
-            if (typeof tinymce === 'undefined') return;
-            var el = document.getElementById('compose-editor');
-            if (!el) return;
-            if (tinymce.get('compose-editor')) return;
-            var isDark = document.body.classList.contains('dark-mode');
-            var bodyStyle = isDark ? "body { background: #222731; color: #d0d0d0; font-size: 14px; }" : "body { background: #fff; color: #333; font-size: 14px; }";
-            tinymce.init({
-                selector: '#compose-editor',
-                height: 500,
-                menubar: false,
-                content_style: bodyStyle,
-                toolbar: 'undo redo | formatselect | bold italic backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat | code',
-                setup: function(editor) {
-                    editor.on('init', function() {
-                        applyTinyMCEDarkMode(document.body.classList.contains('dark-mode'));
-                    });
-                    editor.on('change', function() {
-                        editor.save();
-                        if (window.EmailApp) EmailApp.markDirty();
-                    });
+function updateSidebarCounters() {
+    fetch('{% url "email_ui:unread_count" %}')
+        .then(r => r.json())
+        .then(data => {
+            ['inbox','important','attachments','unread'].forEach(key => {
+                const el = document.getElementById('count-' + key);
+                if (el) {
+                    el.textContent = data[key] || 0;
+                    el.setAttribute('data-count', data[key] || 0);
+                    el.style.display = data[key] > 0 ? '' : 'none';
                 }
             });
-        };
+        }).catch(() => {});
+}
+updateSidebarCounters();
 
-        document.getElementById('draft-save-btn').addEventListener('click', function() {
-            var modal = bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal'));
-            modal.hide();
-            var form = document.getElementById('compose-form');
-            if (form) {
-                if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
-                    tinymce.activeEditor.save();
-                }
-                fetch('{% url "email_ui:save_draft" %}', {
-                    method: 'POST',
-                    headers: {'X-CSRFToken': '{{ csrf_token }}'},
-                    body: new URLSearchParams(new FormData(form))
-                }).then(r => {
-                    EmailApp.clearDirty();
-                    if (EmailApp.pendingAction) {
-                        EmailApp.pendingAction();
-                        EmailApp.pendingAction = null;
-                    }
-                }).catch(() => {
-                    EmailApp.clearDirty();
-                    if (EmailApp.pendingAction) {
-                        EmailApp.pendingAction();
-                        EmailApp.pendingAction = null;
-                    }
-                });
-            } else {
-                EmailApp.clearDirty();
-                if (EmailApp.pendingAction) {
-                    EmailApp.pendingAction();
-                    EmailApp.pendingAction = null;
-                }
-            }
+document.body.addEventListener('htmx:configRequest', evt => {
+    evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+});
+
+function updateActiveSidebar() {
+    const path = window.location.pathname;
+    document.querySelectorAll('.sidebar .nav-item').forEach(link => {
+        const pushUrl = link.getAttribute('hx-push-url') || '';
+        link.classList.toggle('active', pushUrl && path.indexOf(pushUrl) !== -1);
+    });
+}
+updateActiveSidebar();
+document.body.addEventListener('htmx:afterSwap', () => { updateSidebarCounters(); updateActiveSidebar(); });
+window.addEventListener('popstate', updateActiveSidebar);
+
+window.allFilteredCount = window.allFilteredCount || 0;
+window.toggleBulkActionBar = window.toggleBulkActionBar || function() {
+    const checked = document.querySelectorAll('input[name="selected_emails"]:checked');
+    const count = checked.length;
+    const bulkBar = document.getElementById('bulk-action-bar');
+    const banner = document.getElementById('select-all-banner');
+    if (bulkBar) bulkBar.classList.toggle('d-none', count === 0);
+    document.querySelectorAll('#bulk-action-bar .btn').forEach(btn => { btn.disabled = count === 0; });
+    if (banner) {
+        if (count > 0 && count < window.allFilteredCount) {
+            banner.classList.remove('d-none');
+            const cnt = document.getElementById('select-all-count');
+            if (cnt) cnt.textContent = count;
+        } else { banner.classList.add('d-none'); }
+    }
+};
+
+document.addEventListener('click', e => {
+    if (e.target.id === 'select-all') {
+        const checked = e.target.checked;
+        document.querySelectorAll('input[name="selected_emails"]').forEach(cb => { cb.checked = checked; });
+        const sai = document.getElementById('select-all-input');
+        if (sai) sai.value = checked ? '1' : '';
+        if (window.toggleBulkActionBar) toggleBulkActionBar();
+    }
+    if (e.target.id === 'select-all-link') {
+        e.preventDefault();
+        const sai = document.getElementById('select-all-input');
+        if (sai) sai.value = '1';
+        const header = document.getElementById('select-all');
+        if (header) header.checked = true;
+        document.querySelectorAll('input[name="selected_emails"]').forEach(cb => { cb.checked = true; });
+        const banner = document.getElementById('select-all-banner');
+        if (banner) banner.classList.add('d-none');
+        e.target.textContent = 'Выбраны все';
+        if (window.toggleBulkActionBar) toggleBulkActionBar();
+    }
+});
+document.addEventListener('change', e => {
+    if (e.target.name === 'selected_emails' && window.toggleBulkActionBar) toggleBulkActionBar();
+});
+
+window.EmailApp = {
+    isDirty: false,
+    pendingAction: null,
+    modal: null,
+    modalEl: null,
+    markDirty() { this.isDirty = true; },
+    clearDirty() { this.isDirty = false; },
+    getModal() {
+        if (!this.modalEl) this.modalEl = document.getElementById('emailModal');
+        if (!this.modal && this.modalEl) {
+            this.modal = bootstrap.Modal.getInstance(this.modalEl) || new bootstrap.Modal(this.modalEl);
+        }
+        return this.modal;
+    },
+    openModal(url) {
+        this.checkDirtyThen(() => {
+            this.clearDirty();
+            const m = this.getModal();
+            const params = new URLSearchParams(window.location.search);
+            const next = params.get('next') || window.location.pathname + window.location.search;
+            url += (url.indexOf('?') === -1 ? '?' : '&') + 'next=' + encodeURIComponent(next);
+            htmx.ajax('GET', url, { target: '#emailModalContent', swap: 'innerHTML' });
+            if (m) m.show();
         });
-
-        document.getElementById('draft-discard-btn').addEventListener('click', function() {
-            var modal = bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal'));
-            modal.hide();
-            EmailApp.clearDirty();
-            if (EmailApp.pendingAction) {
-                EmailApp.pendingAction();
-                EmailApp.pendingAction = null;
-            }
-        });
-
-        document.getElementById('emailModal').addEventListener('hidden.bs.modal', function() {
-            if (typeof tinymce !== 'undefined') {
-                var editor = tinymce.get('compose-editor');
-                if (editor) {
-                    editor.save();
-                    editor.remove();
-                }
-            }
-            document.querySelectorAll('.modal-backdrop').forEach(function(el) { el.remove(); });
+    },
+    closeModal() {
+        const m = this.getModal();
+        if (m) {
+            m.hide();
+            document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
             document.body.classList.remove('modal-open');
             document.body.style.removeProperty('overflow');
             document.body.style.removeProperty('padding-right');
-        });
+        }
+    },
+    checkDirtyThen(callback) {
+        if (!this.isDirty) { callback(); return; }
+        this.pendingAction = callback;
+        new bootstrap.Modal(document.getElementById('draftConfirmModal')).show();
+    }
+};
 
-        document.querySelectorAll('.alert-dismissible').forEach(function(el) {
-            setTimeout(function() { bootstrap.Alert.getOrCreateInstance(el).close(); }, 5000);
+document.addEventListener('htmx:afterSwap', evt => {
+    if (evt.detail.target.id === 'emailModalContent' || evt.detail.target.id === 'emailModal') {
+        window.initTinyMCE();
+    }
+});
+
+window.initTinyMCE = function() {
+    if (typeof tinymce === 'undefined') return;
+    const el = document.getElementById('compose-editor');
+    if (!el || tinymce.get('compose-editor')) return;
+    const isDark = document.body.classList.contains('dark-mode');
+    tinymce.init({
+        selector: '#compose-editor',
+        height: 500,
+        menubar: false,
+        content_style: isDark
+            ? "body{background:#1e1e3a;color:#d0d0e0;font-size:14px;font-family:-apple-system,sans-serif;}"
+            : "body{background:#fff;color:#333;font-size:14px;font-family:-apple-system,sans-serif;}",
+        toolbar: 'undo redo | formatselect | bold italic | alignleft aligncenter alignright | bullist numlist | removeformat | code',
+        setup(editor) {
+            editor.on('change', () => { editor.save(); if (window.EmailApp) EmailApp.markDirty(); });
+        }
+    });
+};
+
+document.getElementById('draft-save-btn').addEventListener('click', function() {
+    bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal')).hide();
+    const form = document.getElementById('compose-form');
+    if (form) {
+        if (typeof tinymce !== 'undefined' && tinymce.activeEditor) tinymce.activeEditor.save();
+        fetch('{% url "email_ui:save_draft" %}', {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+            body: new URLSearchParams(new FormData(form))
+        }).finally(() => {
+            EmailApp.clearDirty();
+            if (EmailApp.pendingAction) { EmailApp.pendingAction(); EmailApp.pendingAction = null; }
         });
-    </script>
+    } else {
+        EmailApp.clearDirty();
+        if (EmailApp.pendingAction) { EmailApp.pendingAction(); EmailApp.pendingAction = null; }
+    }
+});
+document.getElementById('draft-discard-btn').addEventListener('click', function() {
+    bootstrap.Modal.getInstance(document.getElementById('draftConfirmModal')).hide();
+    EmailApp.clearDirty();
+    if (EmailApp.pendingAction) { EmailApp.pendingAction(); EmailApp.pendingAction = null; }
+});
+document.getElementById('emailModal').addEventListener('hidden.bs.modal', function() {
+    if (typeof tinymce !== 'undefined') {
+        const editor = tinymce.get('compose-editor');
+        if (editor) { editor.save(); editor.remove(); }
+    }
+    document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('overflow');
+    document.body.style.removeProperty('padding-right');
+});
+document.querySelectorAll('.alert-dismissible').forEach(el => {
+    setTimeout(() => { bootstrap.Alert.getOrCreateInstance(el).close(); }, 5000);
+});
+</script>
 </body>
 </html>

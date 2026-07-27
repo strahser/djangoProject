@@ -173,7 +173,7 @@ def import_html_file(html_path, channel_name=None, channel_username=None):
 
         importance = calculate_importance(total_reactions, tags, links)
 
-        msg_obj = TelegramMessage.objects.create(
+        msg_obj = TelegramMessage(
             telegram_id=telegram_id,
             channel=channel,
             channel_name=channel_name,
@@ -190,6 +190,7 @@ def import_html_file(html_path, channel_name=None, channel_username=None):
             media_type=media_type,
             source='html',
         )
+        msg_obj.save()
         link_tags_to_message(msg_obj)
         messages_saved += 1
 

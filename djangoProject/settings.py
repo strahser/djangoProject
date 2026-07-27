@@ -93,7 +93,8 @@ INSTALLED_APPS = [
     'TelegramParser',
 ]
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-AUTOSAVE_PERIOD =120 #minutes
+AUTOSAVE_PERIOD =1440 #minutes (1 раз в сутки)
+BACKUP_KEEP_VERSIONS = 2
 MEDIA_ROOT =r"e:\Проекты Симрус\Переписка"
 BACKUP_PATH = folder = os.path.join('e:\\','Проекты Симрус', 'backup')
 
@@ -273,6 +274,7 @@ YA_PORT = int(os.environ.get('YA_PORT', 993))
 YA_USER = os.environ.get('YA_USER', '')
 YA_PASSWORD = os.environ.get('YA_PASSWORD', '')
 E_MAIL_DIRECTORY = os.environ.get('E_MAIL_DIRECTORY', os.path.join('e:\\', 'Проекты Симрус', 'Переписка', 'Bitrix 24'))
+TELEGRAM_CONTENT_DIR = os.path.join(DB_DIR, 'telegram_content')
 
 _env_path = os.path.join(BASE_DIR, '.env')
 if os.path.exists(_env_path):
