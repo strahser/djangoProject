@@ -45,6 +45,13 @@
                 {% endfor %}
             </ul>
         </div>
+        <div class="vr mx-1" style="border-color:var(--border-color);"></div>
+        <button class="btn btn-outline-success btn-sm" onclick="saveEmailChanges()">
+            <i class="bi bi-check2 me-1"></i>Сохранить
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="saveEmailToDraft()">
+            <i class="bi bi-save me-1"></i>В черновик
+        </button>
     </div>
 
     <div class="card mb-3">
@@ -99,8 +106,8 @@
                     </span>
                     {% empty %}<span class="text-muted">Нет привязанных задач</span>
                     {% endfor %}
-                    <button class="btn btn-outline-primary btn-sm ms-2" hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}"
-                            hx-target="#task-modal-container" data-bs-toggle="modal" data-bs-target="#taskModal">+</button>
+                    <a href="{% url 'email_ui:attach_tasks_page' email.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-primary btn-sm ms-2">
+                            <i class="bi bi-plus-lg"></i> Прикрепить задачу</a>
                 </div>
             </div>
             <div class="collapsible-section">
@@ -162,6 +169,40 @@ function toggleSection(header) {
     header.classList.toggle('collapsed');
     header.nextElementSibling.classList.toggle('show');
 }
+function saveEmailChanges() {
+    var el = document.querySelector('[id^="metadata-block-"]');
+    var form = el ? el.querySelector('form') : null;
+    if (form) {
+        htmx.trigger(form, 'submit');
+    }
+    clearDetailDirty();
+    showSaveToast('Изменения сохранены');
+}
+function saveEmailToDraft() {
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{% url "email_ui:copy_to_draft" email.pk %}';
+    form.innerHTML = '<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">' +
+                     '<input type="hidden" name="next" value="' + detailNextUrl + '">';
+    document.body.appendChild(form);
+    form.submit();
+}
+function showSaveToast(msg) {
+    var container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+        container.style.zIndex = '9999';
+        document.body.appendChild(container);
+    }
+    var toast = document.createElement('div');
+    toast.className = 'toast show align-items-center text-bg-success border-0';
+    toast.role = 'alert';
+    toast.innerHTML = '<div class="d-flex"><div class="toast-body">' + msg + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+    container.appendChild(toast);
+    setTimeout(function(){ toast.remove(); }, 3000);
+}
 </script>
 
 <div class="modal fade" id="detailDraftModal" tabindex="-1">
@@ -191,6 +232,21 @@ function toggleSection(header) {
     document.getElementById('detail-draft-discard-btn').addEventListener('click', function() {
         bootstrap.Modal.getInstance(document.getElementById('detailDraftModal')).hide();
         clearDetailDirty(); window.location.href = detailNextUrl;
+    });
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        var target = evt.detail.target;
+        if (target && target.id && target.id.startsWith('metadata-block-')) {
+            var form = target.querySelector('form');
+            if (form) {
+                form.querySelectorAll('input, select, textarea').forEach(function(el) {
+                    el.addEventListener('change', markDetailDirty);
+                    el.addEventListener('input', markDetailDirty);
+                });
+                form.addEventListener('htmx:beforeRequest', function() {
+                    clearDetailDirty();
+                });
+            }
+        }
     });
 })();
 </script>

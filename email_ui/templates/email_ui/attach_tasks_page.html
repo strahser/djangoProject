@@ -1,0 +1,150 @@
+{% extends "email_ui/base.html" %}
+{% load email_filters %}
+{% block content %}
+<div class="container-fluid p-4">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ request.GET.next|default:'/'|urlencode }}" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i>Назад к письму
+    </a>
+    <h5 class="mb-0 fw-bold text-truncate">
+      <i class="bi bi-link-45deg me-1"></i>Прикрепить к задачам
+    </h5>
+    <small class="text-muted">{{ email.subject|default:"Без темы"|truncatechars:80 }}</small>
+  </div>
+
+  <div class="card">
+    <div class="card-body p-0">
+      <form method="get" action="{% url 'email_ui:attach_tasks_page' email.pk %}"
+            class="p-3 border-bottom">
+        <input type="hidden" name="next" value="{{ request.GET.next|default:'' }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-0">Поиск</label>
+            <input type="text" name="q" value="{{ sel.q }}" class="form-control form-control-sm" placeholder="Название, проект…">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-0">Проект</label>
+            <select name="project" class="form-select form-select-sm">
+              <option value="">Все</option>
+              {% for p in projects %}<option value="{{ p.pk }}" {% if sel.project == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-0">Подрядчик</label>
+            <select name="contractor" class="form-select form-select-sm">
+              <option value="">Все</option>
+              {% for c in contractors %}<option value="{{ c.pk }}" {% if sel.contractor == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-0">Статус</label>
+            <select name="status" class="form-select form-select-sm">
+              <option value="">Все</option>
+              {% for s in statuses %}<option value="{{ s.pk }}" {% if sel.status == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-0">Срок с</label>
+            <input type="date" name="date_from" value="{{ sel.date_from }}" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-1">
+            <label class="form-label small text-muted mb-0">Срок по</label>
+            <input type="date" name="date_to" value="{{ sel.date_to }}" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-1">
+            <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-funnel"></i></button>
+          </div>
+        </div>
+      </form>
+
+      <form method="post" action="{% url 'email_ui:attach_tasks' email.pk %}" id="attach-tasks-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.GET.next|default:'' }}">
+        <div style="max-height:65vh;overflow-y:auto;">
+          <table class="task-pick-table">
+            <thead class="sticky-top" style="background:var(--bg-table-header);">
+              <tr>
+                <th style="width:36px;"><input type="checkbox" id="task-select-all"></th>
+                <th>Задача</th><th>Проект</th><th>Ответственный</th><th>Статус</th>
+                <th style="width:110px;">Срок</th><th style="width:100px;" class="text-end">Цена</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for task in tasks %}
+              <tr class="task-pick-row {% if task.pk in attached_ids %}already{% endif %}"
+                  onclick="{% if task.pk not in attached_ids %}toggleTaskRow(this){% endif %}">
+                <td onclick="event.stopPropagation()">
+                  {% if task.pk in attached_ids %}
+                    <i class="bi bi-check-circle-fill text-success ms-1" title="Уже привязана"></i>
+                  {% else %}
+                    <input type="checkbox" name="tasks" value="{{ task.pk }}" class="task-cb form-check-input ms-1">
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="fw-semibold">{{ task.name|truncatechars:70 }}</div>
+                  {% if task.sub_project %}<small class="text-muted">{{ task.sub_project.name }}</small>{% endif %}
+                </td>
+                <td>{{ task.project_site.name|default:"—" }}</td>
+                <td>{{ task.contractor.name|default:"—" }}</td>
+                <td><span class="status-pill">{{ task.status.name|default:"—" }}</span></td>
+                <td class="{% if task.due_date and task.due_date < today %}overdue{% endif %}">
+                  {{ task.due_date|date:"d.m.Y"|default:"—" }}
+                </td>
+                <td class="text-end">{{ task.price|floatformat:0|default:"—" }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="7" class="text-center text-muted py-5">Ничего не найдено. Измените фильтры.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex align-items-center justify-content-between p-3 border-top">
+          <span class="text-muted small">Выбрано: <b id="task-pick-count">0</b></span>
+          <div>
+            <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ request.GET.next|default:'/'|urlencode }}" class="btn btn-outline-secondary btn-sm me-2">Отмена</a>
+            <button type="submit" class="btn btn-primary" id="task-attach-submit" disabled>
+              <i class="bi bi-link-45deg me-1"></i>Прикрепить выбранные
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  window.toggleTaskRow = function(row){
+    var cb = row.querySelector('.task-cb');
+    if (!cb) return;
+    cb.checked = !cb.checked;
+    row.classList.toggle('picked', cb.checked);
+    refreshCount();
+  };
+  function refreshCount(){
+    var n = document.querySelectorAll('#attach-tasks-form .task-cb:checked').length;
+    var el = document.getElementById('task-pick-count');
+    var btn = document.getElementById('task-attach-submit');
+    if (el) el.textContent = n;
+    if (btn) btn.disabled = (n === 0);
+  }
+  var sa = document.getElementById('task-select-all');
+  if (sa) sa.addEventListener('change', function(){
+    document.querySelectorAll('#attach-tasks-form .task-cb').forEach(function(cb){
+      cb.checked = sa.checked;
+      var tr = cb.closest('tr');
+      if (tr) tr.classList.toggle('picked', sa.checked);
+    });
+    refreshCount();
+  });
+  document.querySelectorAll('#attach-tasks-form .task-cb').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      var tr = cb.closest('tr');
+      if (tr) tr.classList.toggle('picked', cb.checked);
+      refreshCount();
+    });
+  });
+  refreshCount();
+})();
+</script>
+{% endblock %}

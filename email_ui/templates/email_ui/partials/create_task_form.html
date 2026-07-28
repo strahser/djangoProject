@@ -6,6 +6,7 @@
         </div>
         <form method="post">
             {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.GET.next|default:'' }}">
             <div class="modal-body">
                 <p class="small text-muted">Из письма: {{ email.subject }}</p>
                 {{ form.as_p }}

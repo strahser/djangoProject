@@ -4,7 +4,5 @@
 </span>
 {% empty %}<span class="text-muted">Нет привязанных задач</span>
 {% endfor %}
-<button class="btn btn-outline-primary btn-sm ms-2"
-        hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}"
-        hx-target="#task-modal-container"
-        data-bs-toggle="modal" data-bs-target="#taskModal">+</button>
+<a href="{% url 'email_ui:attach_tasks_page' email.pk %}" class="btn btn-outline-primary btn-sm ms-2">
+        <i class="bi bi-plus-lg"></i> Прикрепить задачу</a>

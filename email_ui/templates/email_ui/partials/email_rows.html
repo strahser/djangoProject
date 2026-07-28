@@ -46,6 +46,22 @@
         </div>
         {% endif %}
         {% endwith %}
+        {% if active_filters.project_site and email.project_site or active_filters.contractor and email.contractor or active_filters.building_type and email.building_type or active_filters.category and email.category %}
+        <div class="mt-1">
+            {% if active_filters.project_site and email.project_site %}
+                <span class="badge bg-light text-dark border me-1" style="font-size:11px;"><i class="bi bi-building me-1"></i>{{ email.project_site.name }}</span>
+            {% endif %}
+            {% if active_filters.contractor and email.contractor %}
+                <span class="badge bg-light text-dark border me-1" style="font-size:11px;"><i class="bi bi-person-badge me-1"></i>{{ email.contractor.name }}</span>
+            {% endif %}
+            {% if active_filters.building_type and email.building_type %}
+                <span class="badge bg-light text-dark border me-1" style="font-size:11px;"><i class="bi bi-house-door me-1"></i>{{ email.building_type.name }}</span>
+            {% endif %}
+            {% if active_filters.category and email.category %}
+                <span class="badge bg-light text-dark border me-1" style="font-size:11px;"><i class="bi bi-tag me-1"></i>{{ email.category.name }}</span>
+            {% endif %}
+        </div>
+        {% endif %}
     </td>
     <td class="text-nowrap text-muted">{{ email.email_stamp|date:"d.m.Y" }}</td>
     <td>{% if email.is_important %}<i class="bi bi-star-fill text-warning"></i>{% endif %}</td>

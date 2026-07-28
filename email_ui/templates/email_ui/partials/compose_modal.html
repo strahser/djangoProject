@@ -34,6 +34,9 @@
                 </label>
                 <span id="file-count-compose" class="badge bg-warning text-dark" style="display:none;"></span>
             </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" title="Вставить подпись" onclick="insertSignature()">
+                <i class="bi bi-person-badge"></i>
+            </button>
             <button type="button" class="btn btn-sm btn-outline-success" title="Сохранить черновик"
                     onclick="saveDraft()">
                 <i class="bi bi-save"></i>
@@ -299,4 +302,25 @@ function toggleSection(header) {
 }
 
 document.querySelectorAll('#compose-form textarea').forEach(function(ta) { autoResize(ta); });
+
+function insertSignature() {
+    var sig = `<br><br><div style="font-family: Arial, sans-serif; font-size: 13px; color: #333; margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
+<strong>Страхов Сергей | Strakhov Sergey</strong><br>
+Строительный департамент | Construction department<br>
+ООО "ТиЭйч-РУС Милк Фуд" | TH-RUS Milk Food LLC<br>
+127055, г Москва, Лесная, д. 61, Стр 2, Эт Цок Пом I ком 27<br>
+Mobile: +7 (966)0351073<br>
+Website: <a href="http://www.cimrus.com">http://www.cimrus.com</a>
+</div>`;
+    if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
+        tinymce.activeEditor.insertContent(sig);
+    } else {
+        var bodyEl = document.querySelector('textarea[name="body"]');
+        if (bodyEl) {
+            bodyEl.value += sig;
+            autoResize(bodyEl);
+        }
+    }
+    if (window.EmailApp) EmailApp.markDirty();
+}
 </script>

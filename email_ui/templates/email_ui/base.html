@@ -202,35 +202,88 @@ body.dark-mode .letter-frame.letter-dark .letter-content { background: #0d0f14; 
 .app-toast i { font-size: 20px; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 .navbar .nav-link:hover { background: rgba(255,255,255,0.1); color: #fff !important; }
+
+::selection { background: #ffc107; color: #000; }
+::-moz-selection { background: #ffc107; color: #000; }
+body.dark-mode ::selection { background: #0d6efd; color: #fff; }
+body.dark-mode ::-moz-selection { background: #0d6efd; color: #fff; }
+.letter-content ::selection { background: #ffc107; color: #000; }
+.letter-content ::-moz-selection { background: #ffc107; color: #000; }
+
+.navbar-custom {
+    background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    height: 56px;
+}
+.navbar-custom .navbar-brand {
+    color: #fff;
+    font-size: 18px;
+    text-decoration: none;
+}
+.nav-links-custom { display: flex; gap: 4px; }
+.nav-link-custom {
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 6px 12px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+.nav-link-custom:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.08);
+}
+.nav-btn-custom {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #cbd5e1;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+.nav-btn-custom:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.3);
+    color: #fff;
+}
 </style>
 </head>
 <body>
-<nav class="navbar navbar-dark bg-dark px-3" style="height: 56px;">
-    <div class="d-flex align-items-center gap-1">
-        <a href="{% url 'email_ui:inbox_default' %}" class="navbar-brand me-3">
-            <i class="bi bi-envelope-fill me-2"></i>Почта
+<nav class="navbar navbar-expand navbar-custom px-3">
+    <div class="d-flex align-items-center gap-2">
+        <a href="{% url 'email_ui:inbox_default' %}" class="navbar-brand d-flex align-items-center me-4">
+            <i class="bi bi-envelope-fill me-2" style="color: #ffc107; font-size: 20px;"></i>
+            <span style="font-weight: 600; letter-spacing: 0.5px;">Почта</span>
         </a>
-        <a href="/" class="nav-link text-white-50 px-2 py-1 rounded" style="font-size:14px;text-decoration:none;">
-            <i class="bi bi-list-check me-1"></i>Задачи
-        </a>
-        <a href="/contract/dashboard/" class="nav-link text-white-50 px-2 py-1 rounded" style="font-size:14px;text-decoration:none;">
-            <i class="bi bi-file-earmark-text me-1"></i>Контракты
-        </a>
+        <div class="d-flex align-items-center gap-1 nav-links-custom">
+            <a href="/" class="nav-link-custom">
+                <i class="bi bi-list-check me-1"></i>Задачи
+            </a>
+            <a href="/contract/dashboard/" class="nav-link-custom">
+                <i class="bi bi-file-earmark-text me-1"></i>Контракты
+            </a>
+        </div>
     </div>
-    <div class="d-flex align-items-center gap-3">
+    <div class="d-flex align-items-center gap-2">
         <div class="font-size-control text-white-50" style="font-size:12px;">
-            <i class="bi bi-fonts"></i>
+            <i class="bi bi-fonts me-1"></i>
             <input type="range" id="fontSizeSlider" min="12" max="18" value="14"
                    oninput="setTableFontSize(this.value)" title="Размер шрифта">
             <span id="fontSizeLabel" style="min-width:18px;">14</span>
         </div>
-        <button class="btn btn-sm btn-outline-light" onclick="toggleNightMode()" title="Тема">
+        <button class="btn btn-sm nav-btn-custom" onclick="toggleNightMode()" title="Тема">
             <i class="bi bi-moon-stars"></i>
         </button>
-        <button class="btn btn-sm btn-outline-light" onclick="updateSidebarCounters()" title="Обновить">
+        <button class="btn btn-sm nav-btn-custom" onclick="updateSidebarCounters()" title="Обновить">
             <i class="bi bi-arrow-clockwise"></i>
         </button>
-        <a href="/admin/" class="btn btn-sm btn-outline-light" title="Админ-панель"><i class="bi bi-gear"></i></a>
+        <a href="/admin/" class="btn btn-sm nav-btn-custom" title="Админ-панель"><i class="bi bi-gear"></i></a>
     </div>
 </nav>
 
@@ -299,7 +352,7 @@ function toggleNightMode() {
     document.body.classList.toggle('dark-mode');
     const isDark = document.body.classList.contains('dark-mode');
     localStorage.setItem('email-dark-mode', isDark ? '1' : '0');
-    const icon = document.querySelector('.navbar .btn-outline-light i');
+    const icon = document.querySelector('.nav-btn-custom i');
     if (icon) icon.className = isDark ? 'bi bi-sun-fill' : 'bi bi-moon-stars';
 }
 if (localStorage.getItem('email-dark-mode') === '1') {

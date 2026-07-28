@@ -60,6 +60,95 @@ def clean_email_html(html_content: str) -> str:
     )
 
 
+def highlight_email_body(html_content: str) -> str:
+    """Парсит HTML письма, находит тело письма (текст после заголовков и до подписи)
+    и выделяет текст синим цветом (#0d6efd) для контрастности.
+
+    Пропускает:
+    - Заголовки (Отправитель, Получатель, Дата, Тема Письма, Вложения)
+    - Подпись (таблица с реквизитами компании в конце письма)
+    - Блоки цитируемого текста: Кому, Тема, дата, разделители
+    - Всё после '-- ' до следующего '----------------' (подпись в цитате)
+    """
+    if not html_content:
+        return html_content
+
+    from bs4 import BeautifulSoup
+    import re as _re
+
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    signature_table = _find_signature_table(soup)
+
+    header_prefixes = ('отправитель:', 'получатель:', 'дата:', 'тема письма:', 'вложения:')
+
+    skip_re = [
+        _re.compile(r'^-{2,}\s*$'),         # разделитель --------
+        _re.compile(r'^\d{2}\.\d{2}\.\d{4}'),  # дата: 23.07.2026
+    ]
+    sig_sep_re = _re.compile(r'^--\s*$')   # сепаратор подписи
+
+    in_sig_zone = False
+
+    for el in soup.find_all(['div', 'p', 'span']):
+        text = el.get_text(strip=True)
+        if not text:
+            continue
+
+        text_lower = text.lower()
+
+        # Заголовки письма
+        if any(text_lower.startswith(p) for p in header_prefixes):
+            continue
+
+        # Заголовки цитаты (Кому:, Тема:)
+        if text_lower.startswith('кому:') or text_lower.startswith('тема:'):
+            continue
+
+        # Вход в зону подписи (всё после -- до следующего разделителя)
+        if sig_sep_re.match(text):
+            in_sig_zone = True
+            continue
+
+        # Разделители / даты (сброс зоны подписи)
+        skip = False
+        for pat in skip_re:
+            if pat.match(text):
+                skip = True
+                in_sig_zone = False
+                break
+        if skip:
+            continue
+
+        # В зоне подписи — не красим
+        if in_sig_zone:
+            continue
+
+        # Таблица подписи
+        if signature_table:
+            if signature_table in el.parents:
+                continue
+            if el.find_all('table') and any(t == signature_table for t in el.find_all('table')):
+                continue
+
+        style = el.get('style', '')
+        style = _re.sub(r'\bcolor\s*:\s*[^;]+;?\s*', '', style, flags=_re.IGNORECASE)
+        el['style'] = f'color: #0d6efd; {style}'.strip('; ')
+
+    return str(soup)
+
+
+def _find_signature_table(soup):
+    """Ищет последнюю таблицу с реквизитами компании — это подпись."""
+    sig_keywords = ('cimrus', 'th-rus', 'strakhov',
+                    'мобильный', 'mobile:', '+7 (', 'website:', 'сайт:')
+    for table in reversed(soup.find_all('table')):
+        text = table.get_text(strip=True).lower()
+        if any(kw in text for kw in sig_keywords):
+            return table
+    return None
+
+
 _EMAIL_IN_ANGLE_RE = re.compile(r'<([^>]+@[^>]+)>')
 _EMAIL_STANDALONE_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 

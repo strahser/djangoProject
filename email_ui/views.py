@@ -37,7 +37,7 @@ from .models import (
 from .services.email_sender import EmailSenderService
 from .utils import (
     clean_email_html, extract_all_email_addresses, resolve_sender_to_email,
-    sanitize_id, sanitize_id_list,
+    sanitize_id, sanitize_id_list, highlight_email_body,
 )
 PER_PAGE = 50
 ALLOWED_SORT_FIELDS = ['sender', 'receiver', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
@@ -179,6 +179,12 @@ def inbox_view(request, folder='inbox'):
         'tags': {str(obj.id): obj.name for obj in EmailTag.objects.all()},
     }
 
+    active_filters = {
+        'project_site': bool(selected_project_sites),
+        'contractor': bool(selected_contractors),
+        'building_type': bool(selected_building_types),
+        'category': bool(selected_categories),
+    }
     context = {
         'folder': folder,
         'page_obj': page_obj,
@@ -197,6 +203,7 @@ def inbox_view(request, folder='inbox'):
         'clean_params': _clean_query_string(request),
         'all_senders': Email.objects.exclude(sender='').values_list('sender', flat=True).distinct().order_by('sender'),
         'email_list_back_url': _build_back_url(request, folder),
+        'active_filters': active_filters,
     }
     return render(request, 'email_ui/inbox.html', context)
 
@@ -207,7 +214,7 @@ def email_list_partial(request):
     """Частичное обновление списка писем."""
     folder = request.GET.get('folder', 'inbox')
     emails = Email.objects.filter(folder=folder).select_related(
-        'project_site', 'contractor'
+        'project_site', 'contractor', 'building_type', 'category'
     ).prefetch_related('attachments')
 
     filter_form = EmailFilterForm(request.GET)
@@ -220,12 +227,20 @@ def email_list_partial(request):
     page_number = request.GET.get('page', 1)
     page_obj = paginator.get_page(page_number)
 
+    active_filters = {
+        'project_site': bool(request.GET.getlist('project_site')),
+        'contractor': bool(request.GET.getlist('contractor')),
+        'building_type': bool(request.GET.getlist('building_type')),
+        'category': bool(request.GET.getlist('category')),
+    }
+
     # Если запрос от индикатора бесконечной прокрутки – возвращаем только строки и новый индикатор
     if request.GET.get('_infinite'):
         context = {
             'page_obj': page_obj,
             'clean_params': _clean_query_string(request),
             'email_list_back_url': _build_back_url(request, folder),
+            'active_filters': active_filters,
         }
         return render(request, 'email_ui/partials/email_rows.html', context)
 
@@ -237,6 +252,7 @@ def email_list_partial(request):
         'current_order': current_order,
         'clean_params': _clean_query_string(request),
         'email_list_back_url': _build_back_url(request, folder),
+        'active_filters': active_filters,
     }
     return render(request, 'email_ui/partials/email_list.html', context)
 
@@ -339,7 +355,9 @@ def email_body(request, pk):
     try:
         with open(html_path, 'r', encoding='utf-8') as f:
             raw_html = f.read()
-        return HttpResponse(_frame(clean_email_html(raw_html)))
+        cleaned = clean_email_html(raw_html)
+        highlighted = highlight_email_body(cleaned)
+        return HttpResponse(_frame(highlighted))
     except Exception as e:
         return HttpResponse(_frame(f'<p>Ошибка загрузки: {e}</p>'))
 
@@ -498,6 +516,49 @@ def attach_to_tasks_modal(request, pk):
 
 
 @login_required
+def attach_tasks_page(request, pk):
+    """Полноценная страница привязки задач к письму (вместо модального окна)."""
+    email = get_object_or_404(Email, pk=pk)
+    q = (request.GET.get('q') or '').strip()
+    project = request.GET.get('project') or ''
+    contractor = request.GET.get('contractor') or ''
+    status = request.GET.get('status') or ''
+    date_from = request.GET.get('date_from') or ''
+    date_to = request.GET.get('date_to') or ''
+
+    tasks = Task.objects.select_related(
+        'project_site', 'sub_project', 'status', 'contractor'
+    ).order_by('-due_date')
+    if q:
+        tasks = tasks.filter(
+            Q(name__icontains=q) | Q(project_site__name__icontains=q) |
+            Q(contractor__name__icontains=q)
+        )
+    if project:
+        tasks = tasks.filter(project_site_id=project)
+    if contractor:
+        tasks = tasks.filter(contractor_id=contractor)
+    if status:
+        tasks = tasks.filter(status_id=status)
+    if date_from:
+        tasks = tasks.filter(due_date__gte=date_from)
+    if date_to:
+        tasks = tasks.filter(due_date__lte=date_to)
+
+    context = {
+        'email': email,
+        'tasks': tasks[:100],
+        'projects': ProjectSite.objects.all().order_by('name'),
+        'contractors': Contractor.objects.all().order_by('name'),
+        'statuses': Status.objects.all().order_by('name'),
+        'attached_ids': set(email.tasks.values_list('id', flat=True)),
+        'sel': {'q': q, 'project': project, 'contractor': contractor,
+                'status': status, 'date_from': date_from, 'date_to': date_to},
+    }
+    return render(request, 'email_ui/attach_tasks_page.html', context)
+
+
+@login_required
 def email_tasks_partial(request, pk):
     """Обновляемый блок привязанных задач письма."""
     email = get_object_or_404(Email.objects.prefetch_related('tasks'), pk=pk)
@@ -507,7 +568,7 @@ def email_tasks_partial(request, pk):
 @login_required
 @require_http_methods(['POST'])
 def attach_tasks(request, pk):
-    """Привязка задач: тост + автозакрытие модалки + обновление блока без перезагрузки."""
+    """Привязка задач к письму с редиректом на страницу письма."""
     email = get_object_or_404(Email, pk=pk)
     task_ids = sanitize_id_list(request.POST.getlist('tasks'))
     tasks = Task.objects.filter(id__in=task_ids) if task_ids else Task.objects.none()
@@ -516,13 +577,11 @@ def attach_tasks(request, pk):
         names = ', '.join(t.name[:40] for t in tasks[:3])
         msg = f'Письмо привязано к задачам ({len(tasks)}): {names}'
         messages.success(request, msg)
-        ok = True
     else:
         msg = 'Не выбрано ни одной задачи'
         messages.warning(request, msg)
-        ok = False
-    return render(request, 'email_ui/partials/task_attach_done.html',
-                  {'email': email, 'message': msg, 'ok': ok})
+    next_url = request.POST.get('next') or reverse('email_ui:email_detail', args=[pk])
+    return redirect(next_url)
 
 
 @login_required
@@ -1538,7 +1597,8 @@ def create_task_from_email(request, pk):
                 created_by=request.user,
             )
             messages.success(request, f'Задача "{task.name}" создана из письма')
-            return redirect(reverse('email_ui:inbox_default'))
+            next_url = request.POST.get('next', reverse('email_ui:email_detail', args=[pk]))
+            return redirect(next_url)
     else:
         from ProjectTDL.forms import TaskForm
         initial = {

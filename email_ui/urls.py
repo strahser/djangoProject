@@ -70,6 +70,7 @@ urlpatterns = [
     path('email/<int:pk>/create-task/', views.create_task_from_email, name='create_task_from_email'),
     path('email/<int:pk>/copy-email/', views.copy_email, name='copy_email'),
     path('email/<int:pk>/attach-to-tasks-modal/', views.attach_to_tasks_modal, name='attach_to_tasks_modal'),
+    path('email/<int:pk>/attach-tasks-page/', views.attach_tasks_page, name='attach_tasks_page'),
     path('email/<int:pk>/attach-tasks/', views.attach_tasks, name='attach_tasks'),
     path('email/<int:pk>/detach-task/<int:task_id>/', views.detach_task, name='detach_task'),
     path('email/<int:pk>/tasks-partial/', views.email_tasks_partial, name='email_tasks_partial'),
