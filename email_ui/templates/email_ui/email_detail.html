@@ -108,6 +108,8 @@
                     {% endfor %}
                     <a href="{% url 'email_ui:attach_tasks_page' email.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-primary btn-sm ms-2">
                             <i class="bi bi-plus-lg"></i> Прикрепить задачу</a>
+                    <a href="{% url 'admin:ProjectTDL_task_add' %}?_next={{ request.get_full_path|urlencode }}&amp;email_id={{ email.pk }}" class="btn btn-outline-success btn-sm ms-1">
+                            <i class="bi bi-plus-circle"></i> Создать задачу</a>
                 </div>
             </div>
             <div class="collapsible-section">
