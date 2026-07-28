@@ -52,9 +52,9 @@
                 <tr><td class="text-muted" style="width:80px;font-size:13px;">От:</td>
                     <td class="fw-semibold">{% if email.sender_name %}{{ email.sender_name }} <{{ email.sender }}>{% else %}{{ email.sender|default:"—" }}{% endif %}</td></tr>
                 <tr><td class="text-muted" style="font-size:13px;">Кому:</td>
-                    <td>{{ email.receiver|default:"—" }}</td></tr>
+                    <td>{{ email.receiver|recipient_name|default:"—" }}</td></tr>
                 {% if email.cc %}
-                <tr><td class="text-muted" style="font-size:13px;">Копия:</td><td>{{ email.cc }}</td></tr>
+                <tr><td class="text-muted" style="font-size:13px;">Копия:</td><td>{{ email.cc|recipient_name }}</td></tr>
                 {% endif %}
                 <tr><td class="text-muted" style="font-size:13px;">Дата:</td>
                     <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td></tr>

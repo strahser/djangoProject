@@ -51,7 +51,7 @@
         </td>
         <td onclick="event.stopPropagation()">
             {% if folder == 'sent' or folder == 'drafts' %}
-                {% with who=email.receiver|default:"?" %}
+                {% with who=email.receiver|recipient_name|default:"?" %}
                 <span class="email-avatar" style="background-color:{{ who|avatar_color }};">{{ who|avatar_initials }}</span>
                 {% endwith %}
             {% else %}
@@ -62,7 +62,7 @@
         </td>
         <td>
             {% if folder == 'sent' or folder == 'drafts' %}
-                {{ email.receiver|truncatechars:28|default:"—" }}
+                {{ email.receiver|recipient_name|default:"—" }}
             {% else %}
                 {{ email.sender_name|default:email.sender|truncatechars:28|default:"Неизвестно" }}
             {% endif %}

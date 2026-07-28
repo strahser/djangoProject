@@ -42,7 +42,7 @@
                 <h6 class="mb-1">{{ email.subject|default:'Без темы' }}</h6>
                 <small>{{ email.email_stamp|date:'d.m.Y' }}</small>
             </div>
-            <small class="text-muted">{{ email.sender_name|default:email.sender }} → {{ email.receiver }}</small>
+            <small class="text-muted">{{ email.sender_name|default:email.sender }} → {{ email.receiver|recipient_name }}</small>
         </a>
         {% empty %}
         <div class="text-muted text-center py-3">Нет писем</div>

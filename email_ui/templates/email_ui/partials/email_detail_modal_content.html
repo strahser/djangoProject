@@ -65,12 +65,12 @@
             </tr>
             <tr>
                 <td class="text-muted">Кому:</td>
-                <td>{{ email.receiver|default:"—" }}</td>
+                <td>{{ email.receiver|recipient_name|default:"—" }}</td>
             </tr>
             {% if email.cc %}
             <tr>
                 <td class="text-muted">Копия:</td>
-                <td>{{ email.cc }}</td>
+                <td>{{ email.cc|recipient_name }}</td>
             </tr>
             {% endif %}
             <tr>

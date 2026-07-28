@@ -23,7 +23,7 @@
     </div>
     <div class="card-body">
         <p><strong>От:</strong> {% if email.sender_name %}{{ email.sender_name }} &lt;{{ email.sender }}&gt;{% else %}{{ email.sender }}{% endif %}</p>
-        <p><strong>Кому:</strong> {{ email.receiver }}</p>
+        <p><strong>Кому:</strong> {{ email.receiver|recipient_name }}</p>
         <p><strong>Дата:</strong> {{ email.email_stamp }}</p>
 
         <!-- Метаданные (редактируемые) -->

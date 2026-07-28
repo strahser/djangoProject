@@ -61,3 +61,32 @@ def truncate_filename(filename, length=18):
     if max_name < 3:
         return filename[:length] + '\u2026'
     return name[:max_name] + '\u2026.' + ext
+
+
+@register.filter
+def recipient_name(recipients):
+    """
+    Извлекает имена получателей из raw-строки вида
+    'Name <email>' или 'Name email'. Возвращает только имена через запятую.
+    """
+    if not recipients:
+        return ''
+    parts = []
+    for part in recipients.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        # Name <email> → Name
+        if '<' in part and '>' in part:
+            name = part.split('<')[0].strip().strip('"\' ')
+        else:
+            # Пытаемся отделить email в конце: 'Name email@domain'
+            name = part
+            if '@' in part:
+                # Ищем последнее слово, содержащее @
+                words = part.rsplit(None, 1)
+                if len(words) == 2 and '@' in words[1]:
+                    name = words[0]
+        if name:
+            parts.append(name)
+    return ', '.join(parts) if parts else recipients[:50]
