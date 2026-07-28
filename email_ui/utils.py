@@ -144,21 +144,34 @@ def _find_contact_by_word(word: str):
     return None
 
 
+_NAME_ONLY_RE = re.compile(r'^(.*?)\s*<[^>]+@[^>]+>\s*$')
+
+
 def _search_contact(text: str):
     """
     Ищет контакт по тексту (полное имя или фрагмент).
     Сначала пробует весь текст, затем отдельные слова.
     """
-    if not text or not _is_clean_word(text):
+    if not text:
         return None
 
+    # Извлекаем имя из "Name <email>" → "Name"
+    m = _NAME_ONLY_RE.match(text.strip())
+    search_text = m.group(1).strip() if m else text.strip()
+
+    if not _is_clean_word(search_text):
+        # Если имя не подходит для поиска — попробовать исходный текст
+        if not _is_clean_word(text.strip()):
+            return None
+        search_text = text.strip()
+
     # Сначала целый текст
-    result = _find_contact_by_word(text)
+    result = _find_contact_by_word(search_text)
     if result:
         return result
 
     # Затем по отдельным словам
-    for word in text.lower().split():
+    for word in search_text.lower().split():
         if _is_clean_word(word):
             result = _find_contact_by_word(word)
             if result:
@@ -221,16 +234,18 @@ def resolve_sender_to_email(sender: str, sender_name: str = '') -> str:
     if not sender:
         return ''
 
-    email = extract_email_address(sender)
-    if email:
-        return email
-
     sender_clean = sender.strip()
 
-    # Поиск по полному sender и отдельным словам
+    # Шаг 2: поиск контакта по имени из sender (корректирует неверные email
+    # вида "Innokentiy Andreev <bezborodov.s@cimrus.com>")
     result = _search_contact(sender_clean)
     if result:
         return result
+
+    # Шаг 3: извлечение email (если имя не найдено среди контактов)
+    email = extract_email_address(sender)
+    if email:
+        return email
 
     from Emails.models import Email as EmailModel
     similar = EmailModel.objects.filter(

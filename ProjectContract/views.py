@@ -19,6 +19,59 @@ from django.http import HttpResponseForbidden
 from .form import ContractPaymentsForm
 from .models import ContractPayments, Contract
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from StaticData.models import ProjectSite
+from ProjectContract.models import Contractor
+
+
+@login_required
+def contract_dashboard(request):
+    """Дашборд договоров: прогресс оплат, итоги, фильтры."""
+    contracts = Contract.objects.select_related(
+        'project_site', 'contractor', 'sub_project'
+    ).prefetch_related('contractpayments_set').order_by('project_site__name', 'name')
+
+    q = (request.GET.get('q') or '').strip()
+    project = request.GET.get('project') or ''
+    contractor = request.GET.get('contractor') or ''
+    if q:
+        contracts = contracts.filter(name__icontains=q)
+    if project:
+        contracts = contracts.filter(project_site_id=project)
+    if contractor:
+        contracts = contracts.filter(contractor_id=contractor)
+
+    rows, totals = [], {'price': 0, 'paid': 0, 'unpaid': 0}
+    for c in contracts:
+        pays = list(c.contractpayments_set.all())
+        paid = sum((p.price or 0) for p in pays if p.made_payment)
+        unpaid = sum((p.price or 0) for p in pays if not p.made_payment)
+        pct = round(float(paid) / float(c.price) * 100) if c.price else 0
+        rows.append({
+            'contract': c, 'pays': pays, 'paid': paid, 'unpaid': unpaid,
+            'rest': (c.price or 0) - paid - unpaid, 'pct': pct,
+        })
+        totals['price'] += c.price or 0
+        totals['paid'] += paid
+        totals['unpaid'] += unpaid
+
+    return render(request, 'ProjectContract/dashboard.html', {
+        'rows': rows, 'totals': totals,
+        'projects': ProjectSite.objects.all().order_by('name'),
+        'contractors': Contractor.objects.all().order_by('name'),
+        'sel': {'q': q, 'project': project, 'contractor': contractor},
+    })
+
+
+@login_required
+@require_POST
+def toggle_payment(request, pk):
+    """Быстрое переключение статуса оплаты платежа."""
+    p = get_object_or_404(ContractPayments, pk=pk)
+    p.made_payment = not p.made_payment
+    p.save(update_fields=['made_payment'])
+    return JsonResponse({'ok': True, 'made': p.made_payment, 'price': float(p.price or 0)})
 
 
 def duplicate_contractpayment(request, pk):

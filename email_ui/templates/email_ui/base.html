@@ -178,13 +178,45 @@ body.dark-mode h4, body.dark-mode h5, body.dark-mode h6 { color: #e0e0e0; }
 .night-toggle { cursor: pointer; }
 .font-size-control { display: flex; align-items: center; gap: 4px; }
 .font-size-control input[type="range"] { width: 60px; height: 4px; }
+
+.letter-frame { border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; }
+.letter-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: var(--bg-table-header); border-bottom: 1px solid var(--border-color); }
+.letter-toolbar-label { font-size: 13px; color: var(--text-muted); }
+.letter-mode-switch { display: flex; gap: 2px; }
+.letter-mode-switch button { padding: 3px 12px; font-size: 12px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-color); cursor: pointer; }
+.letter-mode-switch button:first-child { border-radius: 4px 0 0 4px; }
+.letter-mode-switch button:last-child { border-radius: 0 4px 4px 0; }
+.letter-mode-switch button.active { background: var(--ya-yellow); color: #1c2027; border-color: var(--ya-yellow); }
+.letter-content { padding: 20px; min-height: 200px; }
+.letter-frame.letter-paper .letter-content { background: #fdfdfd; color: #222; }
+.letter-frame.letter-dark .letter-content { background: #171b22; color: #cfcfcf; }
+.letter-frame.letter-auto .letter-content { background: transparent; color: inherit; }
+body.dark-mode .letter-frame.letter-paper .letter-content { background: #2a2f3a; color: #e0e0e0; }
+body.dark-mode .letter-frame.letter-dark .letter-content { background: #0d0f14; color: #b0b0b0; }
+
+.app-toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
+.app-toast { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 10px; background: #323846; color: #fff; font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); animation: toast-in 0.3s ease; }
+.app-toast.success { background: #198754; }
+.app-toast.error { background: #dc3545; }
+.app-toast.info { background: #0d6efd; }
+.app-toast i { font-size: 20px; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.navbar .nav-link:hover { background: rgba(255,255,255,0.1); color: #fff !important; }
 </style>
 </head>
 <body>
 <nav class="navbar navbar-dark bg-dark px-3" style="height: 56px;">
-    <a href="{% url 'email_ui:inbox_default' %}" class="navbar-brand">
-        <i class="bi bi-envelope-fill me-2"></i>Почта
-    </a>
+    <div class="d-flex align-items-center gap-1">
+        <a href="{% url 'email_ui:inbox_default' %}" class="navbar-brand me-3">
+            <i class="bi bi-envelope-fill me-2"></i>Почта
+        </a>
+        <a href="/" class="nav-link text-white-50 px-2 py-1 rounded" style="font-size:14px;text-decoration:none;">
+            <i class="bi bi-list-check me-1"></i>Задачи
+        </a>
+        <a href="/contract/dashboard/" class="nav-link text-white-50 px-2 py-1 rounded" style="font-size:14px;text-decoration:none;">
+            <i class="bi bi-file-earmark-text me-1"></i>Контракты
+        </a>
+    </div>
     <div class="d-flex align-items-center gap-3">
         <div class="font-size-control text-white-50" style="font-size:12px;">
             <i class="bi bi-fonts"></i>
@@ -456,6 +488,32 @@ document.getElementById('emailModal').addEventListener('hidden.bs.modal', functi
 document.querySelectorAll('.alert-dismissible').forEach(el => {
     setTimeout(() => { bootstrap.Alert.getOrCreateInstance(el).close(); }, 5000);
 });
+function showToast(message, type) {
+    type = type || 'info';
+    var container = document.getElementById('app-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'app-toast-container';
+        container.className = 'app-toast-container';
+        document.body.appendChild(container);
+    }
+    var toast = document.createElement('div');
+    toast.className = 'app-toast ' + type;
+    var icons = {success:'bi-check-circle-fill', error:'bi-exclamation-triangle-fill', info:'bi-info-circle-fill'};
+    toast.innerHTML = '<i class="bi ' + (icons[type] || icons.info) + '"></i><span>' + message + '</span>';
+    container.appendChild(toast);
+    setTimeout(function(){ toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(function(){ toast.remove(); }, 300); }, 3500);
+}
+
+function setLetterMode(pk, mode, btn) {
+    var frame = document.getElementById('letter-frame-' + pk);
+    if (!frame) return;
+    frame.className = 'letter-frame ' + mode;
+    var parent = btn.parentElement;
+    if (parent) parent.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+}
 </script>
+<div id="app-toast-container" class="app-toast-container"></div>
 </body>
 </html>

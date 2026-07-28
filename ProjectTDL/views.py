@@ -14,7 +14,7 @@ from django_tables2 import RequestConfig
 from AdminUtils import get_standard_display_list
 from ProjectContract.models import Contractor
 from ProjectTDL.Tables import TaskTable, create_filter_qs, data_filter_qs, StaticFilterSettings
-from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm
+from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, SubTaskQuickForm
 from ProjectTDL.models import Task, SubTask
 from ProjectTDL.reports import ReportGenerator
 from StaticData.models import Status
@@ -237,6 +237,42 @@ class SubTaskUpdateView(UpdateView):
 class SubTaskDeleteView(TaskDeleteView):
     model = SubTask
     template_name = 'ProjectTDL/Delete_Form.html'
+
+
+@login_required
+def task_detail(request, pk):
+    """Рабочая карточка задачи: удобнее админки — письма, подзадачи, история в одном месте."""
+    task = get_object_or_404(
+        Task.objects.select_related(
+            'project_site', 'sub_project', 'building_number__name', 'design_chapter',
+            'contractor', 'status', 'category', 'contract', 'owner'
+        ).prefetch_related('subtask_set', 'due_date_history__changed_by'),
+        pk=pk
+    )
+    linked_emails = task.emails.select_related(
+        'project_site', 'contractor'
+    ).prefetch_related('attachments', 'email_tags__tag').order_by('-email_stamp')[:100]
+
+    subtask_form = SubTaskQuickForm(request.POST or None, prefix='subtask')
+    if request.method == 'POST' and 'create_subtask' in request.POST:
+        if subtask_form.is_valid():
+            st = subtask_form.save(commit=False)
+            st.parent = task
+            st.save()
+            messages.success(request, f'Подзадача «{st.name}» добавлена')
+            return redirect('task_detail', pk=pk)
+
+    from StaticData.models import Status as TaskStatus
+    context = {
+        'task': task,
+        'subtasks': task.subtask_set.all().order_by('id'),
+        'linked_emails': linked_emails,
+        'history': task.due_date_history.select_related('changed_by').all(),
+        'subtask_form': subtask_form,
+        'all_statuses': TaskStatus.objects.all().order_by('name'),
+        'subtask_total': sum((s.price or 0) for s in task.subtask_set.all()),
+    }
+    return render(request, 'ProjectTDL/task_detail.html', context)
 
 
 @login_required

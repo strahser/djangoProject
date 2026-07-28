@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+  .td-card{background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:12px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
+  .td-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;background:var(--bg-table-header,#f5f7fb);border:1px solid var(--border,#e2e6ee);font-size:13px;font-weight:600}
+  .td-nav .nav-link{color:var(--text-muted,#7b8494);font-weight:700;border-radius:9px;padding:8px 16px}
+  .td-nav .nav-link.active{background:var(--accent,#ffcc00);color:#1c2027}
+  .td-table td,.td-table th{vertical-align:middle}
+</style>
+<div class="container-fluid py-3" style="max-width:1200px;">
+  <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
+    <li class="breadcrumb-item"><a href="{% url 'custom_task_view' %}">Задачи</a></li>
+    <li class="breadcrumb-item active">{{ task.name|truncatechars:60 }}</li>
+  </ol></nav>
+
+  <div class="td-card p-4 mb-3">
+    <div class="d-flex flex-wrap align-items-start gap-3">
+      <div class="flex-grow-1">
+        <h3 class="mb-1">{{ task.name }}</h3>
+        <div class="d-flex flex-wrap gap-2 mt-2">
+          <span class="td-chip"><i class="bi bi-building"></i>{{ task.project_site.name }}</span>
+          {% if task.sub_project %}<span class="td-chip"><i class="bi bi-diagram-3"></i>{{ task.sub_project.name }}</span>{% endif %}
+          {% if task.building_number %}<span class="td-chip"><i class="bi bi-houses"></i>{{ task.building_number }}</span>{% endif %}
+          {% if task.design_chapter %}<span class="td-chip"><i class="bi bi-file-earmark-text"></i>{{ task.design_chapter.short_name }}</span>{% endif %}
+          {% if task.contractor %}<span class="td-chip"><i class="bi bi-person-badge"></i>{{ task.contractor.name }}</span>{% endif %}
+          {% if task.category %}<span class="td-chip"><i class="bi bi-tag"></i>{{ task.category.name }}</span>{% endif %}
+        </div>
+      </div>
+      <div class="text-end">
+        <div class="fw-bold" style="font-size:26px;letter-spacing:-.02em;">{{ task.price|floatformat:2 }} ₽</div>
+        <small class="text-muted">подзадачи: {{ subtask_total|floatformat:2 }} ₽</small>
+      </div>
+    </div>
+    <hr class="my-3" style="border-color:var(--border,#e2e6ee);">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small text-muted mb-0">Статус</label>
+        <select id="td-status" class="form-select form-select-sm">
+          {% for s in all_statuses %}
+          <option value="{{ s.pk }}" {% if task.status_id == s.pk %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-muted mb-0">Срок завершения</label>
+        <input type="date" id="td-due" class="form-control form-control-sm" value="{{ task.due_date|date:'Y-m-d' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-muted mb-0">Цена</label>
+        <input type="number" step="0.01" id="td-price" class="form-control form-control-sm" value="{{ task.price|default_if_none:'' }}">
+      </div>
+      <div class="col-md-4 text-end">
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:ProjectTDL_task_change' task.pk %}"><i class="bi bi-gear me-1"></i>В админке</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'TaskCloneView' task.pk %}"><i class="bi bi-copy me-1"></i>Клон</a>
+      </div>
+    </div>
+  </div>
+
+  <ul class="nav td-nav gap-1 mb-3">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-subtasks" type="button"><i class="bi bi-list-task me-1"></i>Подзадачи ({{ subtasks|length }})</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-emails" type="button"><i class="bi bi-envelope me-1"></i>Письма ({{ linked_emails|length }})</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-history" type="button"><i class="bi bi-clock-history me-1"></i>История сроков ({{ history|length }})</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-desc" type="button"><i class="bi bi-card-text me-1"></i>Описание</button></li>
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="tab-subtasks">
+      <div class="td-card p-3 mb-3">
+        <form method="post" class="row g-2 align-items-end">
+          {% csrf_token %}
+          <div class="col-md-4">{{ subtask_form.name }}</div>
+          <div class="col-md-3">{{ subtask_form.description }}</div>
+          <div class="col-md-2">{{ subtask_form.price }}</div>
+          <div class="col-md-2">{{ subtask_form.due_date }}</div>
+          <div class="col-md-1"><button name="create_subtask" class="btn btn-primary btn-sm w-100"><i class="bi bi-plus-lg"></i></button></div>
+        </form>
+      </div>
+      <div class="td-card p-0 table-responsive">
+        <table class="table td-table mb-0">
+          <thead><tr><th>#</th><th>Название</th><th>Цена</th><th>Срок</th><th>Обновлена</th><th></th></tr></thead>
+          <tbody>
+            {% for st in subtasks %}
+            <tr>
+              <td class="text-muted">{{ st.pk }}</td>
+              <td><a href="{% url 'SubTaskUpdateView' st.pk %}">{{ st.name|default:"—" }}</a></td>
+              <td>{{ st.price|floatformat:2|default:"—" }}</td>
+              <td>{{ st.due_date|date:"d.m.Y"|default:"—" }}</td>
+              <td class="text-muted small">{{ st.update_stamp|date:"d.m.Y H:i" }}</td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-danger py-0" href="{% url 'SubTaskDeleteView' st.pk %}"><i class="bi bi-x"></i></a></td>
+            </tr>
+            {% empty %}<tr><td colspan="6" class="text-center text-muted py-4">Подзадач пока нет</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-emails">
+      <div class="td-card p-0 table-responsive">
+        <table class="table td-table mb-0">
+          <thead><tr><th>Тема</th><th>Отправитель</th><th>Дата</th><th>Вложения</th><th></th></tr></thead>
+          <tbody>
+            {% for em in linked_emails %}
+            <tr>
+              <td>
+                <a href="{% url 'email_ui:email_detail' em.pk %}?next={{ request.get_full_path|urlencode }}" class="fw-semibold text-decoration-none">
+                  {{ em.subject|default:"Без темы"|truncatechars:80 }}
+                </a>
+                {% if em.is_important %}<i class="bi bi-star-fill text-warning ms-1" style="font-size:12px;"></i>{% endif %}
+              </td>
+              <td>{{ em.sender_name|default:em.sender|truncatechars:30 }}</td>
+              <td class="text-muted text-nowrap">{{ em.email_stamp|date:"d.m.Y" }}</td>
+              <td>{% if em.attachments.all %}<span class="td-chip"><i class="bi bi-paperclip"></i>{{ em.attachments.all|length }}</span>{% else %}—{% endif %}</td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-primary py-0" href="{% url 'email_ui:email_detail' em.pk %}?next={{ request.get_full_path|urlencode }}">Открыть</a></td>
+            </tr>
+            {% empty %}<tr><td colspan="5" class="text-center text-muted py-4">Писем не привязано. Привяжите из карточки письма (кнопка «+» в блоке «Задачи»).</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-history">
+      <div class="td-card p-3">
+        {% for h in history %}
+        <div class="d-flex align-items-center gap-3 py-2 {% if not forloop.last %}border-bottom{% endif %}" style="border-color:var(--border-light,#edf0f6)!important;">
+          <i class="bi bi-arrow-repeat text-primary"></i>
+          <div class="flex-grow-1">
+            <b>{{ h.old_due_date|date:"d.m.Y"|default:"—" }}</b> → <b>{{ h.new_due_date|date:"d.m.Y"|default:"—" }}</b>
+            <small class="text-muted ms-2">{{ h.change_date|date:"d.m.Y H:i" }} · {{ h.changed_by.username|default:"система" }}</small>
+          </div>
+        </div>
+        {% empty %}<p class="text-muted mb-0">Сроки не менялись</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-desc">
+      <div class="td-card p-4">{{ task.description|safe|default:"<span class='text-muted'>Нет описания</span>" }}</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function tdCookie(name){
+  var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+  return v ? v[2] : null;
+}
+function tdSave(field, value){
+  fetch('{% url "update_task_field" %}', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':tdCookie('csrftoken')},
+    body:'task_id={{ task.pk }}&field=' + field + '&value=' + encodeURIComponent(value)
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d.status === 'ok'){ showToast('Сохранено: ' + field, 'success'); }
+    else { showToast('Ошибка: ' + (d.message || ''), 'error'); }
+  });
+}
+document.getElementById('td-status').addEventListener('change', function(){ tdSave('status', this.value); });
+document.getElementById('td-due').addEventListener('change', function(){ tdSave('due_date', this.value); });
+document.getElementById('td-price').addEventListener('change', function(){ tdSave('price', this.value); });
+</script>
+{% endblock %}

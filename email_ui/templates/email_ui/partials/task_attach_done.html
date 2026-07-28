@@ -1,0 +1,21 @@
+<div class="p-5 text-center">
+  {% if ok %}
+  <i class="bi bi-check-circle-fill text-success" style="font-size:46px;"></i>
+  {% else %}
+  <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size:46px;"></i>
+  {% endif %}
+  <p class="mt-3 mb-0 fw-semibold">{{ message }}</p>
+</div>
+<script>
+(function(){
+  showToast("{{ message|escapejs }}", "{{ ok|yesno:'success,error' }}");
+  setTimeout(function(){
+    var inst = bootstrap.Modal.getInstance(document.getElementById('taskModal'));
+    if(inst) inst.hide();
+    var body = document.getElementById('email-tasks-body-{{ email.pk }}');
+    if(body){
+      htmx.ajax('GET', '{% url "email_ui:email_tasks_partial" email.pk %}', {target: body, swap: 'innerHTML'});
+    }
+  }, 900);
+})();
+</script>

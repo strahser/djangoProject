@@ -91,7 +91,7 @@
                     <span><i class="bi bi-list-task me-1"></i>Задачи ({{ email.tasks.count|default:"0" }})</span>
                     <i class="bi bi-chevron-down"></i>
                 </div>
-                <div class="section-body">
+                <div class="section-body" id="email-tasks-body-{{ email.pk }}">
                     {% for task in email.tasks.all %}
                     <span class="badge bg-info mb-1 me-1">{{ task.name }}
                         <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white ms-1">&times;</a>

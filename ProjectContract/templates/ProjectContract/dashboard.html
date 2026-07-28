@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+  .cd-num{font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1}
+  .cd-stat{background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:12px;padding:16px 20px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
+  .cd-bar{height:9px;border-radius:6px;background:var(--bg-table-header,#f0f2f6);overflow:hidden}
+  .cd-bar>div{height:100%;background:linear-gradient(90deg,#35c26e,#2ba55f);border-radius:6px;transition:width .5s ease}
+  .cd-row{transition:background .12s}
+  .cd-row:hover{background:var(--bg-row-hover,#fff6d8)}
+  .pay-chip{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border,#e2e6ee);border-radius:10px;background:var(--bg-table-header,#f8f9fb);transition:.15s}
+  .pay-chip.paid{border-color:#b7e4c7;background:#effaf3}
+  body.dark-mode .pay-chip.paid{background:#1d3226;border-color:#2c5c3f}
+</style>
+<div class="container-fluid py-3" style="max-width:1250px;">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <h3 class="mb-0">Договоры и оплаты</h3>
+    <a href="{% url 'export_contracts_excel' %}?{{ request.GET.urlencode }}" class="btn btn-sm btn-outline-success ms-auto"><i class="bi bi-file-earmark-excel me-1"></i>Excel</a>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-4"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase">Сумма договоров</div><div class="cd-num mt-1">{{ totals.price|floatformat:0 }} ₽</div></div></div>
+    <div class="col-md-4"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase" style="color:#2ba55f!important;">Оплачено</div><div class="cd-num mt-1" style="color:#2ba55f;">{{ totals.paid|floatformat:0 }} ₽</div></div></div>
+    <div class="col-md-4"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase" style="color:#e5484d!important;">Не оплачено</div><div class="cd-num mt-1" style="color:#e5484d;">{{ totals.unpaid|floatformat:0 }} ₽</div></div></div>
+  </div>
+
+  <form method="get" class="row g-2 mb-3">
+    <div class="col-md-4"><input type="text" name="q" value="{{ sel.q }}" class="form-control form-control-sm" placeholder="Поиск по названию…"></div>
+    <div class="col-md-3"><select name="project" class="form-select form-select-sm"><option value="">Все проекты</option>{% for p in projects %}<option value="{{ p.pk }}" {% if sel.project == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><select name="contractor" class="form-select form-select-sm"><option value="">Все подрядчики</option>{% for c in contractors %}<option value="{{ c.pk }}" {% if sel.contractor == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><button class="btn btn-primary btn-sm w-100"><i class="bi bi-funnel me-1"></i>Фильтр</button></div>
+  </form>
+
+  <div class="table-responsive" style="background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:12px;">
+    <table class="table align-middle mb-0">
+      <thead><tr>
+        <th>Договор</th><th>Подрядчик</th><th style="width:130px;" class="text-end">Цена</th>
+        <th style="width:220px;">Оплачено</th><th style="width:120px;" class="text-end">Остаток</th><th style="width:40px;"></th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="cd-row">
+          <td>
+            <a class="fw-bold text-decoration-none" data-bs-toggle="collapse" href="#pays-{{ r.contract.pk }}" role="button">
+              {{ r.contract.name|default:"Без названия" }}
+            </a>
+            <div class="text-muted small">{{ r.contract.project_site.name }}{% if r.contract.sub_project %} · {{ r.contract.sub_project.name }}{% endif %}</div>
+          </td>
+          <td>{{ r.contract.contractor.name|default:"—" }}</td>
+          <td class="text-end fw-bold">{{ r.contract.price|floatformat:0 }}</td>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <div class="cd-bar flex-grow-1"><div id="bar-{{ r.contract.pk }}" style="width:{{ r.pct }}%;"></div></div>
+              <small class="fw-bold text-nowrap" id="paid-{{ r.contract.pk }}">{{ r.paid|floatformat:0 }} ₽ · {{ r.pct }}%</small>
+            </div>
+          </td>
+          <td class="text-end {% if r.rest != 0 %}fw-bold{% endif %}" style="{% if r.rest != 0 %}color:#e5484d;{% endif %}">{{ r.rest|floatformat:0 }}</td>
+          <td><a class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="collapse" href="#pays-{{ r.contract.pk }}"><i class="bi bi-chevron-down"></i></a></td>
+        </tr>
+        <tr class="collapse" id="pays-{{ r.contract.pk }}">
+          <td colspan="6" class="py-3" style="background:var(--bg-table-header,#f8f9fb);">
+            <div class="d-flex flex-wrap gap-2">
+              {% for p in r.pays %}
+              <div class="pay-chip {% if p.made_payment %}paid{% endif %}" id="chip-{{ p.pk }}">
+                <input type="checkbox" class="form-check-input pay-toggle m-0" data-id="{{ p.pk }}" data-price="{{ p.price|default:0 }}" data-contract="{{ r.contract.pk }}" {% if p.made_payment %}checked{% endif %}>
+                <div>
+                  <div class="fw-semibold" style="font-size:13.5px;">{{ p.name|default:p.get_payment_type_display }}</div>
+                  <div class="text-muted" style="font-size:12px;">{{ p.price|floatformat:0 }} ₽ · {{ p.due_date|date:"d.m.Y"|default:"без срока" }}</div>
+                </div>
+              </div>
+              {% empty %}<span class="text-muted">Платежи не заведены</span>{% endfor %}
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-5">Договоры не найдены</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function cdCookie(name){ var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)'); return v ? v[2] : null; }
+document.querySelectorAll('.pay-toggle').forEach(function(cb){
+  cb.addEventListener('change', function(){
+    var id = cb.dataset.id, price = parseFloat(cb.dataset.price || 0), cid = cb.dataset.contract;
+    fetch('/contract/payment/' + id + '/toggle/', {
+      method:'POST', headers:{'X-CSRFToken': cdCookie('csrftoken')}
+    }).then(function(r){ return r.json(); }).then(function(d){
+      document.getElementById('chip-' + id).classList.toggle('paid', d.made);
+      showToast(d.made ? 'Платёж отмечен оплаченным' : 'Оплата снята', d.made ? 'success' : 'info');
+    }).catch(function(){ cb.checked = !cb.checked; });
+  });
+});
+</script>
+{% endblock %}

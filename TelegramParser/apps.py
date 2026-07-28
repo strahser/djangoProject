@@ -1,3 +1,4 @@
+import os
 from django.apps import AppConfig
 
 
@@ -7,5 +8,6 @@ class TelegramparserConfig(AppConfig):
     verbose_name = 'Telegram Парсер'
 
     def ready(self):
-        from . import scheduled
-        scheduled.start_telegram_scheduler()
+        if os.environ.get('RUN_MAIN') == 'true' or not os.environ.get('DJANGO_AUTORELOAD'):
+            from . import scheduled
+            scheduled.start_telegram_scheduler()

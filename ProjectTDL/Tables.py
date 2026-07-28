@@ -219,13 +219,15 @@ class TaskTable(tables.Table):
         clone_url = reverse("TaskCloneView", args=[record.pk])
         add_email_url = reverse('select_email', args=[record.pk])
         delete_url = reverse("admin:ProjectTDL_task_delete", args=[record.pk])
+        workspace_url = reverse("task_detail", args=[record.pk])
         return mark_safe(f'''
-                    <div class="btn-group" role="group" aria-label="Basic example">
-                        <a href="{clone_url}" class="btn btn-primary btn-success">📄</a>
-                         <a href="{add_email_url}" class="btn btn-primary btn-info">✉️</a>
-                         <a href="{delete_url}" class="btn btn-danger">🗑️</a>
-                    </div>
-                        ''')
+        <div class="btn-group" role="group" aria-label="Действия">
+        <a href="{workspace_url}" class="btn btn-primary" title="Карточка задачи">🗂</a>
+        <a href="{clone_url}" class="btn btn-primary btn-success" title="Клонировать">📄</a>
+        <a href="{add_email_url}" class="btn btn-primary btn-info" title="Прикрепить письма">✉️</a>
+        <a href="{delete_url}" class="btn btn-danger" title="Удалить">🗑️</a>
+        </div>
+        ''')
     def render_contractor(self, record):
         contractors = Contractor.objects.all()
         select_html = f'<select class="contractor-select" data-task-id="{record.pk}" data-field="contractor" data-order="{record.contractor.name if record.contractor else ""}">'

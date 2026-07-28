@@ -1,5 +1,5 @@
+import os
 from django.apps import AppConfig
-from . import scheduled
 
 
 class ProjecttdlConfig(AppConfig):
@@ -8,4 +8,6 @@ class ProjecttdlConfig(AppConfig):
 	verbose_name = 'Проекты СИМРУС'
 
 	def ready(self):
-		scheduled.start_task()
+		if os.environ.get('RUN_MAIN') == 'true' or not os.environ.get('DJANGO_AUTORELOAD'):
+			from . import scheduled
+			scheduled.start_task()

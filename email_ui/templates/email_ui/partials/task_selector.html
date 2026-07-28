@@ -1,25 +1,134 @@
 <div class="modal-header">
-    <h5 class="modal-title">Прикрепить к задачам</h5>
-    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+  <h5 class="modal-title text-truncate me-3">
+    <i class="bi bi-link-45deg me-1"></i>Прикрепить к задачам
+    <small class="text-muted fw-normal d-block" style="font-size:12.5px;">{{ email.subject|default:"Без темы"|truncatechars:80 }}</small>
+  </h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
 </div>
-<div class="modal-body">
-    <form method="get" hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}" hx-target="#task-modal-container" hx-trigger="submit">
-        {{ search_form.q }}
-        <button type="submit" class="btn btn-sm btn-primary mt-2">Найти</button>
-    </form>
-    <form hx-post="{% url 'email_ui:attach_tasks' email.pk %}" hx-target="body" hx-swap="none">
-        <div class="list-group mt-3">
-            {% for task in tasks %}
-            <label class="list-group-item">
-                <input type="checkbox" name="tasks" value="{{ task.pk }}"> {{ task.name }}
-            </label>
-            {% empty %}
-            <p>Нет задач</p>
-            {% endfor %}
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
-            <button type="submit" class="btn btn-primary">Прикрепить</button>
-        </div>
-    </form>
+
+<div class="modal-body p-0">
+  <form method="get" hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}"
+        hx-target="#task-modal-container" hx-swap="innerHTML" hx-push-url="false"
+        class="p-3 border-bottom" style="border-color:var(--border)!important;background:var(--bg-table-header);">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small text-muted mb-0">Поиск</label>
+        <input type="text" name="q" value="{{ sel.q }}" class="form-control form-control-sm" placeholder="Название, проект, ответственный…">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-muted mb-0">Проект</label>
+        <select name="project" class="form-select form-select-sm">
+          <option value="">Все</option>
+          {% for p in projects %}<option value="{{ p.pk }}" {% if sel.project == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-muted mb-0">Статус</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Все</option>
+          {% for s in statuses %}<option value="{{ s.pk }}" {% if sel.status == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-muted mb-0">Срок с</label>
+        <input type="date" name="date_from" value="{{ sel.date_from }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-muted mb-0">Срок по</label>
+        <input type="date" name="date_to" value="{{ sel.date_to }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-1">
+        <button type="submit" class="btn btn-sm btn-primary w-100"><i class="bi bi-funnel"></i></button>
+      </div>
+    </div>
+  </form>
+
+  <form hx-post="{% url 'email_ui:attach_tasks' email.pk %}"
+        hx-target="#task-modal-container" hx-swap="innerHTML" id="attach-tasks-form">
+    <div style="max-height:55vh;overflow-y:auto;">
+      <table class="task-pick-table">
+        <thead class="sticky-top" style="background:var(--bg-table-header);">
+          <tr>
+            <th style="width:36px;"><input type="checkbox" id="task-select-all"></th>
+            <th>Задача</th><th>Проект</th><th>Ответственный</th><th>Статус</th>
+            <th style="width:110px;">Срок</th><th style="width:100px;" class="text-end">Цена</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for task in tasks %}
+          {% with attached=task.pk in attached_ids %}
+          <tr class="task-pick-row {% if task.pk in attached_ids %}already{% endif %}"
+              onclick="{% if task.pk not in attached_ids %}toggleTaskRow(this){% endif %}">
+            <td onclick="event.stopPropagation()">
+              {% if task.pk in attached_ids %}
+                <i class="bi bi-check-circle-fill text-success ms-1" title="Уже привязана"></i>
+              {% else %}
+                <input type="checkbox" name="tasks" value="{{ task.pk }}" class="task-cb form-check-input ms-1">
+              {% endif %}
+            </td>
+            <td>
+              <div class="fw-semibold">{{ task.name|truncatechars:70 }}</div>
+              {% if task.sub_project %}<small class="text-muted">{{ task.sub_project.name }}</small>{% endif %}
+            </td>
+            <td>{{ task.project_site.name|default:"—" }}</td>
+            <td>{{ task.contractor.name|default:"—" }}</td>
+            <td><span class="status-pill">{{ task.status.name|default:"—" }}</span></td>
+            <td class="{% if task.due_date and task.due_date < today %}overdue{% endif %}">
+              {{ task.due_date|date:"d.m.Y"|default:"—" }}
+            </td>
+            <td class="text-end">{{ task.price|floatformat:0|default:"—" }}</td>
+          </tr>
+          {% endwith %}
+          {% empty %}
+          <tr><td colspan="7" class="text-center text-muted py-5">Ничего не найдено. Измените фильтры.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <span class="text-muted small me-auto">Выбрано: <b id="task-pick-count">0</b></span>
+      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Закрыть</button>
+      <button type="submit" class="btn btn-primary" id="task-attach-submit" disabled>
+        <i class="bi bi-link-45deg me-1"></i>Прикрепить
+      </button>
+    </div>
+  </form>
 </div>
+
+<script>
+(function(){
+  var dlg = document.querySelector('#taskModal .modal-dialog');
+  if(dlg){ dlg.classList.add('modal-xl','modal-dialog-scrollable'); }
+  var modalEl = document.getElementById('taskModal');
+  modalEl.addEventListener('hidden.bs.modal', function(){
+    if(dlg) dlg.classList.remove('modal-xl','modal-dialog-scrollable');
+  }, {once:true});
+
+  window.toggleTaskRow = function(row){
+    var cb = row.querySelector('.task-cb');
+    cb.checked = !cb.checked;
+    row.classList.toggle('picked', cb.checked);
+    refreshCount();
+  };
+  function refreshCount(){
+    var n = document.querySelectorAll('#attach-tasks-form .task-cb:checked').length;
+    document.getElementById('task-pick-count').textContent = n;
+    document.getElementById('task-attach-submit').disabled = (n === 0);
+  }
+  var sa = document.getElementById('task-select-all');
+  if(sa) sa.addEventListener('change', function(){
+    document.querySelectorAll('#attach-tasks-form .task-cb').forEach(function(cb){
+      cb.checked = sa.checked;
+      cb.closest('tr').classList.toggle('picked', sa.checked);
+    });
+    refreshCount();
+  });
+  document.querySelectorAll('#attach-tasks-form .task-cb').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      cb.closest('tr').classList.toggle('picked', cb.checked);
+      refreshCount();
+    });
+  });
+  refreshCount();
+})();
+</script>

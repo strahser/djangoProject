@@ -140,3 +140,48 @@ class SubTask(models.Model):
     class Meta:
         verbose_name = 'Подзадача'
         verbose_name_plural = 'Подзадачи'
+
+
+from mptt.models import MPTTModel, TreeForeignKey
+
+
+class TaskNode(MPTTModel):
+    """Единая рекурсивная модель: задача и подзадача в одной таблице."""
+    NODE_TYPES = [('task', 'Задача'), ('subtask', 'Подзадача')]
+
+    owner = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='task_nodes', verbose_name='Владелец')
+    parent = TreeForeignKey('self', null=True, blank=True, related_name='children',
+                            on_delete=models.CASCADE, verbose_name='Родитель')
+    node_type = models.CharField(max_length=10, choices=NODE_TYPES, default='task', verbose_name='Тип')
+    project_site = models.ForeignKey('StaticData.ProjectSite', on_delete=models.CASCADE, verbose_name='Проект')
+    sub_project = models.ForeignKey('StaticData.SubProject', on_delete=models.DO_NOTHING, verbose_name='Подпроект')
+    building_number = models.ForeignKey('StaticData.BuildingNumber', null=True, blank=True, on_delete=models.CASCADE, verbose_name='Здание')
+    design_chapter = models.ForeignKey('StaticData.DesignChapter', null=True, blank=True, on_delete=models.CASCADE, verbose_name='Раздел')
+    contractor = models.ForeignKey('ProjectContract.Contractor', null=True, blank=True, on_delete=models.CASCADE, verbose_name='Ответственный')
+    status = models.ForeignKey('StaticData.Status', on_delete=models.DO_NOTHING, default=1, null=True, blank=True, verbose_name='Статус')
+    category = models.ForeignKey('StaticData.Category', on_delete=models.SET_NULL, null=True, blank=True, default=1, verbose_name='Категория')
+    contract = models.ForeignKey('ProjectContract.Contract', on_delete=models.SET_NULL, null=True, blank=True, verbose_name='Договор')
+    name = models.CharField(max_length=150, verbose_name='Наименование')
+    description = HTMLField(null=True, blank=True, verbose_name='Описание')
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0, null=True, blank=True, verbose_name='Цена')
+    due_date = models.DateField(null=True, blank=True, verbose_name='Завершение')
+    emails = models.ManyToManyField('Emails.Email', blank=True, related_name='task_nodes', verbose_name='Письма')
+    creation_stamp = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания')
+    update_stamp = models.DateTimeField(auto_now=True, verbose_name='Дата изменения')
+
+    class MPTTMeta:
+        order_insertion_by = ['name']
+
+    class Meta:
+        verbose_name = 'Задача (дерево)'
+        verbose_name_plural = 'Задачи (дерево)'
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def subtree_price(self):
+        """Сумма цен всех потомков — один запрос по MPTT-границам."""
+        from django.db.models import Sum
+        agg = self.get_descendants().aggregate(total=Sum('price'))
+        return agg['total'] or 0

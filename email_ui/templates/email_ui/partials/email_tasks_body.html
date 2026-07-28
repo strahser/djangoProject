@@ -1,0 +1,10 @@
+{% for task in email.tasks.all %}
+<span class="badge bg-info mb-1 me-1">{{ task.name }}
+  <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white ms-1">&times;</a>
+</span>
+{% empty %}<span class="text-muted">Нет привязанных задач</span>
+{% endfor %}
+<button class="btn btn-outline-primary btn-sm ms-2"
+        hx-get="{% url 'email_ui:attach_to_tasks_modal' email.pk %}"
+        hx-target="#task-modal-container"
+        data-bs-toggle="modal" data-bs-target="#taskModal">+</button>

@@ -23,7 +23,7 @@ from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
 from Emails.ЕmailParser.ParsingImapEmailToDB import ParsingImapEmailToDB
 from ProjectContract.models import Contractor
 from ProjectTDL.models import Task
-from StaticData.models import BuildingType, Category, ProjectSite
+from StaticData.models import BuildingType, Category, ProjectSite, Status
 
 from .forms import (
     ComposeEmailForm, ComposeReplyForm, ContactEmailForm, ContactForm,
@@ -317,18 +317,31 @@ def mark_email_as_read(request, pk):
 
 @login_required
 def email_body(request, pk):
-    """Возвращает очищенное HTML-содержимое письма из файла."""
+    """Возвращает очищенный HTML письма в «бумажной» карточке с переключателем режимов."""
     email = get_object_or_404(Email, pk=pk)
     html_path = email.get_html_file_path()
+
+    def _frame(inner: str) -> str:
+        return (
+            f'<div class="letter-frame letter-paper" id="letter-frame-{pk}">'
+            f'<div class="letter-toolbar">'
+            f'<span class="letter-toolbar-label"><i class="bi bi-card-text me-1"></i>Отображение письма</span>'
+            f'<div class="letter-mode-switch" role="group">'
+            f'<button type="button" class="active" data-mode="letter-paper" onclick="setLetterMode({pk},\'letter-paper\',this)">Светлое</button>'
+            f'<button type="button" data-mode="letter-dark" onclick="setLetterMode({pk},\'letter-dark\',this)">Тёмное</button>'
+            f'<button type="button" data-mode="letter-auto" onclick="setLetterMode({pk},\'letter-auto\',this)">Оригинал</button>'
+            f'</div></div>'
+            f'<div class="letter-content">{inner}</div></div>'
+        )
+
     if not html_path or not os.path.exists(html_path):
-        return HttpResponse('<p>Файл письма не найден</p>')
+        return HttpResponse(_frame('<p class="text-muted">Файл письма не найден</p>'))
     try:
         with open(html_path, 'r', encoding='utf-8') as f:
             raw_html = f.read()
-        cleaned = clean_email_html(raw_html)
-        return HttpResponse(cleaned)
+        return HttpResponse(_frame(clean_email_html(raw_html)))
     except Exception as e:
-        return HttpResponse(f'<p>Ошибка загрузки: {e}</p>')
+        return HttpResponse(_frame(f'<p>Ошибка загрузки: {e}</p>'))
 
 
 @login_required
@@ -447,41 +460,81 @@ def move_to_folder(request, pk):
 
 @login_required
 def attach_to_tasks_modal(request, pk):
-    """Модальное окно для привязки к задачам."""
+    """Большое модальное окно выбора задач: поиск + фильтры как в админке."""
     email = get_object_or_404(Email, pk=pk)
-    form = TaskSearchForm(request.GET or None)
-    tasks = Task.objects.all()
-    if form.is_valid() and form.cleaned_data.get('q'):
-        tasks = tasks.filter(name__icontains=form.cleaned_data['q'])
+    q = (request.GET.get('q') or '').strip()
+    project = request.GET.get('project') or ''
+    status = request.GET.get('status') or ''
+    date_from = request.GET.get('date_from') or ''
+    date_to = request.GET.get('date_to') or ''
+
+    tasks = Task.objects.select_related(
+        'project_site', 'sub_project', 'status', 'contractor'
+    ).order_by('-due_date')
+    if q:
+        tasks = tasks.filter(
+            Q(name__icontains=q) | Q(project_site__name__icontains=q) |
+            Q(contractor__name__icontains=q)
+        )
+    if project:
+        tasks = tasks.filter(project_site_id=project)
+    if status:
+        tasks = tasks.filter(status_id=status)
+    if date_from:
+        tasks = tasks.filter(due_date__gte=date_from)
+    if date_to:
+        tasks = tasks.filter(due_date__lte=date_to)
+
     context = {
         'email': email,
-        'tasks': tasks[:20],
-        'search_form': form,
+        'tasks': tasks[:100],
+        'projects': ProjectSite.objects.all().order_by('name'),
+        'statuses': Status.objects.all().order_by('name'),
+        'attached_ids': set(email.tasks.values_list('id', flat=True)),
+        'sel': {'q': q, 'project': project, 'status': status,
+                'date_from': date_from, 'date_to': date_to},
     }
     return render(request, 'email_ui/partials/task_selector.html', context)
 
 
 @login_required
+def email_tasks_partial(request, pk):
+    """Обновляемый блок привязанных задач письма."""
+    email = get_object_or_404(Email.objects.prefetch_related('tasks'), pk=pk)
+    return render(request, 'email_ui/partials/email_tasks_body.html', {'email': email})
+
+
+@login_required
 @require_http_methods(['POST'])
 def attach_tasks(request, pk):
-    """Привязка выбранных задач к письму."""
+    """Привязка задач: тост + автозакрытие модалки + обновление блока без перезагрузки."""
     email = get_object_or_404(Email, pk=pk)
     task_ids = sanitize_id_list(request.POST.getlist('tasks'))
-    if task_ids:
-        tasks = Task.objects.filter(id__in=task_ids)
+    tasks = Task.objects.filter(id__in=task_ids) if task_ids else Task.objects.none()
+    if tasks:
         email.tasks.add(*tasks)
-        messages.success(request, f'Письмо привязано к {len(tasks)} задачам')
-    return HttpResponse(status=204)
+        names = ', '.join(t.name[:40] for t in tasks[:3])
+        msg = f'Письмо привязано к задачам ({len(tasks)}): {names}'
+        messages.success(request, msg)
+        ok = True
+    else:
+        msg = 'Не выбрано ни одной задачи'
+        messages.warning(request, msg)
+        ok = False
+    return render(request, 'email_ui/partials/task_attach_done.html',
+                  {'email': email, 'message': msg, 'ok': ok})
 
 
 @login_required
 @require_http_methods(['POST'])
 def detach_task(request, pk, task_id):
-    """Отвязка задачи от письма."""
+    """Отвязка задачи: бейдж удаляется, показывается тост."""
     email = get_object_or_404(Email, pk=pk)
     task = get_object_or_404(Task, pk=task_id)
     email.tasks.remove(task)
-    return HttpResponse(status=204)
+    return HttpResponse(
+        f'<script>showToast("Задача «{task.name[:40]}» отвязана от письма","info")</script>'
+    )
 
 
 @login_required

@@ -72,6 +72,7 @@ urlpatterns = [
     path('email/<int:pk>/attach-to-tasks-modal/', views.attach_to_tasks_modal, name='attach_to_tasks_modal'),
     path('email/<int:pk>/attach-tasks/', views.attach_tasks, name='attach_tasks'),
     path('email/<int:pk>/detach-task/<int:task_id>/', views.detach_task, name='detach_task'),
+    path('email/<int:pk>/tasks-partial/', views.email_tasks_partial, name='email_tasks_partial'),
 
     # --- Phase 6: Export ---
     path('export-modal/', views.export_modal, name='export_modal'),
