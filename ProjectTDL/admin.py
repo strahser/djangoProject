@@ -116,6 +116,37 @@ class TaskAdmin(ImportExportModelAdmin):
     list_footer = True
     change_list_template = 'jazzmin/admin/change_list.html'
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        email_id = request.POST.get('_email_id') or request.GET.get('_email_id')
+        if email_id and not change:
+            try:
+                from Emails.models import Email
+                from email_ui.models import EmailTaskLink
+                email = Email.objects.get(pk=email_id)
+                EmailTaskLink.objects.create(
+                    email=email, task=obj,
+                    link_type='created_from', created_by=request.user,
+                )
+            except Exception:
+                pass
+
+    def response_add(self, request, obj, post_url_continue=None):
+        next_url = request.POST.get('_next')
+        if next_url:
+            from django.http import HttpResponseRedirect
+            return HttpResponseRedirect(next_url)
+        return super().response_add(request, obj, post_url_continue)
+
+    def render_change_form(self, request, context, *args, **kwargs):
+        next_url = request.GET.get('_next')
+        email_id = request.GET.get('email_id')
+        if next_url:
+            context['next_url'] = next_url
+        if email_id:
+            context['email_id'] = email_id
+        return super().render_change_form(request, context, *args, **kwargs)
+
     def add_emails_button(self, obj):
         url = reverse('select_email', args=[obj.pk])
         return format_html(f'<a href="{url}" class="button">✉️</a>')

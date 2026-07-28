@@ -107,11 +107,9 @@
         <div class="d-flex align-items-center justify-content-between p-3 border-top">
           <span class="text-muted small">Выбрано: <b id="task-pick-count">0</b></span>
           <div>
-            <button type="button" class="btn btn-outline-success btn-sm me-2"
-                    hx-get="{% url 'email_ui:create_task_from_email' email.pk %}?next={{ request.GET.next|default:''|urlencode }}"
-                    hx-target="#create-task-modal" hx-swap="innerHTML">
+            <a href="{% url 'admin:ProjectTDL_task_add' %}?_next={{ request.GET.next|default:''|urlencode }}&amp;email_id={{ email.pk }}" class="btn btn-outline-success btn-sm me-2">
               <i class="bi bi-plus-circle me-1"></i>Создать задачу
-            </button>
+            </a>
             <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ request.GET.next|default:'/'|urlencode }}" class="btn btn-outline-secondary btn-sm me-2">Отмена</a>
             <button type="submit" class="btn btn-primary" id="task-attach-submit" disabled>
               <i class="bi bi-link-45deg me-1"></i>Прикрепить выбранные
@@ -122,8 +120,6 @@
     </div>
   </div>
 </div>
-
-<div class="modal fade" id="create-task-modal" tabindex="-1"></div>
 
 <style>
 .sort-icon { font-size:10px; opacity:0.4; margin-left:2px; }
@@ -167,14 +163,6 @@ th[data-sort]:hover .sort-icon { opacity:0.8; }
     });
   });
   refreshCount();
-
-  // Show create-task modal after HTMX loads content
-  document.body.addEventListener('htmx:afterSwap', function(evt){
-    if (evt.detail.target && evt.detail.target.id === 'create-task-modal') {
-      var modal = new bootstrap.Modal(document.getElementById('create-task-modal'));
-      modal.show();
-    }
-  });
 
   // Client-side table sorting
   var table = document.getElementById('task-pick-table');
