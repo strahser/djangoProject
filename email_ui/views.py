@@ -552,6 +552,7 @@ def attach_tasks_page(request, pk):
         'contractors': Contractor.objects.all().order_by('name'),
         'statuses': Status.objects.all().order_by('name'),
         'attached_ids': set(email.tasks.values_list('id', flat=True)),
+        'today': timezone.localdate(),
         'sel': {'q': q, 'project': project, 'contractor': contractor,
                 'status': status, 'date_from': date_from, 'date_to': date_to},
     }

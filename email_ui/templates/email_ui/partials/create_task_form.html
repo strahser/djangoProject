@@ -4,7 +4,7 @@
             <h5 class="modal-title">Создать задачу из письма</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
-        <form method="post">
+        <form method="post" action="{% url 'email_ui:create_task_from_email' email.pk %}">
             {% csrf_token %}
             <input type="hidden" name="next" value="{{ request.GET.next|default:'' }}">
             <div class="modal-body">

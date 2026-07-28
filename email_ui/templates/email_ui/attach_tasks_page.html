@@ -61,12 +61,17 @@
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ request.GET.next|default:'' }}">
         <div style="max-height:65vh;overflow-y:auto;">
-          <table class="task-pick-table">
+          <table class="task-pick-table" id="task-pick-table">
             <thead class="sticky-top" style="background:var(--bg-table-header);">
               <tr>
                 <th style="width:36px;"><input type="checkbox" id="task-select-all"></th>
-                <th>Задача</th><th>Проект</th><th>Ответственный</th><th>Статус</th>
-                <th style="width:110px;">Срок</th><th style="width:100px;" class="text-end">Цена</th>
+                <th data-sort="string">Задача <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th data-sort="string">Проект <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th data-sort="string">Ответственный <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th data-sort="string">Статус <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th style="width:110px;" data-sort="date">Срок <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th style="width:90px;" data-sort="number">Цена <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                <th style="width:120px;" data-sort="date">Создана <i class="bi bi-arrow-down-up sort-icon"></i></th>
               </tr>
             </thead>
             <tbody>
@@ -91,9 +96,10 @@
                   {{ task.due_date|date:"d.m.Y"|default:"—" }}
                 </td>
                 <td class="text-end">{{ task.price|floatformat:0|default:"—" }}</td>
+                <td class="text-nowrap">{{ task.creation_stamp|date:"d.m.Y H:i"|default:"—" }}</td>
               </tr>
               {% empty %}
-              <tr><td colspan="7" class="text-center text-muted py-5">Ничего не найдено. Измените фильтры.</td></tr>
+              <tr><td colspan="8" class="text-center text-muted py-5">Ничего не найдено. Измените фильтры.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -101,6 +107,11 @@
         <div class="d-flex align-items-center justify-content-between p-3 border-top">
           <span class="text-muted small">Выбрано: <b id="task-pick-count">0</b></span>
           <div>
+            <button type="button" class="btn btn-outline-success btn-sm me-2"
+                    hx-get="{% url 'email_ui:create_task_from_email' email.pk %}?next={{ request.GET.next|default:''|urlencode }}"
+                    hx-target="#create-task-modal" hx-swap="innerHTML">
+              <i class="bi bi-plus-circle me-1"></i>Создать задачу
+            </button>
             <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ request.GET.next|default:'/'|urlencode }}" class="btn btn-outline-secondary btn-sm me-2">Отмена</a>
             <button type="submit" class="btn btn-primary" id="task-attach-submit" disabled>
               <i class="bi bi-link-45deg me-1"></i>Прикрепить выбранные
@@ -111,6 +122,17 @@
     </div>
   </div>
 </div>
+
+<div class="modal fade" id="create-task-modal" tabindex="-1"></div>
+
+<style>
+.sort-icon { font-size:10px; opacity:0.4; margin-left:2px; }
+th.sort-active .sort-icon { opacity:1; color:var(--ya-yellow); }
+th.sort-active.sort-asc .sort-icon { transform:rotate(0deg); }
+th.sort-active.sort-desc .sort-icon { transform:rotate(180deg); display:inline-block; }
+th[data-sort] { cursor:pointer; user-select:none; white-space:nowrap; }
+th[data-sort]:hover .sort-icon { opacity:0.8; }
+</style>
 
 <script>
 (function(){
@@ -145,6 +167,49 @@
     });
   });
   refreshCount();
+
+  // Show create-task modal after HTMX loads content
+  document.body.addEventListener('htmx:afterSwap', function(evt){
+    if (evt.detail.target && evt.detail.target.id === 'create-task-modal') {
+      var modal = new bootstrap.Modal(document.getElementById('create-task-modal'));
+      modal.show();
+    }
+  });
+
+  // Client-side table sorting
+  var table = document.getElementById('task-pick-table');
+  if (table) {
+    table.querySelectorAll('thead th[data-sort]').forEach(function(th){
+      th.addEventListener('click', function(){
+        var tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        var colIdx = Array.from(th.parentNode.children).indexOf(th);
+        var sortType = th.getAttribute('data-sort');
+        var isAsc = th.classList.contains('sort-asc');
+        var newAsc = !isAsc;
+
+        table.querySelectorAll('thead th').forEach(function(h){ h.classList.remove('sort-active','sort-asc','sort-desc'); });
+        th.classList.add('sort-active', newAsc ? 'sort-asc' : 'sort-desc');
+
+        rows.sort(function(a, b){
+          var va = (a.children[colIdx] ? a.children[colIdx].textContent.trim() : '');
+          var vb = (b.children[colIdx] ? b.children[colIdx].textContent.trim() : '');
+          if (sortType === 'number') {
+            var na = parseFloat(va.replace(/[^\d.,\-]/g,'').replace(',','.')) || 0;
+            var nb = parseFloat(vb.replace(/[^\d.,\-]/g,'').replace(',','.')) || 0;
+            return newAsc ? na - nb : nb - na;
+          }
+          if (sortType === 'date') {
+            return newAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+          }
+          return newAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+        });
+        rows.forEach(function(r){ tbody.appendChild(r); });
+        // Re-bind checkbox events after sorting (event delegation not needed for existing handlers)
+      });
+    });
+  }
 })();
 </script>
 {% endblock %}
