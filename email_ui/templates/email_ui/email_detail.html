@@ -101,15 +101,20 @@
                 </div>
                 <div class="section-body" id="email-tasks-body-{{ email.pk }}">
                     {% for task in email.tasks.all %}
-                    <span class="badge bg-info mb-1 me-1">{{ task.name }}
+                    <span class="badge bg-info mb-1 me-1">
+                        <a href="{% url 'task_detail' task.pk %}" class="text-white text-decoration-none me-1" title="Просмотреть задачу">
+                            {{ task.name }} <i class="bi bi-box-arrow-up-right" style="font-size:10px;"></i>
+                        </a>
                         <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white ms-1">&times;</a>
                     </span>
                     {% empty %}<span class="text-muted">Нет привязанных задач</span>
                     {% endfor %}
-                    <a href="{% url 'email_ui:attach_tasks_page' email.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-primary btn-sm ms-2">
+                    <div class="mt-2 d-flex gap-1 flex-wrap">
+                    <a href="{% url 'email_ui:attach_tasks_page' email.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-primary btn-sm">
                             <i class="bi bi-plus-lg"></i> Прикрепить задачу</a>
-                    <a href="{% url 'admin:ProjectTDL_task_add' %}?_next={{ request.get_full_path|urlencode }}&amp;email_id={{ email.pk }}" class="btn btn-outline-success btn-sm ms-1">
+                    <a href="{% url 'admin:ProjectTDL_task_add' %}?_next={{ request.get_full_path|urlencode }}&amp;email_id={{ email.pk }}" class="btn btn-outline-success btn-sm">
                             <i class="bi bi-plus-circle"></i> Создать задачу</a>
+                    </div>
                 </div>
             </div>
             <div class="collapsible-section">
