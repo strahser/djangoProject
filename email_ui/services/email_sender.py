@@ -8,6 +8,7 @@ from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
 from typing import List, Optional, Union
 
+from django.conf import settings
 from django.utils import timezone
 
 from Emails.models import Email, Attachment
@@ -90,6 +91,12 @@ class EmailSenderService:
                     server.sendmail(account.from_email, all_recipients, msg.as_string())
 
             logger.info(f'Письмо отправлено: "{subject}" -> {to_emails}')
+
+            try:
+                self._save_copy_to_imap_sent(msg)
+            except Exception:
+                pass
+
             return True
 
         except smtplib.SMTPAuthenticationError as e:
@@ -101,6 +108,30 @@ class EmailSenderService:
         except OSError as e:
             logger.error(f'Сетевая ошибка при отправке через {account.host}:{account.port}: {e}')
             raise
+
+    @staticmethod
+    def _save_copy_to_imap_sent(msg: MIMEMultipart) -> None:
+        """Сохраняет копию отправленного письма в IMAP-папку «Отправленные»."""
+        from imap_tools import MailBox
+
+        host = getattr(settings, 'YA_HOST', '')
+        user = getattr(settings, 'YA_USER', '')
+        password = getattr(settings, 'YA_PASSWORD', '')
+        if not host or not user or not password:
+            logger.info('IMAP credentials not configured, skipping save to Sent folder')
+            return
+
+        try:
+            with MailBox(host, getattr(settings, 'YA_PORT', 993)) as mailbox:
+                mailbox.login(user, password)
+                mailbox.append(
+                    msg.as_bytes(),
+                    folder='Отправленные',
+                    flag_set=['\\Seen'],
+                )
+            logger.info('Копия письма сохранена в IMAP Отправленные')
+        except Exception as e:
+            logger.warning(f'Не удалось сохранить копию в IMAP Отправленные: {e}')
 
     @staticmethod
     def _attach_file(msg: MIMEMultipart, att) -> None:

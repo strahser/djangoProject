@@ -11,6 +11,63 @@
     <link href="{% static 'bootstrap/sidebar-bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'fonts.css' %}" rel="stylesheet">
     <link href="{% static 'layout.css' %}" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <style>
+      :root {
+        --bg-body: #f5f6fa;
+        --bg-card: #fff;
+        --bg-table-header: #f8f9fa;
+        --text-color: #333;
+        --text-muted: #6c757d;
+        --border-color: #dee2e6;
+        --border-light: #e9ecef;
+        --table-stripe: #fff;
+      }
+      body.dark-mode {
+        --bg-body: #1a1d23;
+        --bg-card: #2d323e;
+        --bg-table-header: #363b48;
+        --text-color: #e0e0e0;
+        --text-muted: #a0a0a0;
+        --border-color: #4a4f5e;
+        --border-light: #3a4050;
+        --table-stripe: #2a2f3a;
+      }
+      body {
+        background: var(--bg-body);
+        color: var(--text-color);
+        transition: background .3s, color .3s;
+      }
+      body.dark-mode .table { --bs-table-bg: var(--bg-card); --bs-table-color: var(--text-color); }
+      body.dark-mode .text-muted { color: var(--text-muted) !important; }
+      body.dark-mode h1, body.dark-mode h2, body.dark-mode h3,
+      body.dark-mode h4, body.dark-mode h5, body.dark-mode h6 { color: var(--text-color); }
+
+      .navbar-custom {
+        background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        height: 56px;
+      }
+      .navbar-custom .navbar-brand { color: #fff; font-size: 18px; text-decoration: none; }
+      .nav-links-custom { display: flex; gap: 4px; }
+      .nav-link-custom {
+        color: #94a3b8; text-decoration: none; font-size: 14px; font-weight: 500;
+        padding: 6px 12px; border-radius: 6px; transition: all 0.2s;
+      }
+      .nav-link-custom:hover { color: #fff; background: rgba(255,255,255,0.08); }
+      .nav-btn-custom {
+        background: transparent; border: 1px solid rgba(255,255,255,0.15);
+        color: #cbd5e1; width: 32px; height: 32px;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 6px; transition: all 0.2s;
+      }
+      .nav-btn-custom:hover {
+        background: rgba(255,255,255,0.1);
+        border-color: rgba(255,255,255,0.3); color: #fff;
+      }
+    </style>
 
     {% block custom-css %}{% endblock %}
     {% block head %}
@@ -18,7 +75,36 @@
     {% endblock %}
   </head>
 
-  <body  >
+  <body>
+  <!-- Top navigation bar -->
+  <nav class="navbar navbar-expand navbar-custom px-3">
+    <div class="d-flex align-items-center gap-2">
+      <span class="navbar-brand d-flex align-items-center me-4">
+        <i class="bi bi-list-check me-2" style="color:#ffc107;font-size:20px;"></i>
+        <span style="font-weight:600;letter-spacing:0.5px;">Задачи</span>
+      </span>
+      <div class="d-flex align-items-center gap-1 nav-links-custom">
+        <a href="{% url 'custom_task_view' %}" class="nav-link-custom">
+          <i class="bi bi-list-check me-1"></i>Задачи
+        </a>
+        <a href="/contract/dashboard/" class="nav-link-custom">
+          <i class="bi bi-file-earmark-text me-1"></i>Контракты
+        </a>
+        <a href="/email-ui/" class="nav-link-custom">
+          <i class="bi bi-envelope me-1"></i>Письма
+        </a>
+      </div>
+    </div>
+    <div class="d-flex align-items-center gap-2 ms-auto">
+      <button class="btn btn-sm nav-btn-custom" onclick="toggleNightMode()" title="Тема">
+        <i class="bi bi-moon-stars"></i>
+      </button>
+      <a href="/admin/" class="btn btn-sm nav-btn-custom" title="Админ-панель">
+        <i class="bi bi-gear"></i>
+      </a>
+    </div>
+  </nav>
+
   <div class="page-wrapper">
   {% block page-wrapper %}
 
@@ -88,29 +174,6 @@
                     aria-expanded="false" aria-label="Toggle navigation">
                 <img class="mdi-svg" src="{% static 'mdi/menu.svg' %}" type="image/svg+xml" />
             </button>
-            {% block navbar-links %}
-            <div class="collapse navbar-collapse" id="navbarTop">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="navbarAdmin" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                          Menu
-                        </a>
-                        <ul class="dropdown-menu" aria-labelledby="navbarAdmin">
-                          <li><a class="dropdown-item" href="#">
-                              Item</a></li>
-                          <li><hr class="dropdown-divider"></li>
-                          <li><a class="dropdown-item" href="#">Item</a></li>
-                        </ul>
-                      </li>
-                      <li class="nav-item active">
-                        <a class="nav-link" href="{% url 'admin:index' %}">Администратор</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'e_mail_add' %}">E-mail</a>
-                    </li>
-                </ul>
-            </div>
-            {% endblock %}
         </div>
     </nav>
     {% endblock %}
@@ -129,8 +192,6 @@
             </script>
             <p> Example of <a href="#" class="download-icon"> download link
             </a> and an <a href="" class="link-icon" >External link</a></p>
-            <p>Lorem ipsum dolor
-            sit amet, consectetur adipisicing elit, sed do eiusmod tempor
 
         {% endblock %}
         {% block footer %}
@@ -160,6 +221,19 @@ document.addEventListener("DOMContentLoaded", function(event) {
         document.getElementById("content").classList.toggle("active");
         }
     });
+</script>
+<script>
+function toggleNightMode() {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    localStorage.setItem('base-dark-mode', isDark ? '1' : '0');
+    const icon = document.querySelector('.nav-btn-custom i');
+    if (icon) icon.className = isDark ? 'bi bi-sun-fill' : 'bi bi-moon-stars';
+}
+if (localStorage.getItem('base-dark-mode') === '1') {
+    document.body.classList.add('dark-mode');
+    document.querySelector('.nav-btn-custom i')?.classList.replace('bi-moon-stars', 'bi-sun-fill');
+}
 </script>
 {% block custom-js %}{% endblock %}
   </body>

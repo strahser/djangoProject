@@ -14,8 +14,8 @@ from django_tables2 import RequestConfig
 from AdminUtils import get_standard_display_list
 from ProjectContract.models import Contractor
 from ProjectTDL.Tables import TaskTable, create_filter_qs, data_filter_qs, StaticFilterSettings
-from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, SubTaskQuickForm
-from ProjectTDL.models import Task, SubTask
+from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, SubTaskQuickForm, TaskNodeQuickForm
+from ProjectTDL.models import Task, SubTask, TaskNode
 from ProjectTDL.reports import ReportGenerator
 from StaticData.models import Status
 from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord, create_df_from_model, ButtonData, \
@@ -125,7 +125,7 @@ def custom_task_view(request):
 
 
 def TaskCloneView(request, pk):
-    queryset = Task.objects.filter(pk=pk)
+    queryset = TaskNode.objects.filter(pk=pk)
     CloneRecord(queryset)
     messages.success(request, f'Запись {queryset.first().name} была скопирована ')
     return redirect("custom_task_view")
@@ -189,7 +189,7 @@ def update_task_field(request):
         field = request.POST.get('field')
         value = request.POST.get('value')
 
-        task = get_object_or_404(Task, pk=task_id)
+        task = get_object_or_404(TaskNode, pk=task_id)
 
         if field == 'contractor':
             contractor = get_object_or_404(Contractor, pk=value)
@@ -241,36 +241,44 @@ class SubTaskDeleteView(TaskDeleteView):
 
 @login_required
 def task_detail(request, pk):
-    """Рабочая карточка задачи: удобнее админки — письма, подзадачи, история в одном месте."""
+    """Рабочая карточка задачи: удобнее админки — письма, подзадачи в одном месте."""
     task = get_object_or_404(
-        Task.objects.select_related(
+        TaskNode.objects.select_related(
             'project_site', 'sub_project', 'building_number__name', 'design_chapter',
             'contractor', 'status', 'category', 'contract', 'owner'
-        ).prefetch_related('subtask_set', 'due_date_history__changed_by'),
+        ),
         pk=pk
     )
+
     linked_emails = task.emails.select_related(
         'project_site', 'contractor'
     ).prefetch_related('attachments', 'email_tags__tag').order_by('-email_stamp')[:100]
 
-    subtask_form = SubTaskQuickForm(request.POST or None, prefix='subtask')
+    subtasks = task.get_children().filter(node_type='subtask').order_by('id')
+
+    subtask_form = TaskNodeQuickForm(request.POST or None, prefix='subtask')
     if request.method == 'POST' and 'create_subtask' in request.POST:
         if subtask_form.is_valid():
             st = subtask_form.save(commit=False)
+            st.node_type = 'subtask'
             st.parent = task
+            st.owner = request.user
+            st.project_site = task.project_site
+            st.sub_project = task.sub_project
             st.save()
             messages.success(request, f'Подзадача «{st.name}» добавлена')
             return redirect('task_detail', pk=pk)
 
+    from ProjectTDL.models import TaskDueDateHistory
     from StaticData.models import Status as TaskStatus
     context = {
         'task': task,
-        'subtasks': task.subtask_set.all().order_by('id'),
+        'subtasks': subtasks,
         'linked_emails': linked_emails,
-        'history': task.due_date_history.select_related('changed_by').all(),
+        'history': TaskDueDateHistory.objects.filter(task_id=pk).select_related('changed_by'),
         'subtask_form': subtask_form,
         'all_statuses': TaskStatus.objects.all().order_by('name'),
-        'subtask_total': sum((s.price or 0) for s in task.subtask_set.all()),
+        'subtask_total': task.subtree_price,
     }
     return render(request, 'ProjectTDL/task_detail.html', context)
 

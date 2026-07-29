@@ -5,7 +5,7 @@ from crispy_forms.layout import Layout, Submit, Row, Column
 from django import forms
 from django.forms import ModelForm
 from loguru import logger
-from ProjectTDL.models import Task, SubTask
+from ProjectTDL.models import Task, SubTask, TaskNode
 
 
 class TaskForm(forms.ModelForm):
@@ -173,6 +173,18 @@ class ScaleForm(forms.Form):
 class SubTaskQuickForm(forms.ModelForm):
     class Meta:
         model = SubTask
+        fields = ['name', 'description', 'price', 'due_date']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Название подзадачи'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Описание (необязательно)'}),
+            'price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+            'due_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+        }
+
+
+class TaskNodeQuickForm(forms.ModelForm):
+    class Meta:
+        model = TaskNode
         fields = ['name', 'description', 'price', 'due_date']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Название подзадачи'}),

@@ -16,7 +16,8 @@ from Emails.models import Email
 from email_ui.models import EmailTaskLink
 from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar
 from ProjectTDL.Tables import StaticFilterSettings
-from ProjectTDL.models import Task, SubTask, TaskDueDateHistory
+from mptt.admin import MPTTModelAdmin
+from ProjectTDL.models import Task, SubTask, TaskDueDateHistory, TaskNode
 from ProjectTDL.reports import ReportGenerator, html_convert
 from StaticData.models import DesignChapter
 from services.DataFrameRender.RenderDfFromModel import create_pivot_table
@@ -100,7 +101,7 @@ class TaskEmailLinkInline(admin.TabularInline):
         pass
 
 
-excluding_list = [Task, Contract, DesignChapter, ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
+excluding_list = [Task, TaskNode, Contract, DesignChapter, ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
 
 
 @admin.register(*get_filtered_registered_models('ProjectContract', excluding_list))
@@ -140,7 +141,6 @@ class TaskAdmin(ImportExportModelAdmin):
                 from Emails.models import Email
                 from email_ui.models import EmailTaskLink
                 email = Email.objects.get(pk=email_id)
-                obj.emails.add(email)
                 EmailTaskLink.objects.create(
                     email=email, task=obj,
                     link_type='created_from', created_by=request.user,
@@ -177,7 +177,8 @@ class TaskAdmin(ImportExportModelAdmin):
     add_report_button.short_description = 'Отчет'
 
     def email_list(self, obj):
-        emails = obj.emails.all()
+        email_ids = EmailTaskLink.objects.filter(task=obj).values_list('email_id', flat=True)
+        emails = Email.objects.filter(id__in=email_ids)
         email_links = []
         for email in emails:
             link = reverse("admin:Emails_email_change", args=[email.id])
@@ -409,6 +410,14 @@ class TaskAdmin(ImportExportModelAdmin):
         css = {
             'all': ('admin/css/admin_custom.css',)
         }
+
+
+@admin.register(TaskNode)
+class TaskNodeAdmin(MPTTModelAdmin):
+    list_display = ('id', 'name', 'node_type', 'project_site', 'status', 'due_date')
+    list_filter = ('project_site', 'status', 'node_type')
+    search_fields = ('name',)
+    mptt_level_indent = 20
 
 
 @admin.register(DesignChapter)

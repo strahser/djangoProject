@@ -59,7 +59,6 @@
   <ul class="nav td-nav gap-1 mb-3">
     <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-subtasks" type="button"><i class="bi bi-list-task me-1"></i>Подзадачи ({{ subtasks|length }})</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-emails" type="button"><i class="bi bi-envelope me-1"></i>Письма ({{ linked_emails|length }})</button></li>
-    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-history" type="button"><i class="bi bi-clock-history me-1"></i>История сроков ({{ history|length }})</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-desc" type="button"><i class="bi bi-card-text me-1"></i>Описание</button></li>
   </ul>
 
@@ -82,11 +81,11 @@
             {% for st in subtasks %}
             <tr>
               <td class="text-muted">{{ st.pk }}</td>
-              <td><a href="{% url 'SubTaskUpdateView' st.pk %}">{{ st.name|default:"—" }}</a></td>
+              <td><a href="{% url 'admin:ProjectTDL_tasknode_change' st.pk %}">{{ st.name|default:"—" }}</a></td>
               <td>{{ st.price|floatformat:2|default:"—" }}</td>
               <td>{{ st.due_date|date:"d.m.Y"|default:"—" }}</td>
               <td class="text-muted small">{{ st.update_stamp|date:"d.m.Y H:i" }}</td>
-              <td class="text-end"><a class="btn btn-sm btn-outline-danger py-0" href="{% url 'SubTaskDeleteView' st.pk %}"><i class="bi bi-x"></i></a></td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-danger py-0" href="{% url 'admin:ProjectTDL_tasknode_delete' st.pk %}"><i class="bi bi-x"></i></a></td>
             </tr>
             {% empty %}<tr><td colspan="6" class="text-center text-muted py-4">Подзадач пока нет</td></tr>
             {% endfor %}
@@ -117,21 +116,6 @@
             {% endfor %}
           </tbody>
         </table>
-      </div>
-    </div>
-
-    <div class="tab-pane fade" id="tab-history">
-      <div class="td-card p-3">
-        {% for h in history %}
-        <div class="d-flex align-items-center gap-3 py-2 {% if not forloop.last %}border-bottom{% endif %}" style="border-color:var(--border-light,#edf0f6)!important;">
-          <i class="bi bi-arrow-repeat text-primary"></i>
-          <div class="flex-grow-1">
-            <b>{{ h.old_due_date|date:"d.m.Y"|default:"—" }}</b> → <b>{{ h.new_due_date|date:"d.m.Y"|default:"—" }}</b>
-            <small class="text-muted ms-2">{{ h.change_date|date:"d.m.Y H:i" }} · {{ h.changed_by.username|default:"система" }}</small>
-          </div>
-        </div>
-        {% empty %}<p class="text-muted mb-0">Сроки не менялись</p>
-        {% endfor %}
       </div>
     </div>
 

@@ -1353,7 +1353,7 @@ class SaveDraftViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
 
 
 class AdminTaskCreationLinkTest(TestCase):
-    """Tests that TaskAdmin.save_model links email to task via both EmailTaskLink and Task.emails."""
+    """Tests that TaskAdmin.save_model links email to task via EmailTaskLink."""
 
     def setUp(self):
         self.user = User.objects.create_user('admin_test', 'admin@test.com', 'password')
@@ -1367,7 +1367,7 @@ class AdminTaskCreationLinkTest(TestCase):
             sender='sender@test.com',
         )
 
-    def test_task_admin_links_email_on_creation(self):
+    def test_task_admin_links_email_via_emailtasklink(self):
         from ProjectTDL.admin import TaskAdmin
         from ProjectTDL.models import Task
 
@@ -1378,17 +1378,13 @@ class AdminTaskCreationLinkTest(TestCase):
             name='Linked Task',
         )
 
-        self.assertEqual(task.emails.count(), 0)
         self.assertEqual(EmailTaskLink.objects.count(), 0)
 
-        task.emails.add(self.email)
         EmailTaskLink.objects.create(
             email=self.email, task=task,
             link_type='created_from', created_by=self.user,
         )
 
-        self.assertEqual(task.emails.count(), 1)
-        self.assertEqual(task.emails.first(), self.email)
         self.assertEqual(EmailTaskLink.objects.count(), 1)
 
         link = EmailTaskLink.objects.first()
@@ -1408,3 +1404,91 @@ class AdminTaskURLTest(TestCase):
     def test_admin_task_changelist_url_resolves(self):
         url = reverse('admin:ProjectTDL_task_changelist')
         self.assertTrue(url.startswith('/admin/'))
+
+    def test_task_detail_url_resolves(self):
+        url = reverse('task_detail', args=[1])
+        self.assertEqual(url, '/task/1/')
+
+
+class EmailTaskRelationshipTest(TestCase):
+    """Tests the M2M relationship between Email and TaskNode."""
+
+    def setUp(self):
+        from ProjectTDL.models import TaskNode
+        from StaticData.models import ProjectSite, SubProject
+        self.sub_project = SubProject.objects.create(name='Test Sub')
+        self.project = ProjectSite.objects.create(name='Test Proj')
+        self.user = User.objects.create_user('rel_test', 'rel@test.com', 'password')
+        self.email = Email.objects.create(
+            uid='rel-test-uid',
+            subject='Relationship Test Email',
+            sender='sender@test.com',
+        )
+        self.tasknode = TaskNode.objects.create(
+            owner=self.user,
+            project_site=self.project,
+            sub_project=self.sub_project,
+            name='Relationship Test TaskNode',
+            node_type='task',
+        )
+
+    def test_email_tasks_empty_by_default(self):
+        """Email.tasks should be empty before linking."""
+        self.assertEqual(self.email.tasks.count(), 0)
+
+    def test_tasknode_emails_empty_by_default(self):
+        """TaskNode.emails should be empty before linking."""
+        self.assertEqual(self.tasknode.emails.count(), 0)
+
+    def test_email_task_link_model_empty_by_default(self):
+        """EmailTaskLink should be empty before linking."""
+        self.assertEqual(EmailTaskLink.objects.count(), 0)
+
+    def test_email_tasks_and_tasknode_emails_are_same_m2m(self):
+        """
+        Email.tasks and TaskNode.emails are the same M2M relationship.
+        Adding to email.tasks populates tasknode.emails (reverse accessor).
+        """
+        self.email.tasks.add(self.tasknode)
+
+        self.assertEqual(self.email.tasks.count(), 1)
+        self.assertEqual(self.tasknode.emails.count(), 1)
+        self.assertEqual(self.email.tasks.first(), self.tasknode)
+        self.assertEqual(self.tasknode.emails.first(), self.email)
+
+    def test_reverse_add_also_works(self):
+        """Adding via tasknode.emails also populates email.tasks."""
+        self.tasknode.emails.add(self.email)
+
+        self.assertEqual(self.tasknode.emails.count(), 1)
+        self.assertEqual(self.email.tasks.count(), 1)
+        self.assertEqual(self.email.tasks.first(), self.tasknode)
+
+    def test_email_task_link_is_separate_from_m2m(self):
+        """EmailTaskLink is a separate relationship from the M2M."""
+        self.email.tasks.add(self.tasknode)
+        EmailTaskLink.objects.create(
+            email=self.email, task_id=1,
+            link_type='created_from', created_by=self.user,
+        )
+
+        self.assertEqual(self.email.tasks.count(), 1)
+        self.assertEqual(EmailTaskLink.objects.count(), 1)
+
+    def test_task_detail_link_renders_correctly(self):
+        """The template URL for task_detail should produce /task/<pk>/."""
+        self.email.tasks.add(self.tasknode)
+        linked = self.email.tasks.first()
+
+        url = reverse('task_detail', args=[linked.pk])
+        self.assertEqual(url, f'/task/{linked.pk}/')
+        self.assertNotIn('/admin/', url,
+                         'BUG: task_detail URL should NOT point to admin')
+
+    def test_email_tasks_link_in_email_detail(self):
+        """
+        Verify email.tasks.all() returns linked TaskNode objects.
+        """
+        self.email.tasks.add(self.tasknode)
+        self.assertEqual(self.email.tasks.count(), 1)
+        self.assertEqual(self.email.tasks.first().__class__.__name__, 'TaskNode')

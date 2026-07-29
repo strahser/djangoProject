@@ -92,7 +92,7 @@ class Email(models.Model):
         verbose_name='Папка'
     )
     tasks = models.ManyToManyField(
-        'ProjectTDL.Task',
+        'ProjectTDL.TaskNode',
         blank=True,
         related_name='emails',
         verbose_name='Задачи'

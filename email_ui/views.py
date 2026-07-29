@@ -22,7 +22,7 @@ from Emails.models import Attachment, Email, EmailType, InfoChoices
 from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
 from Emails.ЕmailParser.ParsingImapEmailToDB import ParsingImapEmailToDB
 from ProjectContract.models import Contractor
-from ProjectTDL.models import Task
+from ProjectTDL.models import Task, TaskNode
 from StaticData.models import BuildingType, Category, ProjectSite, Status
 
 from .forms import (
@@ -486,7 +486,7 @@ def attach_to_tasks_modal(request, pk):
     date_from = request.GET.get('date_from') or ''
     date_to = request.GET.get('date_to') or ''
 
-    tasks = Task.objects.select_related(
+    tasks = TaskNode.objects.select_related(
         'project_site', 'sub_project', 'status', 'contractor'
     ).order_by('-due_date')
     if q:
@@ -526,7 +526,7 @@ def attach_tasks_page(request, pk):
     date_from = request.GET.get('date_from') or ''
     date_to = request.GET.get('date_to') or ''
 
-    tasks = Task.objects.select_related(
+    tasks = TaskNode.objects.select_related(
         'project_site', 'sub_project', 'status', 'contractor'
     ).order_by('-due_date')
     if q:
@@ -572,7 +572,7 @@ def attach_tasks(request, pk):
     """Привязка задач к письму с редиректом на страницу письма."""
     email = get_object_or_404(Email, pk=pk)
     task_ids = sanitize_id_list(request.POST.getlist('tasks'))
-    tasks = Task.objects.filter(id__in=task_ids) if task_ids else Task.objects.none()
+    tasks = TaskNode.objects.filter(id__in=task_ids) if task_ids else TaskNode.objects.none()
     if tasks:
         email.tasks.add(*tasks)
         names = ', '.join(t.name[:40] for t in tasks[:3])
@@ -590,7 +590,7 @@ def attach_tasks(request, pk):
 def detach_task(request, pk, task_id):
     """Отвязка задачи: бейдж удаляется, показывается тост."""
     email = get_object_or_404(Email, pk=pk)
-    task = get_object_or_404(Task, pk=task_id)
+    task = get_object_or_404(TaskNode, pk=task_id)
     email.tasks.remove(task)
     return HttpResponse(
         f'<script>showToast("Задача «{task.name[:40]}» отвязана от письма","info")</script>'
