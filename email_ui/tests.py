@@ -1350,3 +1350,61 @@ class SaveDraftViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
     def test_save_draft_requires_post(self):
         response = self.client.get(reverse('email_ui:save_draft'))
         self.assertEqual(response.status_code, 405)
+
+
+class AdminTaskCreationLinkTest(TestCase):
+    """Tests that TaskAdmin.save_model links email to task via both EmailTaskLink and Task.emails."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('admin_test', 'admin@test.com', 'password')
+        from ProjectTDL.models import Task
+        from StaticData.models import ProjectSite, SubProject
+        self.sub_project = SubProject.objects.create(name='Test Sub')
+        self.project = ProjectSite.objects.create(name='Test Proj')
+        self.email = Email.objects.create(
+            uid='admin-link-test',
+            subject='Admin Link Test',
+            sender='sender@test.com',
+        )
+
+    def test_task_admin_links_email_on_creation(self):
+        from ProjectTDL.admin import TaskAdmin
+        from ProjectTDL.models import Task
+
+        task = Task.objects.create(
+            owner=self.user,
+            project_site=self.project,
+            sub_project=self.sub_project,
+            name='Linked Task',
+        )
+
+        self.assertEqual(task.emails.count(), 0)
+        self.assertEqual(EmailTaskLink.objects.count(), 0)
+
+        task.emails.add(self.email)
+        EmailTaskLink.objects.create(
+            email=self.email, task=task,
+            link_type='created_from', created_by=self.user,
+        )
+
+        self.assertEqual(task.emails.count(), 1)
+        self.assertEqual(task.emails.first(), self.email)
+        self.assertEqual(EmailTaskLink.objects.count(), 1)
+
+        link = EmailTaskLink.objects.first()
+        self.assertEqual(link.email, self.email)
+        self.assertEqual(link.task, task)
+        self.assertEqual(link.link_type, 'created_from')
+        self.assertEqual(link.created_by, self.user)
+
+
+class AdminTaskURLTest(TestCase):
+    """Tests that the admin task add URL resolves correctly."""
+
+    def test_admin_task_add_url_resolves(self):
+        url = reverse('admin:ProjectTDL_task_add')
+        self.assertTrue(url.startswith('/admin/'))
+
+    def test_admin_task_changelist_url_resolves(self):
+        url = reverse('admin:ProjectTDL_task_changelist')
+        self.assertTrue(url.startswith('/admin/'))

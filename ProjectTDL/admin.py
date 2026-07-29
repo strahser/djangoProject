@@ -13,6 +13,7 @@ from import_export.fields import Field
 
 from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
 from Emails.models import Email
+from email_ui.models import EmailTaskLink
 from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar
 from ProjectTDL.Tables import StaticFilterSettings
 from ProjectTDL.models import Task, SubTask, TaskDueDateHistory
@@ -74,14 +75,29 @@ class TaskInline(admin.StackedInline):
     readonly_fields = ('creation_stamp',)
 
 
-class EmailInline(admin.TabularInline):
-    model = Email
+class TaskEmailLinkInline(admin.TabularInline):
+    """Inline для связей писем с задачей (EmailTaskLink)."""
+    model = EmailTaskLink
+    fk_name = 'task'
     extra = 0
-    fields = ['name', 'parent', 'subject', 'sender', ]
-    readonly_fields = ['name', 'parent', 'subject', 'sender']
-    list_display_links = ('id', 'name',)
-    show_change_link = True
-    show_full_result_count = True
+    fields = ['email_link', 'link_type', 'created_by', 'created_at']
+    readonly_fields = ['email_link', 'link_type', 'created_by', 'created_at']
+
+    def email_link(self, obj):
+        if obj.email_id:
+            url = reverse('admin:Emails_email_change', args=[obj.email_id])
+            return format_html('<a href="{}">{}</a>', url, obj.email.subject or str(obj.email_id))
+        return '—'
+    email_link.short_description = 'Письмо'
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return True
+
+    class Media:
+        pass
 
 
 excluding_list = [Task, Contract, DesignChapter, ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
@@ -109,7 +125,7 @@ class TaskAdmin(ImportExportModelAdmin):
     list_filter = ['project_site__name', 'sub_project', 'building_number',
                    'status', 'category', 'contractor', 'contract', ]
     search_fields = ['name', 'project_site__name', 'sub_project__name', 'contractor__name']
-    inlines = [TaskInline, EmailInline, TaskDueDateHistoryInline]
+    inlines = [TaskInline, TaskEmailLinkInline, TaskDueDateHistoryInline]
     resource_classes = [TaskResource]
     list_per_page = 20
     actions_on_bottom = True
@@ -124,6 +140,7 @@ class TaskAdmin(ImportExportModelAdmin):
                 from Emails.models import Email
                 from email_ui.models import EmailTaskLink
                 email = Email.objects.get(pk=email_id)
+                obj.emails.add(email)
                 EmailTaskLink.objects.create(
                     email=email, task=obj,
                     link_type='created_from', created_by=request.user,
@@ -160,10 +177,10 @@ class TaskAdmin(ImportExportModelAdmin):
     add_report_button.short_description = 'Отчет'
 
     def email_list(self, obj):
-        emails = obj.email_set.all()
+        emails = obj.emails.all()
         email_links = []
         for email in emails:
-            link = reverse("admin:ProjectTDL_email_change", args=[email.id])
+            link = reverse("admin:Emails_email_change", args=[email.id])
             email_links.append(f'<a href="{link}">{email.subject}</a>')
         return mark_safe(", ".join(email_links))
 
