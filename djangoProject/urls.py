@@ -9,6 +9,7 @@ import adminactions.actions as actions
 from django.views.static import serve
 
 from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
+from djangoProject.db_switch import views as db_switch_views
 
 # register all adminactions
 actions.add_to_site(site)
@@ -32,5 +33,6 @@ urlpatterns = [
     re_path(r'^email-files/(?P<path>.*)$', login_required(serve), {
         'document_root': E_MAIL_DIRECTORY
     }),
+    path('switch-db/', db_switch_views.switch_db, name='switch_db'),
 ]
 

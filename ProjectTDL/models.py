@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
@@ -84,7 +85,19 @@ class TaskNode(MPTTModel):
 
     @property
     def subtree_price(self):
-        """Сумма цен всех потомков — один запрос по MPTT-границам."""
         from django.db.models import Sum
         agg = self.get_descendants().aggregate(total=Sum('price'))
         return agg['total'] or 0
+
+
+class ProjectPin(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, verbose_name='Пользователь')
+    project_site = models.ForeignKey('StaticData.ProjectSite', on_delete=models.CASCADE, verbose_name='Площадка')
+
+    class Meta:
+        verbose_name = 'Закреплённая площадка'
+        verbose_name_plural = 'Закреплённые площадки'
+        unique_together = ('user', 'project_site')
+
+    def __str__(self):
+        return f'{self.project_site.name} ({self.user.username})'

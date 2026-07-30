@@ -156,76 +156,48 @@ def rows_highlighter(**kwargs):
 class CheckBoxColumnWithName(tables.CheckBoxColumn):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.attrs = {"td__input": {"class": "form-check-input"}}
+        self.attrs = {"td__input": {"class": "form-check-input task-checkbox"}}
 
 
 class TaskNodeTable(tables.Table):
-    TEMPLATE = '''
-        <div class="btn-group" role="group" aria-label="Basic example">
-           <a href="{% url 'admin:ProjectTDL_tasknode_change' record.pk %}" class="btn btn-primary btn-success">📄</a>
-        </div>
-        '''
-    name = tables.LinkColumn('admin:ProjectTDL_tasknode_change', args=[tables.A('pk')], default='Link', empty_values=())
-    action = tables.TemplateColumn(TEMPLATE, verbose_name='Действия')
+    name = tables.LinkColumn('task_detail', args=[tables.A('pk')], default='Link', empty_values=())
     selection = CheckBoxColumnWithName(
         verbose_name=mark_safe('<input type="checkbox" class="form-check-input" id="checkAll">'), accessor="pk",
         orderable=False,
-        attrs={
-            "td__input": {
-                "@click": "checkRange"
-            }
-        }
     )
-    contractor = tables.Column(verbose_name='Ответственный', orderable=False)
-    status = tables.Column(verbose_name='Статус', orderable=False)
-    due_date = tables.Column(verbose_name='Завершение', orderable=False)
-    price = tables.Column(verbose_name='Цена', orderable=False)
-
-    def render_action(self, record):
-        clone_url = reverse("TaskCloneView", args=[record.pk])
-        add_email_url = reverse('select_email', args=[record.pk])
-        delete_url = reverse("admin:ProjectTDL_tasknode_delete", args=[record.pk])
-        workspace_url = reverse("task_detail", args=[record.pk])
-        return mark_safe(f'''
-        <div class="btn-group" role="group" aria-label="Действия">
-        <a href="{workspace_url}" class="btn btn-primary" title="Карточка задачи">🗂</a>
-        <a href="{clone_url}" class="btn btn-primary btn-success" title="Клонировать">📄</a>
-        <a href="{add_email_url}" class="btn btn-primary btn-info" title="Прикрепить письма">✉️</a>
-        <a href="{delete_url}" class="btn btn-danger" title="Удалить">🗑️</a>
-        </div>
-        ''')
     def render_contractor(self, record):
-        contractors = Contractor.objects.all()
-        select_html = f'<select class="contractor-select" data-task-id="{record.pk}" data-field="contractor" data-order="{record.contractor.name if record.contractor else ""}">'
-        for contractor in contractors:
-             selected = 'selected' if record.contractor_id == contractor.id else ''
-             select_html += f'<option value="{contractor.id}" {selected}>{contractor.name}</option>'
-        select_html += '</select>'
-        return mark_safe(select_html)
+        return record.contractor.name if record.contractor else ''
+
     def render_status(self, record):
-        statuses = Status.objects.all()
-        select_html = f'<select class="status-select" data-task-id="{record.pk}" data-field="status" data-order="{record.status.name if record.status else ""}">'
-        for status in statuses:
-            selected = 'selected' if record.status_id == status.id else ''
-            select_html += f'<option value="{status.id}" {selected}>{status.name}</option>'
-        select_html += '</select>'
-        return mark_safe(select_html)
+        return record.status.name if record.status else ''
+
     def render_due_date(self, record):
-        date_str = record.due_date.strftime('%Y-%m-%d') if record.due_date else ''
-        return mark_safe(f'<input type="date" class="due-date-picker" data-task-id="{record.pk}" data-field="due_date" data-order="{date_str}" value="{date_str}">')
+        return record.due_date.strftime('%d.%m.%Y') if record.due_date else ''
 
     def render_price(self, record):
-            return mark_safe(f'<input type="number" class="price-input" data-task-id="{record.pk}" data-field="price" data-order="{record.price if record.price is not None else ""}" value="{record.price if record.price is not None else ""}">')
+        return f'{record.price:.2f} ₽' if record.price else ''
 
     class Meta:
         model = TaskNode
-        template_name = "django_tables2/bootstrap.html"
-        exclude = ("creation_stamp", 'update_stamp', 'contract', 'description', 'owner', 'category', 'sub_project', 'building_number', 'project_site')
+        template_name = "django_tables2/bootstrap_no_pag.html"
+        exclude = ("creation_stamp", 'update_stamp', 'contract', 'description', 'owner', 'category', 'sub_project', 'building_number', 'project_site', 'lft', 'rght', 'level', 'tree_id', 'parent', 'node_type')
         row_attrs = {
-            "data-id": lambda record: record.pk
+            "data-id": lambda record: record.pk,
+            "data-project-site-id": lambda record: record.project_site_id or '',
+            "data-project-site-name": lambda record: record.project_site.name if record.project_site else '',
+            "data-sub-project-id": lambda record: record.sub_project_id or '',
+            "data-sub-project-name": lambda record: record.sub_project.name if record.sub_project else '',
+            "data-status-id": lambda record: record.status_id or '',
+            "data-status-name": lambda record: record.status.name if record.status else '',
+            "data-category-id": lambda record: record.category_id or '',
+            "data-category-name": lambda record: record.category.name if record.category else '',
+            "data-contractor-id": lambda record: record.contractor_id or '',
+            "data-contractor-name": lambda record: record.contractor.name if record.contractor else '',
+            "data-due-date": lambda record: record.due_date.strftime('%Y-%m-%d') if record.due_date else '',
+            "data-price": lambda record: str(record.price) if record.price else '',
         }
         attrs = {"id": "TaskTable",
-                 'class': 'table table-striped table-bordered',
+                 'class': 'table table-bordered',
                  'thead': {
                      'class': 'table-light',
                  },

@@ -50,6 +50,8 @@
         <input type="number" step="0.01" id="td-price" class="form-control form-control-sm" value="{{ task.price|default_if_none:'' }}">
       </div>
       <div class="col-md-4 text-end">
+        <button class="btn btn-sm btn-primary" id="td-save-btn"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'custom_task_view' %}"><i class="bi bi-x-lg me-1"></i>Закрыть</a>
         <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:ProjectTDL_tasknode_change' task.pk %}"><i class="bi bi-gear me-1"></i>В админке</a>
         <a class="btn btn-sm btn-outline-secondary" href="{% url 'TaskCloneView' task.pk %}"><i class="bi bi-copy me-1"></i>Клон</a>
       </div>
@@ -135,13 +137,13 @@ function tdSave(field, value){
     method:'POST',
     headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':tdCookie('csrftoken')},
     body:'task_id={{ task.pk }}&field=' + field + '&value=' + encodeURIComponent(value)
-  }).then(function(r){ return r.json(); }).then(function(d){
-    if(d.status === 'ok'){ showToast('Сохранено: ' + field, 'success'); }
-    else { showToast('Ошибка: ' + (d.message || ''), 'error'); }
   });
 }
-document.getElementById('td-status').addEventListener('change', function(){ tdSave('status', this.value); });
-document.getElementById('td-due').addEventListener('change', function(){ tdSave('due_date', this.value); });
-document.getElementById('td-price').addEventListener('change', function(){ tdSave('price', this.value); });
+document.getElementById('td-save-btn').addEventListener('click', function(){
+  tdSave('status', document.getElementById('td-status').value);
+  tdSave('due_date', document.getElementById('td-due').value);
+  tdSave('price', document.getElementById('td-price').value);
+  alert('Сохранено');
+});
 </script>
 {% endblock %}

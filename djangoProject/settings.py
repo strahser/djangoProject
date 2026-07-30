@@ -107,6 +107,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_htmx.middleware.HtmxMiddleware',
+    'djangoProject.db_switch.middleware.DatabaseSwitchMiddleware',
 ]
 CRISPY_ALLOWED_TEMPLATE_PACKS = ('Bootstrap5',)
 CRISPY_TEMPLATE_PACK = "Bootstrap5"
@@ -123,6 +124,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'djangoProject.db_switch.context_processors.db_mode',
             ],
         },
     },
@@ -167,7 +169,7 @@ DATABASES = {
     }
 }
 
-DATABASE_ROUTERS = ['PersonalData.DbRouter.PersonalDataRouter',]
+DATABASE_ROUTERS = ['djangoProject.db_switch.DbRouter.DatabaseSwitchRouter']
 
 
 AUTH_PASSWORD_VALIDATORS = [

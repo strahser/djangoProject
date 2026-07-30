@@ -1,0 +1,33 @@
+{% extends 'admin/base.html' %}
+{% load i18n static jazzmin admin_urls %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+.db-badge {
+    display: inline-block;
+    margin: auto 8px;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.6;
+    text-transform: uppercase;
+}
+.db-badge.work { background: #28a745; color: #fff; }
+.db-badge.personal { background: #dc3545; color: #fff; }
+</style>
+{% endblock %}
+
+{% block extrajs %}
+{{ block.super }}
+<script>
+(function() {
+    var el = document.createElement('span');
+    el.className = 'db-badge {{ db_mode }}';
+    el.textContent = '{{ db_mode }}';
+    var nav = document.querySelector('#jazzy-navbar .navbar-nav.ms-auto');
+    if (nav) nav.prepend(el);
+})();
+</script>
+{% endblock %}

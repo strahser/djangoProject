@@ -17,7 +17,7 @@ from ProjectTDL.Tables import TaskNodeTable, create_filter_qs, data_filter_qs, S
 from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, TaskNodeQuickForm
 from ProjectTDL.models import TaskNode
 from ProjectTDL.reports import ReportGenerator
-from StaticData.models import Status
+from StaticData.models import Status, Category, ProjectSite, SubProject, BuildingNumber
 from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord, create_df_from_model, ButtonData, \
     create_group_button, HTML_DF_PROPERTY, create_pivot_table
 
@@ -63,9 +63,12 @@ def custom_task_view(request):
     qs = qs.filter(**data_filter_qs(request, 'due_date'))
 
     _form = TaskFilterForm(request.POST or None)
-
     table = TaskNodeTable(qs)
     RequestConfig(request).configure(table)
+
+    tree_roots = TaskNode.objects.filter(parent__isnull=True, node_type='task').select_related(
+        'project_site', 'status', 'contractor'
+    ).prefetch_related('children')
 
     pivot_table_list = []
     gant_table = ''
@@ -107,9 +110,20 @@ def custom_task_view(request):
             writer.close()
             return response
 
-    context = {'form': _form, 'table': table, "gant_table": gant_table, 'pivot_table_list': pivot_table_list,
-               'tasks': qs}
-    return render(request, 'ProjectTDL/custom_table_view.html', context)
+    context = {
+        'form': _form,
+        'table': table,
+        "gant_table": gant_table,
+        'pivot_table_list': pivot_table_list,
+        'tasks': qs,
+        'tree_roots': tree_roots,
+        'all_contractors': Contractor.objects.all().order_by('name'),
+        'all_statuses': Status.objects.all().order_by('name'),
+        'all_categories': Category.objects.all().order_by('name'),
+        'all_project_sites': ProjectSite.objects.all().order_by('name'),
+        'all_sub_projects': SubProject.objects.all().order_by('name'),
+    }
+    return render(request, 'ProjectTDL/custom_task_view_enhanced.html', context)
 
 
 def TaskCloneView(request, pk):
@@ -201,6 +215,245 @@ def update_task_field(request):
         return JsonResponse({'status': 'ok', 'message': f'{field} updated'})
     except (ValueError, KeyError, Status.DoesNotExist, Contractor.DoesNotExist, Exception) as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+
+def manage_reference(request):
+    model_map = {
+        'project_site': ProjectSite,
+        'sub_project': SubProject,
+        'status': Status,
+        'category': Category,
+        'contractor': Contractor,
+    }
+    model_key = request.POST.get('model') or request.GET.get('model')
+    Model = model_map.get(model_key)
+    if not Model:
+        return JsonResponse({'status': 'error', 'message': 'Unknown model'})
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'add':
+            name = request.POST.get('name', '').strip()
+            if name:
+                obj, created = Model.objects.get_or_create(name=name)
+                if created:
+                    return JsonResponse({'status': 'ok', 'object': {'pk': obj.pk, 'name': obj.name}})
+                return JsonResponse({'status': 'error', 'message': 'Уже существует'})
+            return JsonResponse({'status': 'error', 'message': 'Укажите название'})
+        elif action == 'delete':
+            obj_id = request.POST.get('id')
+            try:
+                Model.objects.filter(pk=obj_id).delete()
+                return JsonResponse({'status': 'ok'})
+            except Exception as e:
+                return JsonResponse({'status': 'error', 'message': str(e)})
+
+    objects = Model.objects.all().order_by('name')
+    return JsonResponse({
+        'objects': [{'pk': o.pk, 'name': o.name} for o in objects]
+    })
+
+
+@require_POST
+def quick_create_task(request):
+    name = request.POST.get('name', '').strip()
+    if not name:
+        return JsonResponse({'status': 'error', 'message': 'Укажите название задачи'})
+
+    task = TaskNode.objects.create(
+        name=name,
+        node_type='task',
+        project_site_id=request.POST.get('project_site') or None,
+        sub_project_id=request.POST.get('sub_project') or None,
+        status_id=request.POST.get('status') or None,
+        category_id=request.POST.get('category') or None,
+        contractor_id=request.POST.get('contractor') or None,
+    )
+    return JsonResponse({'status': 'ok', 'task_id': task.pk, 'task_name': task.name})
+
+
+def cascade_filter_options(request):
+    from StaticData.models import Status, Category, SubProject
+    from ProjectContract.models import Contractor
+    project_site_id = request.GET.get('project_site')
+    if not project_site_id:
+        return JsonResponse({
+            'sub_projects': [{'pk': s.pk, 'name': s.name} for s in SubProject.objects.all().order_by('name')],
+            'statuses': [{'pk': s.pk, 'name': s.name} for s in Status.objects.all().order_by('name')],
+            'categories': [{'pk': c.pk, 'name': c.name} for c in Category.objects.all().order_by('name')],
+            'contractors': [{'pk': c.pk, 'name': c.name} for c in Contractor.objects.all().order_by('name')],
+        })
+
+    def _all_entries():
+        return {
+            'sub_projects': [{'pk': s.pk, 'name': s.name} for s in SubProject.objects.all().order_by('name')],
+            'statuses': [{'pk': s.pk, 'name': s.name} for s in Status.objects.all().order_by('name')],
+            'categories': [{'pk': c.pk, 'name': c.name} for c in Category.objects.all().order_by('name')],
+            'contractors': [{'pk': c.pk, 'name': c.name} for c in Contractor.objects.all().order_by('name')],
+        }
+
+    qs = TaskNode.objects.filter(node_type='task', project_site_id=project_site_id)
+    from django.db.models import Count
+
+    def _field_items(field_name, related_name, model_class):
+        vals = list(qs.filter(**{field_name + '__isnull': False}).order_by(related_name + '__name').values_list(field_name + '_id', flat=True).distinct())
+        if vals:
+            return [{'pk': obj.pk, 'name': obj.name} for obj in model_class.objects.filter(pk__in=vals).order_by('name')]
+        return [{'pk': obj.pk, 'name': obj.name} for obj in model_class.objects.all().order_by('name')]
+
+    return JsonResponse({
+        'sub_projects': _field_items('sub_project', 'sub_project', SubProject),
+        'statuses': _field_items('status', 'status', Status),
+        'categories': _field_items('category', 'category', Category),
+        'contractors': _field_items('contractor', 'contractor', Contractor),
+    })
+
+
+@require_POST
+def quick_create_subtask(request):
+    parent_id = request.POST.get('parent_id')
+    name = request.POST.get('name', '').strip()
+    if not parent_id or not name:
+        return JsonResponse({'status': 'error', 'message': 'Укажите родительскую задачу и название'})
+    try:
+        parent = TaskNode.objects.get(pk=parent_id)
+        subtask = TaskNode.objects.create(
+            name=name,
+            node_type='subtask',
+            parent=parent,
+            project_site=parent.project_site,
+            sub_project=parent.sub_project,
+            status=parent.status,
+            category=parent.category,
+            contractor=parent.contractor,
+        )
+        return JsonResponse({'status': 'ok', 'subtask_id': subtask.pk, 'subtask_name': subtask.name})
+    except TaskNode.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Родительская задача не найдена'})
+
+
+@require_POST
+def bulk_update_tasks(request):
+    task_ids = request.POST.getlist('task_ids')
+    if not task_ids:
+        return JsonResponse({'status': 'error', 'message': 'Задачи не выбраны'})
+
+    updates = {}
+    field_mapping = {
+        'project_site': 'project_site_id',
+        'sub_project': 'sub_project_id',
+        'status': 'status_id',
+        'category': 'category_id',
+        'contractor': 'contractor_id',
+        'due_date': 'due_date',
+        'price': 'price',
+    }
+
+    for field, db_field in field_mapping.items():
+        value = request.POST.get(field)
+        if value:
+            if field in ['status', 'category', 'contractor']:
+                try:
+                    updates[db_field] = int(value)
+                except ValueError:
+                    pass
+            elif field == 'price':
+                try:
+                    updates[db_field] = float(value.replace(',', '.'))
+                except ValueError:
+                    pass
+            else:
+                updates[db_field] = value
+
+    if updates:
+        updated_count = TaskNode.objects.filter(id__in=task_ids).update(**updates)
+        return JsonResponse({
+            'status': 'ok',
+            'message': f'Успешно обновлено {updated_count} задач',
+            'updated_fields': list(updates.keys())
+        })
+
+    return JsonResponse({'status': 'error', 'message': 'Нет данных для обновления'})
+
+
+@require_POST
+def save_user_settings(request):
+    return JsonResponse({'status': 'ok'})
+
+
+def filter_tasks_ajax(request):
+    from django.template.loader import render_to_string
+    qs = TaskNode.objects.filter(node_type='task').select_related(*StaticFilterSettings.filtered_value_list)
+
+    project_site = request.GET.get('project_site')
+    sub_project = request.GET.get('sub_project')
+    status_id = request.GET.get('status')
+    category_id = request.GET.get('category')
+    contractor_id = request.GET.get('contractor')
+    due_date = request.GET.get('due_date')
+
+    if project_site:
+        qs = qs.filter(project_site_id=project_site)
+    if sub_project:
+        qs = qs.filter(sub_project_id=sub_project)
+    if status_id:
+        qs = qs.filter(status_id=status_id)
+    if category_id:
+        qs = qs.filter(category_id=category_id)
+    if contractor_id:
+        qs = qs.filter(contractor_id=contractor_id)
+    if due_date:
+        filter_dict = data_filter_qs(request, 'due_date')
+        qs = qs.filter(**filter_dict)
+
+    table = TaskNodeTable(qs)
+    RequestConfig(request).configure(table)
+    table_html = render_to_string('django_tables2/bootstrap_no_pag.html', {'table': table}, request)
+
+    tree_roots = TaskNode.objects.filter(parent__isnull=True, node_type='task').select_related(
+        'project_site', 'status', 'contractor'
+    ).prefetch_related('children')
+    tree_html = render_to_string('ProjectTDL/task_tree_nodes_partial.html', {'tree_roots': tree_roots}, request)
+
+    return JsonResponse({
+        'table': table_html,
+        'tree': tree_html,
+        'count': qs.count(),
+    })
+
+
+@login_required
+def list_pinned_projects(request):
+    from .models import ProjectPin
+    pins = ProjectPin.objects.filter(user=request.user).select_related('project_site')
+    return JsonResponse([
+        {'id': p.project_site_id, 'name': p.project_site.name}
+        for p in pins
+    ], safe=False)
+
+
+@login_required
+@require_POST
+def add_pinned_project(request):
+    from .models import ProjectPin
+    from StaticData.models import ProjectSite
+    site_id = request.POST.get('project_site_id')
+    if not site_id:
+        return JsonResponse({'error': 'project_site_id required'}, status=400)
+    site = get_object_or_404(ProjectSite, pk=site_id)
+    ProjectPin.objects.get_or_create(user=request.user, project_site=site)
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def remove_pinned_project(request):
+    from .models import ProjectPin
+    site_id = request.POST.get('project_site_id')
+    if not site_id:
+        return JsonResponse({'error': 'project_site_id required'}, status=400)
+    ProjectPin.objects.filter(user=request.user, project_site_id=site_id).delete()
+    return JsonResponse({'ok': True})
+
 
 class SubTaskUpdateView(UpdateView):
     model = TaskNode

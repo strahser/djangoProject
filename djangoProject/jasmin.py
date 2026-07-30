@@ -127,7 +127,7 @@ JAZZMIN_SETTINGS = {
     #############
     # Relative paths to custom CSS/JS scripts (must be present in static files)
     "custom_css":  "css/custom.css",
-    "custom_js": ['jquery-3.7.1.min.js', 'static/admin/js/admin.js'],  # Исправлено: список файлов
+    "custom_js": 'admin/js/admin.js',  # Один файл (Jazzmin не поддерживает список)
     # Whether to link font from fonts.googleapis.com (use custom_css to supply font otherwise)
     "use_google_fonts_cdn": True,
     # Whether to show the UI customizer on the sidebar
