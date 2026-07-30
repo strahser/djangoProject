@@ -269,9 +269,10 @@ class EmailTaskLink(models.Model):
         'Emails.Email', on_delete=models.CASCADE,
         related_name='task_links', verbose_name='Письмо'
     )
-    task = models.ForeignKey(
-        'ProjectTDL.Task', on_delete=models.CASCADE,
-        related_name='email_links', verbose_name='Задача'
+    task_node = models.ForeignKey(
+        'ProjectTDL.TaskNode', on_delete=models.CASCADE,
+        related_name='email_links', verbose_name='Задача',
+        null=True, blank=True
     )
     link_type = models.CharField(
         max_length=20, choices=LINK_TYPES,
@@ -287,7 +288,7 @@ class EmailTaskLink(models.Model):
     class Meta:
         verbose_name = 'Связь письма с задачей'
         verbose_name_plural = 'Связи писем с задачами'
-        unique_together = [['email', 'task']]
+        unique_together = [['email', 'task_node']]
 
     def __str__(self):
-        return f'{self.email} ↔ {self.task}'
+        return f'{self.email} ↔ {self.task_node}'

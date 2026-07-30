@@ -68,12 +68,7 @@ class Email(models.Model):
         verbose_name="Тип информации",
         null=True, blank=True,
     )
-    parent = models.ForeignKey(
-        'ProjectTDL.Task',
-        on_delete=models.CASCADE,
-        verbose_name='Род. Задача',
-        null=True, blank=True
-    )
+
     link = models.CharField(max_length=300, null=True, blank=True, verbose_name='Ссылка')
     subject = models.CharField(max_length=300, null=True, blank=True, verbose_name='Тема письма')
     sender = models.CharField(max_length=300, null=True, blank=True, verbose_name='Отправитель')

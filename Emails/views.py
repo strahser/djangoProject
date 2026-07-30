@@ -11,7 +11,7 @@ from Emails.forms import EmailForm, EmailFilterForm
 from Emails.models import Email, EmailType
 from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
 from email_ui.utils import sanitize_id, sanitize_id_list
-from ProjectTDL.models import Task
+from ProjectTDL.models import TaskNode
 from Emails.ЕmailParser.OutlookEmailCreate import parsing_form_for_e_mail_path, make_folder, process_e_mail, \
     add_form_data_to_data_base
 from Emails.ЕmailParser.ParsingImapEmailToDB import ParsingImapEmailToDB
@@ -72,7 +72,7 @@ class SelectEmailView(View):
         sender_choices = [(sender, sender) for sender in senders]
         form = EmailFilterForm(request.GET, sender_choices=sender_choices)
         emails = Email.objects.all()
-        task = Task.objects.get(pk=task_id)
+        task = TaskNode.objects.get(pk=task_id)
 
         if form.is_valid():
             project_site = form.cleaned_data.get('project_site')
@@ -105,16 +105,15 @@ class SelectEmailView(View):
 
     def post(self, request, task_id):
         selected_email_ids = sanitize_id_list(request.POST.getlist('selected_emails'))
-        task = Task.objects.get(pk=task_id)
+        task = TaskNode.objects.get(pk=task_id)
         emails = Email.objects.filter(id__in=selected_email_ids)
         if 'edit_action' in request.POST:
            edit_url = reverse('edit_email_form')
            return redirect(f'{edit_url}?selected_emails={",".join(selected_email_ids)}&task_id={task_id}')
         else:
             for email in emails:
-                email.parent = task
-                email.save()
-            return redirect(reverse('admin:ProjectTDL_task_change', args=(task_id,)))
+                email.tasks.add(task)
+            return redirect(reverse('admin:ProjectTDL_tasknode_change', args=(task_id,)))
 
 
 class EditEmailFormView(View):
@@ -150,7 +149,4 @@ class EditEmailFormView(View):
 
                 if update_data:
                     emails.update(**update_data)
-            if emails:
-                if emails.first().parent:
-                    return redirect('select_email', task_id=emails.first().parent.id)
         return redirect('select_email', task_id=task_id)

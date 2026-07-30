@@ -12,7 +12,7 @@ from pretty_html_table import pretty_html_table
 
 from AdminUtils import get_standard_display_list
 from ProjectContract.models import Contractor
-from ProjectTDL.models import Task
+from ProjectTDL.models import TaskNode
 from StaticData.models import Status
 from services.DataFrameRender.RenderDfFromModel import create_df_from_model, renamed_dict
 from services.Downloads.ExcelDownload import df_to_excel_in_memory, result_to_excel_add_table
@@ -106,7 +106,7 @@ def create_cash_flow_chart(qs, freq: str = 'd') -> str:
         escape=False,
         border=2,
     )
-    df_cash_flow = create_df_from_model(Task, qs, skip_time_stamps=False) \
+    df_cash_flow = create_df_from_model(TaskNode, qs, skip_time_stamps=False) \
         .drop(['description', 'building_number', 'design_chapter', 'update_stamp'], axis=1)
     per1 = add_period_data_to_column(df_cash_flow, freq)
     per1['tim_dif'] = per1['due_date'] - per1['creation_stamp']
@@ -153,53 +153,19 @@ def rows_highlighter(**kwargs):
     return ""
 
 
-def save_table_django(model: object, qs: object, excluding_list: object = None) -> pd.DataFrame:
-        def save_excel_file() -> HttpResponse:
-            _buffer = df_to_excel_in_memory([df_export], ['analytics_data'])
-            filename = f"Задачи.xlsx"
-            res = HttpResponse(
-                _buffer.getvalue(),  # Gives the Byte string of the Byte Buffer object
-                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-            res['Content-Disposition'] = f'attachment; filename={filename}'  # сохраняем файл и возвращаем данные
-            return res
-
-        def save_html_file():
-            with open(file_path, 'w') as f:
-                html_table_blue_light = pretty_html_table.build_table(df_export, 'blue_dark', escape=False, )
-                html_table_blue_light = html_table_blue_light.replace('\\r\\n', '')
-                f.write(html_table_blue_light)
-
-        df_initial = create_df_from_model(model, qs)
-        df_initial['project_site'] = df_initial['project_site'].apply(lambda x: getattr(x, 'name'))
-        df_initial = df_initial.sort_values('project_site')
-        df_export = df_initial \
-            .filter(get_standard_display_list(model, excluding_list)) \
-            .rename(renamed_dict(Task), axis='columns') \
-            .fillna('')
-        desktop = os.path.normpath(os.path.expanduser("~/Desktop"))
-        file_path = os.path.join(desktop, 'Задачи.html')
-        # экспортируем в ексель
-        result_to_excel_add_table({'задачи': df_export}, os.path.join(desktop, 'Задачи.xlsx'))
-        return df_export
-
 class CheckBoxColumnWithName(tables.CheckBoxColumn):
-    """
-    Кастомный чек бокс.
-
-    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.attrs = {"td__input": {"class": "form-check-input"}}
 
 
-class TaskTable(tables.Table):
+class TaskNodeTable(tables.Table):
     TEMPLATE = '''
         <div class="btn-group" role="group" aria-label="Basic example">
-           <a href="{% url 'admin:ProjectTDL_task_change' record.pk %}" class="btn btn-primary btn-success">📄</a>
+           <a href="{% url 'admin:ProjectTDL_tasknode_change' record.pk %}" class="btn btn-primary btn-success">📄</a>
         </div>
         '''
-    name = tables.LinkColumn('admin:ProjectTDL_task_change', args=[tables.A('pk')], default='Link', empty_values=())
+    name = tables.LinkColumn('admin:ProjectTDL_tasknode_change', args=[tables.A('pk')], default='Link', empty_values=())
     action = tables.TemplateColumn(TEMPLATE, verbose_name='Действия')
     selection = CheckBoxColumnWithName(
         verbose_name=mark_safe('<input type="checkbox" class="form-check-input" id="checkAll">'), accessor="pk",
@@ -218,7 +184,7 @@ class TaskTable(tables.Table):
     def render_action(self, record):
         clone_url = reverse("TaskCloneView", args=[record.pk])
         add_email_url = reverse('select_email', args=[record.pk])
-        delete_url = reverse("admin:ProjectTDL_task_delete", args=[record.pk])
+        delete_url = reverse("admin:ProjectTDL_tasknode_delete", args=[record.pk])
         workspace_url = reverse("task_detail", args=[record.pk])
         return mark_safe(f'''
         <div class="btn-group" role="group" aria-label="Действия">
@@ -252,7 +218,7 @@ class TaskTable(tables.Table):
             return mark_safe(f'<input type="number" class="price-input" data-task-id="{record.pk}" data-field="price" data-order="{record.price if record.price is not None else ""}" value="{record.price if record.price is not None else ""}">')
 
     class Meta:
-        model = Task
+        model = TaskNode
         template_name = "django_tables2/bootstrap.html"
         exclude = ("creation_stamp", 'update_stamp', 'contract', 'description', 'owner', 'category', 'sub_project', 'building_number', 'project_site')
         row_attrs = {

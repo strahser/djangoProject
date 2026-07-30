@@ -5,12 +5,12 @@ from crispy_forms.layout import Layout, Submit, Row, Column
 from django import forms
 from django.forms import ModelForm
 from loguru import logger
-from ProjectTDL.models import Task, SubTask, TaskNode
+from ProjectTDL.models import TaskNode
 
 
 class TaskForm(forms.ModelForm):
     class Meta:
-        model = Task
+        model = TaskNode
         fields = '__all__'
         widgets = {
             'due_date': forms.DateInput(
@@ -19,10 +19,10 @@ class TaskForm(forms.ModelForm):
                        'placeholder': "Date",
                        'onfocus': "(this.type='date')",
                        'onblur': "if(this.value==''){this.type='text'}"
-
                        }
             )
         }
+
 
 
 class TaskAdminUpdateDate(forms.Form):
@@ -38,7 +38,7 @@ class TaskAdminUpdateDate(forms.Form):
 
     # helper.add_input(Submit('submit', "Подтвердить", css_class='btn-success'))
 
-    def update_due_date(self, task: Task):
+    def update_due_date(self, task):
         task.due_date = self.cleaned_data['due_date']
         task.save()
 
@@ -53,7 +53,7 @@ class TaskUpdateValuesForm(ModelForm):
                                                      })
 
     class Meta:
-        model = Task
+        model = TaskNode
         fields = '__all__'
 
     def __init__(self, *args, **kwargs):
@@ -70,7 +70,7 @@ class TaskUpdateValuesForm(ModelForm):
 class TaskAdminUpdate(forms.Form):
     price = forms.FloatField()
 
-    def update_price(self, task: Task):
+    def update_price(self, task):
         task.price = self.cleaned_data['price']
         task.save()
 
@@ -109,7 +109,7 @@ class TaskFilterForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        qs = Task.objects.all()
+        qs = TaskNode.objects.filter(node_type='task')
         self.fields['project_site'] = select_default_widget(qs, 'Площадка', 'project_site')
         self.fields['sub_project'] = select_default_widget(qs, 'Проект', 'sub_project')
         self.fields['status'] = select_default_widget(qs, 'Статус', 'status')
@@ -147,14 +147,12 @@ class TaskFilterForm(forms.Form):
         return _filter_form
 
 
-
 class TaskUpdateForm(forms.ModelForm):
     helper = FormHelper()
-    # helper.form_method = 'POST'
     helper.add_input(Submit('submit', "Подтвердить"))
 
     class Meta:
-        model = Task
+        model = TaskNode
         fields = '__all__'
 
 
@@ -168,18 +166,6 @@ class ScaleForm(forms.Form):
         ],
         initial='day',
     )
-
-
-class SubTaskQuickForm(forms.ModelForm):
-    class Meta:
-        model = SubTask
-        fields = ['name', 'description', 'price', 'due_date']
-        widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Название подзадачи'}),
-            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Описание (необязательно)'}),
-            'price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
-            'due_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-        }
 
 
 class TaskNodeQuickForm(forms.ModelForm):

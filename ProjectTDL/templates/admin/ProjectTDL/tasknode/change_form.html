@@ -1,0 +1,10 @@
+{% extends "admin/change_form.html" %}
+{% block form_top %}
+{% if next_url %}
+<input type="hidden" name="_next" value="{{ next_url }}">
+{% endif %}
+{% if email_id %}
+<input type="hidden" name="_email_id" value="{{ email_id }}">
+{% endif %}
+{{ block.super }}
+{% endblock %}

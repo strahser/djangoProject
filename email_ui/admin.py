@@ -79,6 +79,6 @@ class SavedFilterAdmin(admin.ModelAdmin):
 
 @admin.register(EmailTaskLink)
 class EmailTaskLinkAdmin(admin.ModelAdmin):
-    list_display = ['email', 'task', 'link_type', 'created_at']
+    list_display = ['email', 'task_node', 'link_type', 'created_at']
     list_filter = ['link_type']
-    search_fields = ['email__subject', 'task__name']
+    search_fields = ['email__subject', 'task_node__name']

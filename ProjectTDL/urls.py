@@ -14,4 +14,5 @@ urlpatterns = [
     path("SubTaskCloneView/<int:pk>", views.SubTaskCloneView, name='SubTaskCloneView'),
     path('update_task_field/', views.update_task_field, name='update_task_field'),
     path('reports/custom/', generate_custom_report, name='generate_custom_report'),
+    path('tree/', views.task_tree_view, name='task_tree_view'),
 ]

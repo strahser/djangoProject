@@ -54,5 +54,5 @@ class EmailForm(forms.ModelForm):
 
     class Meta:
         model = Email
-        fields = ['project_site', 'contractor', 'email_type', 'name', 'parent']
+        fields = ['project_site', 'contractor', 'email_type', 'name']
 

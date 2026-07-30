@@ -22,7 +22,7 @@ from Emails.models import Attachment, Email, EmailType, InfoChoices
 from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
 from Emails.ЕmailParser.ParsingImapEmailToDB import ParsingImapEmailToDB
 from ProjectContract.models import Contractor
-from ProjectTDL.models import Task, TaskNode
+from ProjectTDL.models import TaskNode
 from StaticData.models import BuildingType, Category, ProjectSite, Status
 
 from .forms import (
@@ -1508,7 +1508,7 @@ def link_email_to_task(request):
 
     link, created = EmailTaskLink.objects.get_or_create(
         email_id=email_id,
-        task_id=task_id,
+        task_node_id=task_id,
         defaults={
             'link_type': link_type,
             'created_by': request.user,
@@ -1519,7 +1519,7 @@ def link_email_to_task(request):
         'success': True,
         'created': created,
         'link_id': link.id,
-        'task_name': link.task.name,
+        'task_name': link.task_node.name,
     })
 
 
@@ -1582,7 +1582,7 @@ def copy_email(request, pk):
 
 @login_required
 def create_task_from_email(request, pk):
-    """Создать задачу из письма."""
+    """Создать задачу (TaskNode) из письма."""
     email = get_object_or_404(Email, pk=pk)
     if request.method == 'POST':
         from ProjectTDL.forms import TaskForm
@@ -1590,10 +1590,11 @@ def create_task_from_email(request, pk):
         if form.is_valid():
             task = form.save(commit=False)
             task.owner = request.user
+            task.node_type = 'task'
             task.save()
             EmailTaskLink.objects.create(
                 email=email,
-                task=task,
+                task_node=task,
                 link_type='created_from',
                 created_by=request.user,
             )

@@ -13,9 +13,9 @@ from django_tables2 import RequestConfig
 
 from AdminUtils import get_standard_display_list
 from ProjectContract.models import Contractor
-from ProjectTDL.Tables import TaskTable, create_filter_qs, data_filter_qs, StaticFilterSettings
-from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, SubTaskQuickForm, TaskNodeQuickForm
-from ProjectTDL.models import Task, SubTask, TaskNode
+from ProjectTDL.Tables import TaskNodeTable, create_filter_qs, data_filter_qs, StaticFilterSettings
+from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, TaskNodeQuickForm
+from ProjectTDL.models import TaskNode
 from ProjectTDL.reports import ReportGenerator
 from StaticData.models import Status
 from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord, create_df_from_model, ButtonData, \
@@ -28,14 +28,14 @@ def task_action(request):
         if pks: request.session['pks'] = pks
         _form = TaskUpdateValuesForm(request.POST or None)
         if request.session.get('pks', None):
-            all_fields = [f.name for f in Task._meta.fields]
+            all_fields = [f.name for f in TaskNode._meta.fields]
             update_dict = {}
             for k, v in _form.data.items():
                 if k in all_fields and v:
                     update_dict[k] = v
             if update_dict:
                 try:
-                    selected_objects = Task.objects.filter(pk__in=request.session.get('pks'))
+                    selected_objects = TaskNode.objects.filter(pk__in=request.session.get('pks'))
                     selected_objects.update(**update_dict)
                     request.session['pks'] = None
                     for data in selected_objects:
@@ -56,24 +56,16 @@ def task_action(request):
 
 
 def custom_task_view(request):
-    # получаем все объекты
-    qs = Task.objects.all().select_related(*StaticFilterSettings.filtered_value_list)
+    qs = TaskNode.objects.filter(node_type='task').select_related(*StaticFilterSettings.filtered_value_list)
 
-    # получаем фильтры из запроса
     filter_dict = create_filter_qs(request, StaticFilterSettings.filtered_value_list)
-
-    # применяем фильтры
     qs = qs.filter(**filter_dict)
-
-    # применяем фильтр по дате
     qs = qs.filter(**data_filter_qs(request, 'due_date'))
 
+    _form = TaskFilterForm(request.POST or None)
 
-    _form = TaskFilterForm(request.POST or None)  # Инициализация формы сразу
-
-    table = TaskTable(qs)
+    table = TaskNodeTable(qs)
     RequestConfig(request).configure(table)
-
 
     pivot_table_list = []
     gant_table = ''
@@ -83,23 +75,20 @@ def custom_task_view(request):
             for name, _column in zip(StaticFilterSettings.pivot_columns_names,
                                      StaticFilterSettings.pivot_columns_values):
                 pivot_table1 = {"name": name,
-                                'table': create_pivot_table(Task, qs, StaticFilterSettings.replaced_list, _column)}
+                                'table': create_pivot_table(TaskNode, qs, StaticFilterSettings.replaced_list, _column)}
                 pivot_table_list.append(pivot_table1)
 
-
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':  # проверка, что запрос AJAX
-            return render(request, 'ProjectTDL/custom_table_view.html', {'table': table,  'form': _form})
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return render(request, 'ProjectTDL/custom_table_view.html', {'table': table, 'form': _form})
 
         if 'save_attachments' in request.POST and _form.is_valid():
-            # export_table = TaskTable.Save_table_django(Task, qs, excluding_list=StaticFilterSettings.export_excluding_list)
-            df_initial = create_df_from_model(Task, qs)
+            df_initial = create_df_from_model(TaskNode, qs)
             df_initial['project_site'] = df_initial['project_site'].apply(lambda x: getattr(x, 'name'))
             df_initial = df_initial.sort_values('project_site')
             df_export = df_initial \
-                .filter(get_standard_display_list(Task, excluding_list=StaticFilterSettings.export_excluding_list)) \
-                .rename(renamed_dict(Task), axis='columns') \
+                .filter(get_standard_display_list(TaskNode, excluding_list=StaticFilterSettings.export_excluding_list)) \
+                .rename(renamed_dict(TaskNode), axis='columns') \
                 .fillna('')
-            # Создаем HTTP-ответ с Excel-файлом
             messages.success(request, f"успешно экспортировано {df_export.shape[0]} строк {df_export.shape[1]} столбцов")
             response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             response['Content-Disposition'] = 'attachment; filename="Задачи.xlsx"'
@@ -107,7 +96,7 @@ def custom_task_view(request):
             df_export.to_excel(writer, sheet_name='Задачи', index=False, freeze_panes=(1, 1))
             workbook = writer.book
             worksheet = writer.sheets['Задачи']
-            column_settings = [{'header': column}  for column in df_export]
+            column_settings = [{'header': column} for column in df_export]
             (max_row, max_col) = df_export.shape
             worksheet.add_table(0, 0, max_row, max_col - 1,
                            {'columns': column_settings,
@@ -117,7 +106,6 @@ def custom_task_view(request):
                             'style': 'Table Style Light 8'})
             writer.close()
             return response
-
 
     context = {'form': _form, 'table': table, "gant_table": gant_table, 'pivot_table_list': pivot_table_list,
                'tasks': qs}
@@ -132,7 +120,7 @@ def TaskCloneView(request, pk):
 
 
 def SubTaskCloneView(request, pk):
-    queryset = SubTask.objects.filter(pk=pk)
+    queryset = TaskNode.objects.filter(pk=pk)
     CloneRecord(queryset)
     messages.success(request, f'Запись {queryset.first().name} была скопирована ')
     previous_url = request.META.get('HTTP_REFERER')
@@ -141,7 +129,7 @@ def SubTaskCloneView(request, pk):
 
 
 class TaskDeleteView(DeleteView):
-    model = Task
+    model = TaskNode
     template_name = 'ProjectTDL/Delete_Form.html'
 
     def get_context_data(self, **kwargs):
@@ -159,7 +147,7 @@ class TaskDeleteView(DeleteView):
 
 
 class TaskUpdateView(UpdateView):
-    model = Task
+    model = TaskNode
     form_class = TaskUpdateForm
     template_name = 'ProjectTDL/Update_form.html'
     success_url = reverse_lazy('home')
@@ -167,19 +155,18 @@ class TaskUpdateView(UpdateView):
     def get_context_data(self, **kwargs):
         c_object = self.get_object()
         context = super(TaskUpdateView, self).get_context_data(**kwargs)
-        qs = SubTask.objects.filter(parent__id=c_object.id)
+        qs = c_object.get_children().filter(node_type='subtask')
         if qs:
-            df_initial = create_df_from_model(SubTask, qs)
+            df_initial = create_df_from_model(qs.model, qs)
             button_data_copy = ButtonData('SubTaskCloneView', "pk", name='📄')
             button_data_delete = ButtonData('SubTaskDeleteView', "pk", cls='danger', name='X')
             button_data_update = ButtonData('SubTaskUpdateView', "pk")
-            # переопределяем название задачи - добавляем ссылку на update
             df_initial['name'] = df_initial.apply(lambda x: button_data_update.create_text_link(x['id'], x['name']),
                                                   axis=1)
             button_copy = df_initial.apply(lambda x: button_data_copy.button_link(x['id']), axis=1)
             button_delete = df_initial.apply(lambda x: button_data_delete.button_link(x['id']), axis=1)
             df_initial['действия'] = create_group_button([button_copy, button_delete])
-            data = df_initial.rename(renamed_dict(SubTask), axis='columns').to_html(**HTML_DF_PROPERTY)
+            data = df_initial.rename(renamed_dict(TaskNode), axis='columns').to_html(**HTML_DF_PROPERTY)
             context['data'] = data
         return context
 @require_POST
@@ -216,7 +203,7 @@ def update_task_field(request):
         return JsonResponse({'status': 'error', 'message': str(e)})
 
 class SubTaskUpdateView(UpdateView):
-    model = SubTask
+    model = TaskNode
     template_name = 'ProjectTDL/Universal_update_form.html'
     fields = '__all__'
 
@@ -235,7 +222,6 @@ class SubTaskUpdateView(UpdateView):
 
 
 class SubTaskDeleteView(TaskDeleteView):
-    model = SubTask
     template_name = 'ProjectTDL/Delete_Form.html'
 
 
@@ -275,12 +261,22 @@ def task_detail(request, pk):
         'task': task,
         'subtasks': subtasks,
         'linked_emails': linked_emails,
-        'history': TaskDueDateHistory.objects.filter(task_id=pk).select_related('changed_by'),
+        'history': TaskDueDateHistory.objects.filter(task_node_id=pk).select_related('changed_by'),
         'subtask_form': subtask_form,
         'all_statuses': TaskStatus.objects.all().order_by('name'),
         'subtask_total': task.subtree_price,
     }
     return render(request, 'ProjectTDL/task_detail.html', context)
+
+
+@login_required
+def task_tree_view(request):
+    """MPTT tree view — все задачи и подзадачи в виде дерева."""
+    roots = TaskNode.objects.filter(parent__isnull=True).select_related(
+        'project_site', 'sub_project', 'status', 'contractor'
+    ).prefetch_related('children')
+    context = {'roots': roots}
+    return render(request, 'ProjectTDL/task_tree.html', context)
 
 
 @login_required
@@ -291,13 +287,11 @@ def generate_custom_report(request):
     if not task_ids:
         return HttpResponse("Не выбраны задачи для отчета")
 
-    # Получаем задачи
-    tasks = Task.objects.filter(id__in=task_ids).select_related(
+    tasks = TaskNode.objects.filter(id__in=task_ids).select_related(
         'project_site', 'sub_project', 'building_number__name',
         'design_chapter', 'contractor', 'status', 'category', 'contract'
-    ).prefetch_related('subtask_set', 'due_date_history')
+    ).prefetch_related('due_date_history')
 
-    # Генерируем отчет
     html_report = ReportGenerator.generate_html_report(tasks)
 
     response = HttpResponse(html_report, content_type='text/html')

@@ -107,7 +107,7 @@
         <div class="d-flex align-items-center justify-content-between p-3 border-top">
           <span class="text-muted small">Выбрано: <b id="task-pick-count">0</b></span>
           <div>
-            <a href="{% url 'admin:ProjectTDL_task_add' %}?_next={{ request.GET.next|default:''|urlencode }}&amp;email_id={{ email.pk }}" class="btn btn-outline-success btn-sm me-2">
+            <a href="{% url 'admin:ProjectTDL_tasknode_add' %}?_next={{ request.GET.next|default:''|urlencode }}&amp;email_id={{ email.pk }}" class="btn btn-outline-success btn-sm me-2">
               <i class="bi bi-plus-circle me-1"></i>Создать задачу
             </a>
             <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ request.GET.next|default:'/'|urlencode }}" class="btn btn-outline-secondary btn-sm me-2">Отмена</a>

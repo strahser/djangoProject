@@ -261,7 +261,7 @@ class EmailTaskLinkModelTest(CategoryMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.user = User.objects.create_user('testuser2', 'test2@test.com', 'password')
-        from ProjectTDL.models import Task
+        from ProjectTDL.models import TaskNode
         from StaticData.models import ProjectSite, SubProject
         self.sub_project = SubProject.objects.create(name='Test SubProject')
         self.project = ProjectSite.objects.create(name='Test Project')
@@ -1357,7 +1357,7 @@ class AdminTaskCreationLinkTest(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user('admin_test', 'admin@test.com', 'password')
-        from ProjectTDL.models import Task
+        from ProjectTDL.models import TaskNode
         from StaticData.models import ProjectSite, SubProject
         self.sub_project = SubProject.objects.create(name='Test Sub')
         self.project = ProjectSite.objects.create(name='Test Proj')
@@ -1369,7 +1369,7 @@ class AdminTaskCreationLinkTest(TestCase):
 
     def test_task_admin_links_email_via_emailtasklink(self):
         from ProjectTDL.admin import TaskAdmin
-        from ProjectTDL.models import Task
+        from ProjectTDL.models import TaskNode
 
         task = Task.objects.create(
             owner=self.user,
@@ -1398,11 +1398,11 @@ class AdminTaskURLTest(TestCase):
     """Tests that the admin task add URL resolves correctly."""
 
     def test_admin_task_add_url_resolves(self):
-        url = reverse('admin:ProjectTDL_task_add')
+        url = reverse('admin:ProjectTDL_tasknode_add')
         self.assertTrue(url.startswith('/admin/'))
 
     def test_admin_task_changelist_url_resolves(self):
-        url = reverse('admin:ProjectTDL_task_changelist')
+        url = reverse('admin:ProjectTDL_tasknode_changelist')
         self.assertTrue(url.startswith('/admin/'))
 
     def test_task_detail_url_resolves(self):
@@ -1414,7 +1414,7 @@ class EmailTaskRelationshipTest(TestCase):
     """Tests the M2M relationship between Email and TaskNode."""
 
     def setUp(self):
-        from ProjectTDL.models import TaskNode
+        from ProjectTDL.models import TaskNodeNode
         from StaticData.models import ProjectSite, SubProject
         self.sub_project = SubProject.objects.create(name='Test Sub')
         self.project = ProjectSite.objects.create(name='Test Proj')

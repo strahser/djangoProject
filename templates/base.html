@@ -35,9 +35,10 @@
         --table-stripe: #2a2f3a;
       }
       body {
-        background: var(--bg-body);
+        background: var(--bg-body) !important;
         color: var(--text-color);
         transition: background .3s, color .3s;
+        padding-top: 56px;
       }
       body.dark-mode .table { --bs-table-bg: var(--bg-card); --bs-table-color: var(--text-color); }
       body.dark-mode .text-muted { color: var(--text-muted) !important; }
@@ -49,6 +50,11 @@
         border-bottom: 1px solid rgba(255,255,255,0.05);
         box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         height: 56px;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
       }
       .navbar-custom .navbar-brand { color: #fff; font-size: 18px; text-decoration: none; }
       .nav-links-custom { display: flex; gap: 4px; }
@@ -67,6 +73,8 @@
         background: rgba(255,255,255,0.1);
         border-color: rgba(255,255,255,0.3); color: #fff;
       }
+      #sidebar { top: 56px !important; }
+      #content { top: 56px !important; }
     </style>
 
     {% block custom-css %}{% endblock %}
@@ -87,10 +95,13 @@
         <a href="{% url 'custom_task_view' %}" class="nav-link-custom">
           <i class="bi bi-list-check me-1"></i>Задачи
         </a>
-        <a href="/contract/dashboard/" class="nav-link-custom">
+        <a href="{% url 'task_tree_view' %}" class="nav-link-custom">
+          <i class="bi bi-diagram-3 me-1"></i>Дерево
+        </a>
+        <a href="{% url 'contract_dashboard' %}" class="nav-link-custom">
           <i class="bi bi-file-earmark-text me-1"></i>Контракты
         </a>
-        <a href="/email-ui/" class="nav-link-custom">
+        <a href="{% url 'email_ui:inbox_default' %}" class="nav-link-custom">
           <i class="bi bi-envelope me-1"></i>Письма
         </a>
       </div>
@@ -230,10 +241,16 @@ function toggleNightMode() {
     const icon = document.querySelector('.nav-btn-custom i');
     if (icon) icon.className = isDark ? 'bi bi-sun-fill' : 'bi bi-moon-stars';
 }
-if (localStorage.getItem('base-dark-mode') === '1') {
-    document.body.classList.add('dark-mode');
-    document.querySelector('.nav-btn-custom i')?.classList.replace('bi-moon-stars', 'bi-sun-fill');
-}
+(function() {
+    if (localStorage.getItem('base-dark-mode') === '1') {
+        document.body.classList.add('dark-mode');
+        var el = document.querySelector('.nav-btn-custom i');
+        if (el && el.classList.contains('bi-moon-stars')) {
+            el.classList.remove('bi-moon-stars');
+            el.classList.add('bi-sun-fill');
+        }
+    }
+})();
 </script>
 {% block custom-js %}{% endblock %}
   </body>

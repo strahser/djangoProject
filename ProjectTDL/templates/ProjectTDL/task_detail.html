@@ -50,7 +50,7 @@
         <input type="number" step="0.01" id="td-price" class="form-control form-control-sm" value="{{ task.price|default_if_none:'' }}">
       </div>
       <div class="col-md-4 text-end">
-        <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:ProjectTDL_task_change' task.pk %}"><i class="bi bi-gear me-1"></i>В админке</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:ProjectTDL_tasknode_change' task.pk %}"><i class="bi bi-gear me-1"></i>В админке</a>
         <a class="btn btn-sm btn-outline-secondary" href="{% url 'TaskCloneView' task.pk %}"><i class="bi bi-copy me-1"></i>Клон</a>
       </div>
     </div>

@@ -121,8 +121,10 @@ class ReportGenerator:
                 'updated': task.update_stamp.strftime('%d.%m.%Y %H:%M'),
             }
 
-            # Подзадачи
-            subtasks = task.subtask_set.all()
+            # Подзадачи (TaskNode children)
+            subtasks = getattr(task, 'get_children', lambda: [])()
+            if callable(subtasks):
+                subtasks = subtasks.filter(node_type='subtask') if hasattr(subtasks, 'filter') else []
             subtasks_data = []
             subtask_total = 0
             for subtask in subtasks:
@@ -174,7 +176,7 @@ class ReportGenerator:
         if not admin_url and request:
             try:
                 # Базовый URL админки
-                admin_url = reverse('admin:ProjectTDL_task_changelist')
+                admin_url = reverse('admin:ProjectTDL_tasknode_changelist')
 
                 # Добавляем параметры для сохранения выбранных задач
                 if selected_task_ids:
