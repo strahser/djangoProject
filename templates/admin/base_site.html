@@ -4,18 +4,21 @@
 {% block extrahead %}
 {{ block.super }}
 <style>
-.db-badge {
-    display: inline-block;
-    margin: auto 8px;
-    padding: 2px 10px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 700;
-    line-height: 1.6;
-    text-transform: uppercase;
+.db-switch-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin: auto 4px; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; line-height: 1.6;
+    text-decoration: none; border: 1px solid rgba(255,255,255,0.15);
+    background: transparent; color: #cbd5e1; cursor: pointer;
+    transition: background .2s;
 }
-.db-badge.work { background: #28a745; color: #fff; }
-.db-badge.personal { background: #dc3545; color: #fff; }
+.db-switch-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.db-switch-btn .dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%;
+}
+.db-switch-btn .dot.work { background: #28a745; }
+.db-switch-btn .dot.personal { background: #dc3545; }
 </style>
 {% endblock %}
 
@@ -23,11 +26,14 @@
 {{ block.super }}
 <script>
 (function() {
-    var el = document.createElement('span');
-    el.className = 'db-badge {{ db_mode }}';
-    el.textContent = '{{ db_mode }}';
     var nav = document.querySelector('#jazzy-navbar .navbar-nav.ms-auto');
-    if (nav) nav.prepend(el);
+    if (!nav) return;
+    var a = document.createElement('a');
+    a.href = '{% url "switch_db" %}?next={{ request.get_full_path|urlencode }}';
+    a.className = 'db-switch-btn';
+    a.title = '{% if db_mode == "personal" %}Переключиться на рабочую БД{% else %}Переключиться на личную БД{% endif %}';
+    a.innerHTML = '<span class="dot {{ db_mode }}"></span> {{ db_mode }}';
+    nav.prepend(a);
 })();
 </script>
 {% endblock %}
