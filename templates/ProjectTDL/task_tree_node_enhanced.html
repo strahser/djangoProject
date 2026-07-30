@@ -1,0 +1,43 @@
+{% load static %}
+<li data-id="{{ node.pk }}"
+    data-project-site-id="{{ node.project_site_id|default:'' }}"
+    data-project-site-name="{{ node.project_site.name|default:'' }}"
+    data-sub-project-id="{{ node.sub_project_id|default:'' }}"
+    data-sub-project-name="{{ node.sub_project.name|default:'' }}"
+    data-status-id="{{ node.status_id|default:'' }}"
+    data-status-name="{{ node.status.name|default:'' }}"
+    data-category-id="{{ node.category_id|default:'' }}"
+    data-category-name="{{ node.category.name|default:'' }}"
+    data-contractor-id="{{ node.contractor_id|default:'' }}"
+    data-contractor-name="{{ node.contractor.name|default:'' }}"
+    data-due-date="{{ node.due_date|date:'Y-m-d'|default:'' }}"
+    data-price="{{ node.price|default:'' }}"
+    class="tree-node-row" style="padding-left:{{ depth }}px;">
+  <div class="d-flex align-items-center gap-2 px-3 py-2" style="padding-left:{{ depth|add:24 }}px !important;">
+    <input type="checkbox" class="form-check-input task-checkbox" value="{{ node.pk }}">
+    {% if node.get_children %}
+      <i class="bi bi-chevron-right small tree-toggle"></i>
+    {% else %}
+      <i class="bi bi-dot small text-muted" style="width:1em;"></i>
+    {% endif %}
+    <a href="{% url 'task_detail' node.pk %}" class="fw-semibold text-decoration-none" onclick="event.stopPropagation()">{{ node.name }}</a>
+    <div class="ms-auto d-flex gap-2 align-items-center">
+      {% if node.contractor %}
+        <span class="text-muted small"><i class="bi bi-person me-1"></i>{{ node.contractor.name }}</span>
+      {% endif %}
+      {% if node.status %}
+        <span class="badge bg-info bg-opacity-10 text-info border border-info">{{ node.status.name }}</span>
+      {% endif %}
+      {% if node.price %}
+        <span class="fw-bold small text-success">{{ node.price|floatformat:0 }} ₽</span>
+      {% endif %}
+    </div>
+  </div>
+  {% if node.get_children %}
+    <ul class="list-unstyled mb-0 tree-sublist ms-4 border-start" style="border-color:var(--border-color,#dee2e6);padding-left:8px;">
+      {% for child in node.get_children %}
+        {% include 'ProjectTDL/task_tree_node_enhanced.html' with node=child depth=depth|add:24 %}
+      {% endfor %}
+    </ul>
+  {% endif %}
+</li>

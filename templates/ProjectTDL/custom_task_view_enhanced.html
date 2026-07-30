@@ -1,0 +1,1141 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load render_table from django_tables2 %}
+{% load django_tables2 %}
+{% block head %}
+<style>
+  a { text-decoration: none; color: #007bff; font-weight: normal; }
+  .bottom-edit-panel {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--bg-card, #fff);
+    border-top: 2px solid #ffc107;
+    padding: 12px 15px;
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.12);
+    z-index: 1050;
+    transform: translateY(100%);
+    transition: transform .3s ease;
+  }
+  .bottom-edit-panel.active { transform: translateY(0); }
+  #content-wrapper { padding-bottom: 90px; }
+  .task-checkbox { cursor: pointer; }
+  .view-container { min-height: 200px; }
+  #TaskTable tr { cursor: pointer; }
+  #TaskTable tr.selected-row { background: rgba(var(--bs-primary-rgb), 0.08) !important; }
+  #TaskTable tr.selected-row td { background: transparent; }
+
+  .tree-node-row {
+    border-bottom: 1px solid var(--border-light, #e9ecef);
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .tree-node-row:hover { background: rgba(var(--bs-primary-rgb), 0.04); }
+  .tree-node-row.selected { background: rgba(var(--bs-primary-rgb), 0.1); }
+  body.dark-mode .tree-node-row.selected { background: rgba(255, 193, 7, 0.12); }
+  body.dark-mode #TaskTable tr.selected-row { background: rgba(255, 193, 7, 0.10) !important; }
+  body.dark-mode .tree-node-row { border-color: var(--border-color, #3a4050); }
+  body.dark-mode .tree-node-row:hover { background: rgba(255, 193, 7, 0.05); }
+  body.dark-mode .bottom-edit-panel {
+    background: var(--bg-card, #2d323e);
+    border-top-color: #ffc107;
+  }
+  body.dark-mode .bottom-edit-panel select,
+  body.dark-mode .bottom-edit-panel input {
+    background: var(--bg-body, #1a1d23);
+    color: var(--text-color, #e0e0e0);
+    border-color: var(--border-color, #4a4f5e);
+  }
+  body.dark-mode .table { --bs-table-hover-bg: rgba(255,255,255,0.03); }
+  #TaskTable tbody tr:nth-child(even) td,
+  #TaskTable tbody tr:nth-child(odd) td { background: transparent; }
+  body.dark-mode #TaskTable tbody tr td { color: var(--text-color, #e0e0e0); }
+  body.dark-mode #TaskTable tbody tr:nth-child(even) td { background: transparent; }
+  body.dark-mode #TaskTable tbody tr:nth-child(odd) td { background: transparent; }
+  body.dark-mode #TaskTable thead th {
+    background: var(--bg-table-header, #363b48) !important;
+    color: var(--text-color, #e0e0e0);
+    border-color: var(--border-color, #4a4f5e);
+  }
+  body.dark-mode #TaskTable td {
+    border-color: var(--border-color, #4a4f5e);
+  }
+  body.dark-mode .card { background: var(--bg-card, #2d323e); border-color: var(--border-color, #4a4f5e); }
+  body.dark-mode .bg-light { background: var(--bg-card, #2d323e) !important; }
+
+  .filter-select {
+    min-width: 140px; font-size: 13px; padding: 4px 8px;
+    border-radius: 4px; border: 1px solid var(--border-color, #dee2e6);
+    background: var(--bg-card, #fff); color: var(--text-color, #333);
+  }
+  body.dark-mode .filter-select {
+    background: var(--bg-body, #1a1d23); color: var(--text-color, #e0e0e0); border-color: var(--border-color, #4a4f5e);
+  }
+  .filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+  .filter-row .form-group { display: flex; flex-direction: column; gap: 2px; }
+  .filter-row label { font-size: 11px; color: var(--text-muted, #6c757d); margin: 0; white-space: nowrap; }
+
+  .action-bar {
+    display: none;
+    padding: 10px 16px;
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .action-bar.active { display: flex; }
+  body.dark-mode .action-bar { background: var(--bg-card, #2d323e); border-color: var(--border-color, #4a4f5e); }
+
+  .project-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; align-items: center; }
+  .project-tabs .btn { font-size: 13px; padding: 5px 14px; font-weight: 500; border-radius: 8px; transition: all 0.15s; }
+  .project-tab-close { cursor: pointer; opacity: 0.6; font-size: 16px; line-height: 1; margin-left: 6px; }
+  .project-tab-close:hover { opacity: 1; }
+  .project-tabs .add-btn { font-size: 13px; padding: 5px 12px; line-height: 1.5; }
+  .pin-dropdown { position: absolute; top: 100%; left: 0; z-index: 1060;
+    background: var(--bg-card, #fff); border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    max-height: 250px; overflow-y: auto; min-width: 160px; display: none; }
+  .pin-dropdown.show { display: block; }
+  .pin-dropdown .pin-option { padding: 6px 12px; cursor: pointer; font-size: 13px; }
+  .pin-dropdown .pin-option:hover { background: rgba(var(--bs-primary-rgb), 0.08); }
+  .pin-dropdown .pin-option.pinned::after { content: ' ✓'; color: var(--bs-success, #198754); }
+  body.dark-mode .pin-dropdown { background: var(--bg-card, #2d323e); border-color: var(--border-color, #4a4f5e); }
+  body.dark-mode .pin-dropdown .pin-option:hover { background: rgba(255,193,7,0.08); }
+
+  body.dark-mode .table-container { background: transparent; }
+  body.dark-mode .table-responsive { background: transparent !important; }
+  body.dark-mode #table-wrapper { background: transparent !important; }
+  body.dark-mode .dt-layout-row { background: transparent; }
+  body.dark-mode .dt-layout-cell { background: transparent; }
+  body.dark-mode .dataTables_wrapper .dataTables_info {
+    color: var(--text-muted, #a0a0a0) !important;
+    background: transparent !important;
+  }
+  body.dark-mode .dataTables_wrapper .dataTables_length label {
+    color: var(--text-muted, #a0a0a0) !important;
+  }
+  body.dark-mode .dataTables_wrapper .dataTables_length select {
+    background: var(--bg-body, #1a1d23) !important;
+    color: var(--text-color, #e0e0e0) !important;
+    border-color: var(--border-color, #4a4f5e) !important;
+  }
+  body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button {
+    color: var(--text-color, #e0e0e0) !important;
+    background: transparent !important;
+    border-color: var(--border-color, #4a4f5e) !important;
+  }
+  body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+    background: rgba(255,255,255,0.08) !important;
+    border-color: var(--border-color, #5a5f6e) !important;
+  }
+  body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button.current {
+    background: var(--bg-table-header, #363b48) !important;
+    color: #fff !important;
+    border-color: var(--border-color, #5a5f6e) !important;
+  }
+  body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button.disabled {
+    color: var(--text-muted, #6a6f7e) !important;
+  }
+  body.dark-mode .dt-column-order { color: var(--text-color, #e0e0e0) !important; }
+  body.dark-mode .table > :not(caption) > * > * {
+    background: transparent !important;
+  }
+  body.dark-mode #TaskTable tbody tr {
+    background: transparent !important;
+    color: var(--text-color, #e0e0e0);
+  }
+  body.dark-mode #TaskTable tbody tr:hover {
+    background: rgba(255,255,255,0.03) !important;
+  }
+  #TaskTable tbody tr.even { background: transparent !important; }
+  #TaskTable tbody tr.odd { background: transparent !important; }
+
+  .fk-manage-btn {
+    font-size: 10px; padding: 0 4px; margin-left: 3px; line-height: 1.4;
+  }
+  body.dark-mode .modal-content {
+    background: var(--bg-card, #2d323e);
+    color: var(--text-color, #e0e0e0);
+    border-color: var(--border-color, #4a4f5e);
+  }
+  body.dark-mode .modal-header { border-color: var(--border-color, #4a4f5e); }
+  body.dark-mode .modal-footer { border-color: var(--border-color, #4a4f5e); }
+  body.dark-mode .modal .list-group-item {
+    background: transparent;
+    color: var(--text-color, #e0e0e0);
+    border-color: var(--border-color, #4a4f5e);
+  }
+  body.dark-mode .modal .list-group-item:hover { background: rgba(255,255,255,0.03); }
+  body.dark-mode .modal .btn-close { filter: invert(0.8); }
+  .header-panel {
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border-color, #e9ecef);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    transition: background 0.2s;
+  }
+  body.dark-mode .header-panel {
+    background: var(--bg-card, #2d323e);
+    border-color: var(--border-color, #4a4f5e);
+  }
+  .header-panel .btn { font-weight: 500; padding: 6px 16px; font-size: 13px; transition: all 0.15s; }
+  .header-panel .btn-primary { background: #0d6efd; border-color: #0d6efd; }
+  .header-panel .btn-primary:hover { background: #0b5ed7; box-shadow: 0 2px 8px rgba(13,110,253,0.3); }
+  .header-panel .btn-success { background: #198754; border-color: #198754; }
+  .header-panel .btn-success:hover { background: #157347; box-shadow: 0 2px 8px rgba(25,135,84,0.3); }
+  body.dark-mode .modal .form-control {
+    background: var(--bg-body, #1a1d23);
+    color: var(--text-color, #e0e0e0);
+    border-color: var(--border-color, #4a4f5e);
+  }
+  body.dark-mode #navbar-top { background: var(--bg-card, #2d323e) !important; }
+  body.dark-mode #navbar-top .btn-primary { background: var(--bg-table-header, #363b48); border-color: var(--border-color, #4a4f5e); }
+
+  .tree-line {
+    border-left: 1px solid var(--border-color, #dee2e6);
+    margin-left: 10px;
+  }
+  .tree-vert-line {
+    border-left: 1px dashed var(--border-color, #ddd);
+    position: absolute; left: -10px; top: 0; bottom: 0;
+  }
+  .tree-node-row { position: relative; }
+  .tree-node-row .tree-toggle { cursor: pointer; transition: transform .2s; }
+  .tree-node-row .tree-toggle.expanded { transform: rotate(90deg); }
+  body.dark-mode .tree-line { border-color: var(--border-color, #4a4f5e); }
+  body.dark-mode .tree-vert-line { border-color: var(--border-color, #4a4f5e); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+  <div class="header-panel d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <h3 class="mb-1 fw-bold"><i class="bi bi-kanban me-2" style="color:#ffc107;"></i>Управление задачами</h3>
+      <div class="text-muted small" style="font-size:12px;">Фильтрация, массовое редактирование и управление проектами</div>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#quickTaskModal">
+        <i class="bi bi-plus-lg me-1"></i>Новая задача
+      </button>
+      <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+        <i class="bi bi-gear me-1"></i>Настройки
+      </button>
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#filterCollapse">
+        <i class="bi bi-funnel me-1"></i>Фильтры
+      </button>
+    </div>
+  </div>
+
+  <input type="hidden" id="currentDbMode" value="{{ db_mode }}">
+
+  <div class="project-tabs" id="projectTabs" style="position:relative;">
+    <button class="btn btn-outline-secondary project-tab active" data-id="">Все проекты</button>
+    <button class="btn btn-outline-secondary add-btn" id="pinAddBtn" title="Управление проектами"><i class="bi bi-gear me-1"></i>Проекты</button>
+    <div class="pin-dropdown" id="pinDropdown"></div>
+  </div>
+
+  <div class="mb-2 collapse show" id="filterCollapse">
+    <div class="card card-body py-3 px-4 bg-light" style="border-color: var(--border-color, #dee2e6); border-radius:8px;">
+      <div class="filter-row">
+        <div class="form-group">
+          <label>Площадка</label>
+          <select class="filter-select" name="project_site" data-filter="1">
+            <option value="">Все</option>
+            {% for s in all_project_sites %}
+              <option value="{{ s.pk }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Проект</label>
+          <select class="filter-select" name="sub_project" data-filter="1">
+            <option value="">Все</option>
+            {% for s in all_sub_projects %}
+              <option value="{{ s.pk }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Статус</label>
+          <select class="filter-select" name="status" data-filter="1">
+            <option value="">Все</option>
+            {% for s in all_statuses %}
+              <option value="{{ s.pk }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Категория</label>
+          <select class="filter-select" name="category" data-filter="1">
+            <option value="">Все</option>
+            {% for c in all_categories %}
+              <option value="{{ c.pk }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Ответственный</label>
+          <select class="filter-select" name="contractor" data-filter="1">
+            <option value="">Все</option>
+            {% for c in all_contractors %}
+              <option value="{{ c.pk }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Срок</label>
+          <select class="filter-select" name="due_date" data-filter="1">
+            <option value="">Все</option>
+            <option value="today">Сегодня</option>
+            <option value="week">Эта неделя</option>
+            <option value="past">Просроченные</option>
+          </select>
+        </div>
+        <div class="form-group" style="justify-content:flex-end;">
+          <button class="btn btn-sm btn-outline-secondary" id="filterResetBtn" title="Сбросить"><i class="bi bi-x-circle"></i></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="btn-group" role="group">
+      <input type="radio" class="btn-check" name="viewMode" id="viewFlat" autocomplete="off" checked>
+      <label class="btn btn-outline-primary btn-sm" for="viewFlat"><i class="bi bi-table me-1"></i>Список</label>
+      <input type="radio" class="btn-check" name="viewMode" id="viewTree" autocomplete="off">
+      <label class="btn btn-outline-primary btn-sm" for="viewTree"><i class="bi bi-diagram-3 me-1"></i>Дерево</label>
+    </div>
+    <div class="text-muted small">
+      Записей: <span id="filter-count" class="fw-bold">{{ tasks|length }}</span>
+      &middot; Выбрано: <span id="selected-count" class="fw-bold text-primary">0</span>
+    </div>
+  </div>
+
+  <div class="action-bar" id="actionBar">
+    <span class="text-muted small me-2">Действия с выбранными:</span>
+    <a class="btn btn-sm btn-outline-primary" id="act-open" href="#"><i class="bi bi-folder me-1"></i>Карточка</a>
+    <a class="btn btn-sm btn-outline-success" id="act-clone" href="#"><i class="bi bi-copy me-1"></i>Клонировать</a>
+    <a class="btn btn-sm btn-outline-info" id="act-email" href="#"><i class="bi bi-envelope me-1"></i>Письма</a>
+    <a class="btn btn-sm btn-outline-danger" id="act-delete" href="#"><i class="bi bi-trash me-1"></i>Удалить</a>
+    <a class="btn btn-sm btn-outline-warning" id="act-add-subtask" href="#"><i class="bi bi-diagram-2 me-1"></i>Подзадачу</a>
+  </div>
+
+  <div id="flat-view-container" class="view-container">
+    <form id="main-table-form">
+      {% csrf_token %}
+      <div class="table-responsive rounded shadow-sm" id="table-wrapper">
+        {% render_table table %}
+      </div>
+    </form>
+  </div>
+
+  <div id="tree-view-container" class="view-container d-none">
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <ul class="list-unstyled mb-0 tree-root" id="tree-list">
+          {% include 'ProjectTDL/task_tree_nodes_partial.html' %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="bottom-edit-panel" id="bottomPanel">
+  <div class="container-fluid">
+    <div class="row align-items-end g-2">
+      <div class="col-12 col-md-2">
+        <label class="form-label small text-muted mb-1">
+          Площадка
+          <button class="btn btn-outline-secondary fk-manage-btn" data-model="project_site" title="Управление"><i class="bi bi-gear"></i></button>
+        </label>
+        <select name="project_site" class="form-select form-select-sm bulk-field">
+          <option value="">Не менять</option>
+          {% for s in all_project_sites %}
+            <option value="{{ s.pk }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-2">
+        <label class="form-label small text-muted mb-1">
+          Проект
+          <button class="btn btn-outline-secondary fk-manage-btn" data-model="sub_project" title="Управление"><i class="bi bi-gear"></i></button>
+        </label>
+        <select name="sub_project" class="form-select form-select-sm bulk-field">
+          <option value="">Не менять</option>
+          {% for s in all_sub_projects %}
+            <option value="{{ s.pk }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">
+          Статус
+          <button class="btn btn-outline-secondary fk-manage-btn" data-model="status" title="Управление"><i class="bi bi-gear"></i></button>
+        </label>
+        <select name="status" class="form-select form-select-sm bulk-field">
+          <option value="">Не менять</option>
+          {% for s in all_statuses %}
+            <option value="{{ s.pk }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">
+          Категория
+          <button class="btn btn-outline-secondary fk-manage-btn" data-model="category" title="Управление"><i class="bi bi-gear"></i></button>
+        </label>
+        <select name="category" class="form-select form-select-sm bulk-field">
+          <option value="">Не менять</option>
+          {% for c in all_categories %}
+            <option value="{{ c.pk }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">
+          Ответственный
+          <button class="btn btn-outline-secondary fk-manage-btn" data-model="contractor" title="Управление"><i class="bi bi-gear"></i></button>
+        </label>
+        <select name="contractor" class="form-select form-select-sm bulk-field">
+          <option value="">Не менять</option>
+          {% for c in all_contractors %}
+            <option value="{{ c.pk }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-1">
+        <label class="form-label small text-muted mb-1">Срок</label>
+        <input type="date" name="due_date" class="form-control form-control-sm bulk-field">
+      </div>
+      <div class="col-6 col-md-1">
+        <label class="form-label small text-muted mb-1">Цена</label>
+        <input type="number" step="0.01" name="price" class="form-control form-control-sm bulk-field" placeholder="0">
+      </div>
+      <div class="col-12 col-md-2 d-flex gap-1">
+        <button type="button" id="apply-bulk-update" class="btn btn-primary btn-sm flex-grow-1">
+          <i class="bi bi-check-lg me-1"></i>Применить
+        </button>
+        <button type="button" id="clear-selection" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x-lg"></i></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="fkManageModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="fkManageModalTitle">Управление</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small" id="fkManageAddLabel">Добавить</label>
+          <div class="input-group input-group-sm">
+            <input type="text" class="form-control" id="fkManageInput" placeholder="Название">
+            <button class="btn btn-success" type="button" id="fkManageAddBtn"><i class="bi bi-plus-lg"></i></button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small">Существующие</label>
+          <ul class="list-group list-group-flush" id="fkManageList" style="max-height:300px;overflow-y:auto;"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="quickTaskModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Новая задача</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label small">Название</label>
+          <input type="text" class="form-control form-control-sm" id="qtName" placeholder="Название задачи">
+        </div>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label small">Площадка</label>
+            <select class="form-select form-select-sm" id="qtProjectSite">
+              <option value="">—</option>
+              {% for s in all_project_sites %}
+                <option value="{{ s.pk }}">{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Проект</label>
+            <select class="form-select form-select-sm" id="qtSubProject">
+              <option value="">—</option>
+              {% for s in all_sub_projects %}
+                <option value="{{ s.pk }}">{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Статус</label>
+            <select class="form-select form-select-sm" id="qtStatus">
+              <option value="">—</option>
+              {% for s in all_statuses %}
+                <option value="{{ s.pk }}">{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Категория</label>
+            <select class="form-select form-select-sm" id="qtCategory">
+              <option value="">—</option>
+              {% for c in all_categories %}
+                <option value="{{ c.pk }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Ответственный</label>
+            <select class="form-select form-select-sm" id="qtContractor">
+              <option value="">—</option>
+              {% for c in all_contractors %}
+                <option value="{{ c.pk }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-primary" id="qtCreateBtn">Создать</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="settingsModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Настройки</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" id="settingInheritProps">
+          <label class="form-check-label" for="settingInheritProps">Наследовать свойства от родительской задачи</label>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Порядок новых подзадач</label>
+          <select class="form-select" id="settingNewTaskPosition">
+            <option value="bottom">Внизу списка</option>
+            <option value="top">Вверху списка</option>
+          </select>
+        </div>
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" id="settingDefaultTreeView">
+          <label class="form-check-label" for="settingDefaultTreeView">По умолчанию открывать вид «Дерево»</label>
+        </div>
+        <hr>
+        <label class="form-label fw-semibold">Отображаемые колонки</label>
+        <div id="column-toggles"></div>
+        <hr>
+        <label class="form-label fw-semibold">Поля по умолчанию при создании задачи</label>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="settingDefaultProjectSite">
+          <label class="form-check-label" for="settingDefaultProjectSite">Заполнять площадку из контекста</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="settingDefaultSubProject">
+          <label class="form-check-label" for="settingDefaultSubProject">Заполнять проект из контекста</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="settingDefaultCategory">
+          <label class="form-check-label" for="settingDefaultCategory">Заполнять категорию из контекста</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="settingDefaultStatus">
+          <label class="form-check-label" for="settingDefaultStatus">Заполнять статус из контекста</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="settingDefaultContractor">
+          <label class="form-check-label" for="settingDefaultContractor">Заполнять ответственного из контекста</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+        <button type="button" class="btn btn-primary" id="saveSettingsBtn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block custom-js %}
+<link rel="stylesheet" href="https://cdn.datatables.net/2.0.3/css/dataTables.dataTables.css" />
+<script src="https://cdn.datatables.net/2.0.3/js/dataTables.js"></script>
+<script>
+const FILTER_AJAX_URL = '{% url "filter_tasks_ajax" %}';
+const BULK_UPDATE_URL = '{% url "bulk_update_tasks" %}';
+const MANAGE_REF_URL = '{% url "manage_reference" %}';
+const QUICK_CREATE_URL = '{% url "quick_create_task" %}';
+const QUICK_CREATE_SUBTASK_URL = '{% url "quick_create_subtask" %}';
+const CASCADE_URL = '{% url "cascade_filter_options" %}';
+const PIN_LIST_URL = '{% url "list_pinned_projects" %}';
+const PIN_ADD_URL = '{% url "add_pinned_project" %}';
+const PIN_REMOVE_URL = '{% url "remove_pinned_project" %}';
+const CSRF_TOKEN = $('[name="csrfmiddlewaretoken"]').val();
+
+$.ajaxSetup({ cache: false });
+const FK_LABELS = {
+    project_site: 'Площадка', sub_project: 'Проект', status: 'Статус',
+    category: 'Категория', contractor: 'Ответственный'
+};
+const FK_SELECT_MAP = {
+    project_site: 'project_site', sub_project: 'sub_project', status: 'status',
+    category: 'category', contractor: 'contractor'
+};
+
+$(document).ready(function() {
+    var dbMode = $('#currentDbMode').val();
+    var lastDbMode = localStorage.getItem('task_last_db_mode');
+    if (lastDbMode !== dbMode) {
+        localStorage.removeItem('task_active_project_site');
+        localStorage.setItem('task_last_db_mode', dbMode);
+    }
+    let pinnedProjects = [];
+    let dt = initDataTable();
+    let selectedTasks = new Set();
+    let lastClickedId = null;
+    let activeProjectSite = localStorage.getItem('task_active_project_site') || '';
+
+    $.getJSON(PIN_LIST_URL, function(data) {
+        pinnedProjects = data;
+        renderPinnedTabs();
+        if ($('.filter-select[name="project_site"]').val()) {
+            triggerCascade();
+        }
+    });
+
+    function initDataTable() {
+        if ($.fn.DataTable.isDataTable('#TaskTable')) {
+            $('#TaskTable').DataTable().destroy();
+        }
+        return new DataTable('#TaskTable', {
+            language: { url: "{% static 'DataTables/ru.json' %}" },
+            columnDefs: [{ orderable: false, targets: [0] }],
+            layout: { top2Start: 'pageLength', topStart: 'info' },
+            lengthMenu: [[10, 15, 20, 50, -1], [10, 15, 20, 50, '']]
+        });
+    }
+
+    function updateCounters() {
+        const count = selectedTasks.size;
+        $('#selected-count').text(count);
+        $('#actionBar').toggleClass('active', count === 1);
+        $('#bottomPanel').toggleClass('active', count > 0);
+
+        if (count === 1) {
+            const id = Array.from(selectedTasks)[0];
+            const base = window.location.origin;
+            $('#act-open').attr('href', base + '/task/' + id + '/');
+            $('#act-clone').attr('href', base + '/TaskCloneView/' + id);
+            $('#act-email').attr('href', base + '/select_email/' + id);
+            $('#act-delete').attr('href', base + '/admin/ProjectTDL/tasknode/' + id + '/delete/');
+        }
+
+        if (count === 0) return;
+
+        const ids = Array.from(selectedTasks);
+        const rows = $('[data-id]').filter(function() {
+            return ids.includes($(this).attr('data-id'));
+        });
+
+        function getValues(attr) {
+            const vals = rows.map(function() { return $(this).attr(attr) || ''; }).get().filter(Boolean);
+            const unique = [...new Set(vals)];
+            return unique.length === 1 ? unique[0] : null;
+        }
+
+        function display(attr, selectName) {
+            const val = getValues(attr);
+            const sel = $('select[name="' + selectName + '"]');
+            sel.prop('disabled', false);
+            if (val === null) {
+                sel.val('');
+                sel.find('option:first').text('Разная');
+            } else {
+                const opt = sel.find('option[value="' + val + '"]');
+                if (opt.length) opt.prop('selected', true);
+                else sel.val('');
+                sel.find('option:first').text('Не менять');
+            }
+        }
+
+        const dv = getValues('data-due-date');
+        $('input[name="due_date"]').val(dv || '').attr('placeholder', dv ? '' : 'Разная');
+
+        const pv = getValues('data-price');
+        $('input[name="price"]').val(pv || '').attr('placeholder', pv ? '' : 'Разная');
+
+        display('data-project-site-id', 'project_site');
+        display('data-sub-project-id', 'sub_project');
+        display('data-status-id', 'status');
+        display('data-category-id', 'category');
+        display('data-contractor-id', 'contractor');
+    }
+
+    function toggleOne(id) {
+        selectedTasks.clear();
+        selectedTasks.add(String(id));
+        syncCheckboxes();
+    }
+
+    function toggleRange(from, to) {
+        const ids = [];
+        let capturing = false;
+        $('[data-id]').each(function() {
+            const cur = $(this).attr('data-id');
+            if (cur === from || cur === to) {
+                capturing = !capturing;
+                ids.push(cur);
+                if (!capturing) return false;
+            } else if (capturing) {
+                ids.push(cur);
+            }
+        });
+        if (capturing) ids.push(to);
+        ids.forEach(function(id) { selectedTasks.add(String(id)); });
+        syncCheckboxes();
+    }
+
+    function toggleExtra(id) {
+        if (selectedTasks.has(String(id))) selectedTasks.delete(String(id));
+        else selectedTasks.add(String(id));
+        syncCheckboxes();
+    }
+
+    function syncCheckboxes() {
+        $('.task-checkbox').each(function() {
+            const id = $(this).val();
+            const checked = selectedTasks.has(id);
+            $(this).prop('checked', checked);
+            $(this).closest('tr').toggleClass('selected-row', checked);
+            $(this).closest('.tree-node-row').toggleClass('selected', checked);
+        });
+        $('#checkAll').prop('checked', selectedTasks.size === $('.task-checkbox').length);
+        updateCounters();
+    }
+
+    $(document).on('click', '#TaskTable tbody tr', function(e) {
+        if ($(e.target).is('input, select, button, a, label, .btn, .form-check-input, a *')) return;
+        const id = $(this).attr('data-id');
+        if (!id) return;
+        if (e.shiftKey && lastClickedId) { toggleRange(lastClickedId, id); }
+        else if (e.ctrlKey || e.metaKey) { toggleExtra(id); }
+        else { toggleOne(id); }
+        lastClickedId = id;
+    });
+
+    $(document).on('click', '.tree-node-row', function(e) {
+        if ($(e.target).is('input, select, button, a, label, .btn, .form-check-input, .bi-chevron-right, a *')) return;
+        const id = $(this).attr('data-id');
+        if (!id) return;
+        if (e.shiftKey && lastClickedId) { toggleRange(lastClickedId, id); }
+        else if (e.ctrlKey || e.metaKey) { toggleExtra(id); }
+        else { toggleOne(id); }
+        lastClickedId = id;
+    });
+
+    $(document).on('change', '.task-checkbox', function(e) {
+        const id = $(this).val();
+        if ($(this).is(':checked')) selectedTasks.add(id);
+        else selectedTasks.delete(id);
+        syncCheckboxes();
+    });
+
+    $('#checkAll').on('click', function() {
+        const checked = $(this).is(':checked');
+        selectedTasks.clear();
+        if (checked) {
+            $('.task-checkbox').each(function() { selectedTasks.add($(this).val()); });
+        }
+        syncCheckboxes();
+    });
+
+    $('#clear-selection').on('click', function() {
+        selectedTasks.clear(); syncCheckboxes();
+    });
+
+    $('input[name="viewMode"]').on('change', function() {
+        $('#flat-view-container').toggleClass('d-none', $('#viewTree').is(':checked'));
+        $('#tree-view-container').toggleClass('d-none', $('#viewFlat').is(':checked'));
+    });
+
+    const defaultTree = localStorage.getItem('task_default_view_tree') === 'true';
+    if (defaultTree) { $('#viewTree').prop('checked', true).trigger('change'); }
+
+    let filterTimer = null;
+    $('.filter-select[data-filter="1"]').on('change', function() {
+        if ($(this).attr('name') === 'project_site') renderPinnedTabs();
+        clearTimeout(filterTimer);
+        filterTimer = setTimeout(applyFilters, 250);
+    });
+
+    $('#filterResetBtn').on('click', function() {
+        $('.filter-select').val('');
+        activeProjectSite = '';
+        localStorage.setItem('task_active_project_site', '');
+        renderPinnedTabs();
+        applyFilters();
+    });
+
+    $(document).on('click', '.project-tab[data-id]', function() {
+        const id = $(this).data('id');
+        $('.filter-select[name="project_site"]').val(id);
+        activeProjectSite = id || '';
+        localStorage.setItem('task_active_project_site', activeProjectSite);
+        renderPinnedTabs();
+        triggerCascade();
+    });
+
+    $(document).on('click', '.project-tab-close', function(e) {
+        e.stopPropagation();
+        const id = $(this).closest('.project-tab-specific').data('id');
+        $.post(PIN_REMOVE_URL, { project_site_id: id, csrfmiddlewaretoken: CSRF_TOKEN }, function() {
+            pinnedProjects = pinnedProjects.filter(function(p) { return String(p.id) !== String(id); });
+            $('.filter-select[name="project_site"]').val('');
+            activeProjectSite = '';
+            localStorage.setItem('task_active_project_site', '');
+            renderPinnedTabs();
+            applyFilters();
+        });
+    });
+
+    function renderPinnedTabs() {
+        $('.project-tab-specific').remove();
+        $('.project-tab').removeClass('active');
+        $('.project-tab[data-id=""]').addClass('active');
+        const currentVal = $('.filter-select[name="project_site"]').val();
+        pinnedProjects.forEach(function(p) {
+            const isActive = String(p.id) === String(currentVal);
+            const tab = $('<button class="btn btn-outline-secondary btn-sm project-tab project-tab-specific' + (isActive ? ' active' : '') + '" data-id="' + p.id + '">'
+                + p.name + ' <span class="project-tab-close ms-1">&times;</span></button>');
+            $('#projectTabs').append(tab);
+        });
+    }
+
+    function triggerCascade() {
+        const val = $('.filter-select[name="project_site"]').val();
+        $.getJSON(CASCADE_URL, { project_site: val || '' }, function(data) {
+            ['sub_project', 'status', 'category', 'contractor'].forEach(function(key) {
+                const items = data[key + 's'] || [];
+                const sel = $('.filter-select[name="' + key + '"]');
+                const currentVal = sel.val();
+                const opts = '<option value="">Все</option>' + items.map(function(i) {
+                    return '<option value="' + i.pk + '">' + i.name + '</option>';
+                }).join('');
+                sel.html(opts).val(currentVal);
+            });
+            applyFilters();
+        });
+    }
+
+    function buildPinDropdown() {
+        const pinnedIds = pinnedProjects.map(function(p) { return String(p.id); });
+        const items = [];
+        $('.filter-select[name="project_site"] option').each(function() {
+            const v = $(this).val();
+            if (!v) return;
+            const isPinned = pinnedIds.includes(v);
+            items.push('<div class="pin-option' + (isPinned ? ' pinned' : '') + '" data-id="' + v + '">' + $(this).text() + '</div>');
+        });
+        items.push('<div class="dropdown-divider" style="border-top:1px solid var(--border-color,#dee2e6);margin:4px 0;"></div>');
+        items.push('<div class="dropdown-item text-success fw-semibold new-project-site-btn" style="cursor:pointer;padding:6px 12px;font-size:13px;"><i class="bi bi-plus-circle me-1"></i>Новый проект</div>');
+        $('#pinDropdown').html(items.join(''));
+    }
+
+    $(document).on('click', '#pinAddBtn', function(e) {
+        e.stopPropagation();
+        buildPinDropdown();
+        $('#pinDropdown').toggleClass('show');
+    });
+
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('#pinAddBtn, #pinDropdown').length) {
+            $('#pinDropdown').removeClass('show');
+        }
+    });
+
+    $(document).on('click', '.pin-option', function() {
+        const id = $(this).data('id');
+        const name = $(this).text().replace(' ✓', '');
+        const pinnedIds = pinnedProjects.map(function(p) { return String(p.id); });
+        const isUnpin = pinnedIds.includes(String(id));
+        const url = isUnpin ? PIN_REMOVE_URL : PIN_ADD_URL;
+        $.post(url, { project_site_id: id, csrfmiddlewaretoken: CSRF_TOKEN }, function() {
+            if (isUnpin) {
+                pinnedProjects = pinnedProjects.filter(function(p) { return String(p.id) !== String(id); });
+            } else {
+                pinnedProjects.push({id: id, name: name});
+            }
+            buildPinDropdown();
+            renderPinnedTabs();
+            if (isUnpin) {
+                $('.filter-select[name="project_site"]').val('');
+                activeProjectSite = '';
+                localStorage.setItem('task_active_project_site', '');
+                renderPinnedTabs();
+                applyFilters();
+            }
+        });
+    });
+
+    function applyFilters() {
+        const params = {};
+        $('.filter-select').each(function() {
+            const v = $(this).val();
+            if (v) params[$(this).attr('name')] = v;
+        });
+        $.getJSON(FILTER_AJAX_URL, params, function(data) {
+            $('#table-wrapper').html(data.table);
+            $('#tree-list').html(data.tree);
+            $('#filter-count').text(data.count);
+            dt = initDataTable();
+            selectedTasks.clear(); syncCheckboxes();
+        });
+    }
+
+    $('#apply-bulk-update').on('click', function() {
+        if (selectedTasks.size === 0) { alert('Выберите хотя бы одну задачу'); return; }
+        const params = {};
+        params.task_ids = Array.from(selectedTasks);
+        $('.bulk-field').each(function() {
+            const v = $(this).val();
+            if (v) params[$(this).attr('name')] = v;
+        });
+        const btn = $(this).html('<span class="spinner-border spinner-border-sm"></span>').prop('disabled', true);
+        $.ajax({
+            url: BULK_UPDATE_URL, type: 'POST',
+            data: $.param(params, true),
+            headers: { 'X-CSRFToken': CSRF_TOKEN },
+            success: function(resp) {
+                if (resp.status === 'ok') {
+                    $('.bulk-field').val(''); $('#clear-selection').trigger('click');
+                    location.reload();
+                } else { alert(': ' + resp.message); }
+            },
+            error: function() { alert(''); },
+            complete: function() { btn.html('<i class="bi bi-check-lg me-1"></i>').prop('disabled', false); }
+        });
+    });
+
+    if (activeProjectSite) {
+        $('.filter-select[name="project_site"]').val(activeProjectSite);
+    }
+    renderPinnedTabs();
+
+    let currentFkModel = '';
+
+    function openFkManage(model) {
+        currentFkModel = model;
+        $('#fkManageModalTitle').text(' : ' + (FK_LABELS[model] || model));
+        $('#fkManageAddLabel').text(' ' + (FK_LABELS[model] || ''));
+        $('#fkManageInput').val('');
+        loadFkList();
+        $('#fkManageModal').modal('show');
+    }
+
+    $(document).on('click', '.fk-manage-btn', function() {
+        openFkManage($(this).data('model'));
+    });
+
+    $(document).on('click', '.new-project-site-btn', function(e) {
+        e.stopPropagation();
+        openFkManage('project_site');
+    });
+
+    function loadFkList() {
+        $.getJSON(MANAGE_REF_URL, {model: currentFkModel}, function(data) {
+            const items = (data.objects || []).map(function(o) {
+                return '<li class="list-group-item d-flex justify-content-between align-items-center py-1">'
+                    + o.name
+                    + '<button class="btn btn-outline-danger btn-sm fk-del-btn" data-id="' + o.pk + '"><i class="bi bi-trash"></i></button>'
+                    + '</li>';
+            }).join('');
+            $('#fkManageList').html(items || '<li class="list-group-item text-muted py-1"></li>');
+        });
+    }
+
+    $('#fkManageAddBtn').on('click', function() {
+        const name = $('#fkManageInput').val().trim();
+        if (!name) return;
+        $.ajax({
+            url: MANAGE_REF_URL, type: 'POST',
+            data: { action: 'add', name: name, model: currentFkModel },
+            headers: { 'X-CSRFToken': CSRF_TOKEN },
+            success: function(resp) {
+                if (resp.status === 'ok') {
+                    $('#fkManageInput').val('');
+                    loadFkList();
+                    reloadFkSelects();
+                } else { alert(resp.message); }
+            }
+        });
+    });
+
+    $(document).on('click', '.fk-del-btn', function() {
+        if (!confirm(' ?')) return;
+        const id = $(this).data('id');
+        $.ajax({
+            url: MANAGE_REF_URL, type: 'POST',
+            data: { action: 'delete', id: id, model: currentFkModel },
+            headers: { 'X-CSRFToken': CSRF_TOKEN },
+            success: function(resp) {
+                if (resp.status === 'ok') { loadFkList(); reloadFkSelects(); }
+                else { alert(resp.message); }
+            }
+        });
+    });
+
+    function reloadFkSelects() {
+        $.getJSON(MANAGE_REF_URL, {model: currentFkModel}, function(data) {
+            const selectName = FK_SELECT_MAP[currentFkModel];
+            if (!selectName) return;
+            const opts = '<option value="">   </option>' + (data.objects || []).map(function(o) {
+                return '<option value="' + o.pk + '">' + o.name + '</option>';
+            }).join('');
+            $('select[name="' + selectName + '"]').html(opts).val('');
+        });
+    }
+
+    $('#quickTaskModal').on('show.bs.modal', function() {
+        $('#qtName').val('');
+        $('#qtProjectSite, #qtSubProject, #qtStatus, #qtCategory, #qtContractor').val('');
+
+        const prefillMap = {
+            qtProjectSite: ['task_default_project_site', 'project_site'],
+            qtSubProject: ['task_default_sub_project', 'sub_project'],
+            qtCategory: ['task_default_category', 'category'],
+            qtStatus: ['task_default_status', 'status'],
+            qtContractor: ['task_default_contractor', 'contractor'],
+        };
+
+        for (const [elId, [lsKey, filterName]] of Object.entries(prefillMap)) {
+            if (localStorage.getItem(lsKey) === 'true') {
+                const filterVal = $('select[name="' + filterName + '"]').val();
+                if (filterVal) $('#' + elId).val(filterVal);
+            }
+        }
+        if (!localStorage.getItem('task_default_project_site') === 'true' && activeProjectSite) {
+            $('#qtProjectSite').val(activeProjectSite);
+        }
+    });
+
+    $('#qtCreateBtn').on('click', function() {
+        const name = $('#qtName').val().trim();
+        if (!name) { alert(' '); return; }
+        const btn = $(this).html('<span class="spinner-border spinner-border-sm"></span>').prop('disabled', true);
+        $.ajax({
+            url: QUICK_CREATE_URL, type: 'POST',
+            data: {
+                name: name,
+                project_site: $('#qtProjectSite').val(),
+                sub_project: $('#qtSubProject').val(),
+                status: $('#qtStatus').val(),
+                category: $('#qtCategory').val(),
+                contractor: $('#qtContractor').val(),
+            },
+            headers: { 'X-CSRFToken': CSRF_TOKEN },
+            success: function(resp) {
+                if (resp.status === 'ok') {
+                    $('#quickTaskModal').modal('hide');
+                    location.reload();
+                } else { alert(resp.message); }
+            },
+            error: function() { alert(''); },
+            complete: function() { btn.html('').prop('disabled', false); }
+        });
+    });
+
+    function buildColumnToggles() {
+        if (!dt) return;
+        const container = $('#column-toggles').empty();
+        dt.columns().every(function() {
+            const idx = this.index();
+            const header = $(this.header()).text().trim();
+            if (!header || idx === 0) return;
+            const visible = this.visible();
+            const saved = localStorage.getItem('col_visible_' + idx);
+            const isChecked = saved !== null ? (saved === 'true') : visible;
+            this.visible(isChecked);
+            const chk = $('<div class="form-check"><input class="form-check-input col-toggle" type="checkbox" data-col="' + idx + '" ' + (isChecked ? 'checked' : '') + '><label class="form-check-label">' + header + '</label></div>');
+            container.append(chk);
+        });
+        $('.col-toggle').off('change').on('change', function() {
+            const col = dt.column($(this).data('col'));
+            col.visible($(this).is(':checked'));
+            localStorage.setItem('col_visible_' + $(this).data('col'), $(this).is(':checked'));
+        });
+    }
+
+    $('#saveSettingsBtn').on('click', function() {
+        localStorage.setItem('task_inherit_props', $('#settingInheritProps').is(':checked'));
+        localStorage.setItem('task_new_position', $('#settingNewTaskPosition').val());
+        localStorage.setItem('task_default_view_tree', $('#settingDefaultTreeView').is(':checked'));
+        localStorage.setItem('task_default_project_site', $('#settingDefaultProjectSite').is(':checked'));
+        localStorage.setItem('task_default_sub_project', $('#settingDefaultSubProject').is(':checked'));
+        localStorage.setItem('task_default_category', $('#settingDefaultCategory').is(':checked'));
+        localStorage.setItem('task_default_status', $('#settingDefaultStatus').is(':checked'));
+        localStorage.setItem('task_default_contractor', $('#settingDefaultContractor').is(':checked'));
+        $('#settingsModal').modal('hide');
+    });
+
+    $('#settingsModal').on('show.bs.modal', function() {
+        $('#settingInheritProps').prop('checked', localStorage.getItem('task_inherit_props') === 'true');
+        $('#settingNewTaskPosition').val(localStorage.getItem('task_new_position') || 'bottom');
+        $('#settingDefaultTreeView').prop('checked', localStorage.getItem('task_default_view_tree') === 'true');
+        $('#settingDefaultProjectSite').prop('checked', localStorage.getItem('task_default_project_site') === 'true');
+        $('#settingDefaultSubProject').prop('checked', localStorage.getItem('task_default_sub_project') === 'true');
+        $('#settingDefaultCategory').prop('checked', localStorage.getItem('task_default_category') === 'true');
+        $('#settingDefaultStatus').prop('checked', localStorage.getItem('task_default_status') === 'true');
+        $('#settingDefaultContractor').prop('checked', localStorage.getItem('task_default_contractor') === 'true');
+        buildColumnToggles();
+    });
+
+    $(document).on('click', '#act-add-subtask', function(e) {
+        e.preventDefault();
+        const ids = Array.from(selectedTasks);
+        if (ids.length !== 1) { alert('Выберите одну задачу'); return; }
+        const name = prompt('Название подзадачи:');
+        if (!name) return;
+        $.ajax({
+            url: QUICK_CREATE_SUBTASK_URL, type: 'POST',
+            data: { parent_id: ids[0], name: name },
+            headers: { 'X-CSRFToken': CSRF_TOKEN },
+            success: function(resp) {
+                if (resp.status === 'ok') { location.reload(); }
+                else { alert(resp.message); }
+            },
+            error: function() { alert('Ошибка'); }
+        });
+    });
+
+    $(document).on('change', '.filter-select[name="project_site"]', triggerCascade);
+
+    $(document).on('click', '.tree-toggle', function(e) {
+        e.stopPropagation();
+        const li = $(this).closest('.tree-node-row');
+        const sublist = li.find('> .tree-sublist');
+        sublist.toggleClass('d-none');
+        $(this).toggleClass('expanded');
+    });
+});
+</script>
+{% endblock %}

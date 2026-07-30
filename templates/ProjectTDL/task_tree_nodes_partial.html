@@ -1,0 +1,6 @@
+{% load static %}
+{% for root in tree_roots %}
+  {% include 'ProjectTDL/task_tree_node_enhanced.html' with node=root depth=0 %}
+{% empty %}
+  <li class="p-3 text-muted">Нет задач, удовлетворяющих фильтру</li>
+{% endfor %}
