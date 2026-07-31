@@ -92,6 +92,8 @@ INSTALLED_APPS = [
     'email_ui',
     'TelegramParser',
 ]
+LOGIN_URL = '/login'
+LOGIN_REDIRECT_URL = '/'
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 AUTOSAVE_PERIOD =1440 #minutes (1 раз в сутки)
 BACKUP_KEEP_VERSIONS = 2
