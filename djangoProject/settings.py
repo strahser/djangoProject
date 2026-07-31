@@ -261,8 +261,6 @@ JAZZMIN_UI_TWEAKS = {
 
 IMPORT_EXPORT_ESCAPE_HTML_ON_EXPORT = True
 IMPORT_EXPORT_FORMATS = [XLSX, JSON, HTML]
-FILE_UPLOAD_HANDLERS = ("django_excel.ExcelMemoryFileUploadHandler",
-                        "django_excel.TemporaryExcelFileUploadHandler")
 
 DJANGO_TABLES2_TABLE_ATTRS = {
     'class': 'table table-striped table-bordered',

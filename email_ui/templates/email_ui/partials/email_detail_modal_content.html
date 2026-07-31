@@ -1,4 +1,4 @@
-{% load email_filters %}
+{% load email_filters l10n %}
 <!-- Header -->
 <div class="modal-header d-flex align-items-center">
     <h5 class="modal-title text-truncate me-3">
@@ -35,7 +35,7 @@
         </button>
         <div class="vr"></div>
         <!-- Теги -->
-        <span id="email-tags-{{ email.pk }}" class="d-flex align-items-center gap-1 flex-wrap">
+        <span id="email-tags-{{ email.pk|unlocalize }}" class="d-flex align-items-center gap-1 flex-wrap">
             {% for et in email.email_tags.all %}
             <span class="badge rounded-pill" style="background-color: {{ et.tag.color }}">
                 {{ et.tag.name }}
@@ -49,7 +49,7 @@
             </button>
             <ul class="dropdown-menu">
                 {% for tag in all_tags %}
-                <li><a class="dropdown-item" href="#" onclick="assignTag({{ email.pk }}, {{ tag.id }}, '{{ tag.name }}', '{{ tag.color }}')">{{ tag.name }}</a></li>
+                <li><a class="dropdown-item" href="#" onclick="assignTag({{ email.pk|unlocalize }}, {{ tag.id|unlocalize }}, '{{ tag.name }}', '{{ tag.color }}')">{{ tag.name }}</a></li>
                 {% empty %}
                 <li><span class="dropdown-item text-muted">Нет тегов</span></li>
                 {% endfor %}

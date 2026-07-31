@@ -1,4 +1,5 @@
 <!-- ProjectTDL/templates/ProjectTDL/report_content.html -->
+{% load l10n %}
 <div class="header">
     <h1>📊 Отчет по задачам</h1>
     <p>
@@ -104,7 +105,7 @@
         <tbody>
             {% for content in html_content %}
             {% with task=content.task %}
-            <tr id="summary-row-{{ task.id }}" data-task-id="{{ task.id }}" onclick="scrollToTask({{ task.id }})" style="cursor: pointer;">
+            <tr id="summary-row-{{ task.id|unlocalize }}" data-task-id="{{ task.id|unlocalize }}" onclick="scrollToTask({{ task.id|unlocalize }})" style="cursor: pointer;">
                 <td><strong>{{ task.id }}</strong></td>
                 <td>{{ task.name }}</td>
                 <td>{{ task.project }}</td>
@@ -115,8 +116,8 @@
                 <td>{{ content.subtask_count }}</td>
                 <td>{{ content.history_count }}</td>
                 <td>
-                    <button onclick="toggleTaskDetails({{ task.id }}, event)" class="expand-button" id="summary-btn-{{ task.id }}">Подробнее</button>
-                    <span class="jump-to-task" onclick="scrollToTaskDetails({{ task.id }}, event)">↗</span>
+                    <button onclick="toggleTaskDetails({{ task.id|unlocalize }}, event)" class="expand-button" id="summary-btn-{{ task.id|unlocalize }}">Подробнее</button>
+                    <span class="jump-to-task" onclick="scrollToTaskDetails({{ task.id|unlocalize }}, event)">↗</span>
                 </td>
             </tr>
             {% endwith %}
@@ -142,7 +143,7 @@
 
 {% for content in html_content %}
 {% with task=content.task %}
-<div class="task-block" id="task-details-{{ task.id }}">
+<div class="task-block" id="task-details-{{ task.id|unlocalize }}">
     <div class="task-header">
         <h3>Задача #{{ forloop.counter }}: {{ task.name }} <small>(ID: {{ task.id }})</small></h3>
         <p><strong>Проект:</strong> {{ task.project }} |
@@ -150,7 +151,7 @@
         <strong>Срок:</strong> {{ task.due_date }}</p>
 
         <div class="task-nav">
-            <button onclick="toggleThisTask({{ task.id }})" class="nav-button" id="toggle-btn-{{ task.id }}">▼ Развернуть</button>
+            <button onclick="toggleThisTask({{ task.id|unlocalize }})" class="nav-button" id="toggle-btn-{{ task.id|unlocalize }}">▼ Развернуть</button>
             <button onclick="scrollToSummary()" class="nav-button">↑ К сводной</button>
             <button onclick="scrollToTop()" class="nav-button">⬆ Наверх</button>
             {% if admin_url %}

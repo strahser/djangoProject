@@ -1,4 +1,4 @@
-<form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
+{% load l10n %}<form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
       hx-target="#emailModalContent" hx-swap="innerHTML"
       enctype="multipart/form-data" id="compose-form">
     {% csrf_token %}
@@ -73,13 +73,13 @@
                 <div class="section-body show">
                     <ul class="list-unstyled mb-2" id="forward-attachments-list">
                         {% for att in forward_attachments %}
-                        <li class="d-flex justify-content-between align-items-center py-1 attachment-item" data-att-id="{{ att.pk }}">
+                        <li class="d-flex justify-content-between align-items-center py-1 attachment-item" data-att-id="{{ att.pk|unlocalize }}">
                             <div>
                                 <i class="bi {{ att.icon_class }} me-1"></i>
                                 <span>{{ att.filename }}</span>
                                 <small class="text-muted">({{ att.size|filesizeformat }})</small>
                             </div>
-                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeForwardAttachment(this, {{ att.pk }})" title="Не пересылать">
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeForwardAttachment(this, {{ att.pk|unlocalize }})" title="Не пересылать">
                                 <i class="bi bi-trash"></i> Удалить
                             </button>
                         </li>

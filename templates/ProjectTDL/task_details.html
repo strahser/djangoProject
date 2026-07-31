@@ -1,5 +1,6 @@
 <!-- ProjectTDL/templates/ProjectTDL/task_details.html -->
-<div class="task-block" id="task-details-{{ task.id }}">
+{% load l10n %}
+<div class="task-block" id="task-details-{{ task.id|unlocalize }}">
     <div class="task-header">
         <h3>Задача #{{ forloop.counter }}: {{ task.name }} <small>(ID: {{ task.id }})</small></h3>
         <p><strong>Проект:</strong> {{ task.project }} |
@@ -7,7 +8,7 @@
         <strong>Срок:</strong> {{ task.due_date }}</p>
 
         <div class="task-nav">
-            <button onclick="toggleThisTask({{ task.id }})" class="nav-button" id="toggle-btn-{{ task.id }}">▼ Развернуть</button>
+            <button onclick="toggleThisTask({{ task.id|unlocalize }})" class="nav-button" id="toggle-btn-{{ task.id|unlocalize }}">▼ Развернуть</button>
             <button onclick="scrollToSummary()" class="nav-button">↑ К сводной</button>
             <button onclick="scrollToTop()" class="nav-button">⬆ Наверх</button>
         </div>

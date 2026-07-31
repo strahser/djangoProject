@@ -1,5 +1,5 @@
 {% extends "email_ui/base.html" %}
-{% load email_filters %}
+{% load email_filters l10n %}
 {% block sidebar_wrapper %}{% endblock %}
 {% block content %}
 <div class="container-fluid p-4">
@@ -28,7 +28,7 @@
             <i class="bi {% if email.is_important %}bi-star-fill{% else %}bi-star{% endif %}"></i>
         </button>
         <div class="vr mx-1" style="border-color:var(--border-color);"></div>
-        <span id="email-tags-{{ email.pk }}" class="d-flex align-items-center gap-1 flex-wrap">
+        <span id="email-tags-{{ email.pk|unlocalize }}" class="d-flex align-items-center gap-1 flex-wrap">
             {% for et in email.email_tags.all %}
             <span class="badge rounded-pill bg-warning text-dark" style="background-color:{{ et.tag.color }}">
                 {{ et.tag.name }}
@@ -40,7 +40,7 @@
             <button class="btn btn-outline-primary btn-sm py-0" data-bs-toggle="dropdown"><i class="bi bi-tag"></i></button>
             <ul class="dropdown-menu">
                 {% for tag in all_tags %}
-                <li><a class="dropdown-item" href="#" onclick="assignTag({{ email.pk }},{{ tag.id }},'{{ tag.name }}','{{ tag.color }}')">{{ tag.name }}</a></li>
+                <li><a class="dropdown-item" href="#" onclick="assignTag({{ email.pk|unlocalize }},{{ tag.id|unlocalize }},'{{ tag.name }}','{{ tag.color }}')">{{ tag.name }}</a></li>
                 {% empty %}<li><span class="dropdown-item text-muted">Нет тегов</span></li>
                 {% endfor %}
             </ul>

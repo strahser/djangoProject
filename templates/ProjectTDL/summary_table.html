@@ -1,4 +1,5 @@
 <!-- ProjectTDL/templates/ProjectTDL/summary_table.html -->
+{% load l10n %}
 <div class="summary-section" id="summary-section">
     <h2 class="section-title">📋 Сводная таблица задач</h2>
     <div style="margin-bottom: 15px;">
@@ -25,7 +26,7 @@
         <tbody>
             {% for content in html_content %}
             {% with task=content.task %}
-            <tr id="summary-row-{{ task.id }}" data-task-id="{{ task.id }}" onclick="scrollToTask({{ task.id }})" style="cursor: pointer;">
+            <tr id="summary-row-{{ task.id|unlocalize }}" data-task-id="{{ task.id|unlocalize }}" onclick="scrollToTask({{ task.id|unlocalize }})" style="cursor: pointer;">
                 <td><strong>{{ task.id }}</strong></td>
                 <td>{{ task.name }}</td>
                 <td>{{ task.project }}</td>
@@ -36,8 +37,8 @@
                 <td>{{ content.subtask_count }}</td>
                 <td>{{ content.history_count }}</td>
                 <td>
-                    <button onclick="toggleTaskDetails({{ task.id }}, event)" class="expand-button">Подробнее</button>
-                    <span class="jump-to-task" onclick="scrollToTaskDetails({{ task.id }}, event)">↗</span>
+                    <button onclick="toggleTaskDetails({{ task.id|unlocalize }}, event)" class="expand-button">Подробнее</button>
+                    <span class="jump-to-task" onclick="scrollToTaskDetails({{ task.id|unlocalize }}, event)">↗</span>
                 </td>
             </tr>
             {% endwith %}
