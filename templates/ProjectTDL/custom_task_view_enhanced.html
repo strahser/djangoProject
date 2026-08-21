@@ -1031,8 +1031,7 @@ $(document).ready(function() {
     }
 
     function _setColumnWidth(idx, w) {
-        // Пользователь задаёт ВИЗУАЛЬНУЮ ширину; переводим в базовую с учётом
-        // текущего коэффициента заполнения. Ключ — ИМЯ колонки, не позиция:
+        // Ширина задаётся как есть (1:1), без пересчётов. Ключ — ИМЯ колонки:
         // colReorder может переставить th в любой момент.
         const wrapper = document.querySelector('#table-wrapper');
         if (!wrapper) return;
@@ -1040,13 +1039,8 @@ $(document).ready(function() {
         const th = headTable ? headTable.querySelectorAll('thead th')[idx] : null;
         if (!th) return;
         const nm = idx === 0 ? '__check__' : th.textContent.trim();
-        const sb = wrapper.querySelector('.dt-scroll-body');
-        const avail = sb ? sb.clientWidth : 0;
-        const base = window.__baseByName || {};
-        let sum = 0;
-        for (const k in base) sum += base[k] || 0;
-        const kk = (avail > sum && sum > 0) ? avail / sum : 1;
-        base[nm] = Math.max(20, Math.round(w / kk));
+        if (!window.__baseByName) window.__baseByName = {};
+        window.__baseByName[nm] = Math.max(20, Math.round(w));
         _syncTablesTotalWidth(wrapper);
     }
 
@@ -1056,33 +1050,23 @@ $(document).ready(function() {
         table.querySelectorAll('col').forEach(function(c) { s += parseFloat(c.style.width) || 0; });
         return s;
     }
-    // Рендер: базовые ширины (__baseByName, ключ — имя колонки) масштабируются
-    // на контейнер. Итерация по ФАКТИЧЕСКИМ th: перестановка colReorder
-    // автоматически подхватывается при следующем рендере.
+    // Рендер: базовые ширины (__baseByName, ключ — имя колонки) применяются
+    // КАК ЗАДАНО, без масштабирования под контейнер (пользователь подбирает
+    // ширины сам, один раз). Контейнер уже суммы — горизонтальный скролл.
     function _syncTablesTotalWidth(wrapper) {
         const headTable = wrapper.querySelector('.dt-scroll-head table');
         if (!headTable) return;
-        const sb = wrapper.querySelector('.dt-scroll-body');
-        const avail = sb ? sb.clientWidth : 0;
         const base = window.__baseByName || {};
         const ths = headTable.querySelectorAll('thead th');
-        let sum = 0, i = 0;
-        ths.forEach(function(th) {
-            const nm = i === 0 ? '__check__' : th.textContent.trim();
-            sum += base[nm] || 0;
-            i++;
-        });
-        const k = (avail > sum && sum > 0) ? avail / sum : 1;
         const colsHead = wrapper.querySelectorAll('.dt-scroll-head table col');
         const colsBody = wrapper.querySelectorAll('#TaskTable col');
-        let total = 0; i = 0;
+        let total = 0, i = 0;
         ths.forEach(function(th) {
             const nm = i === 0 ? '__check__' : th.textContent.trim();
             const b = base[nm];
-            const w = Math.round((b || 0) * k);
-            total += w;
+            total += b || 0;
             [colsHead[i], colsBody[i]].forEach(function(c) {
-                if (c && b) c.style.setProperty('width', w + 'px', 'important');
+                if (c && b) c.style.setProperty('width', b + 'px', 'important');
             });
             i++;
         });
