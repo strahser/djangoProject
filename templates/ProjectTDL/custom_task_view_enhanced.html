@@ -46,8 +46,9 @@
   }
   body.dark-mode .table { --bs-table-hover-bg: rgba(255,255,255,0.03); }
   /* Таблица на всю ширину контейнера (не сжимать после редиректа) */
-  #TaskTable { width: 100% !important; table-layout: auto; }
   #table-wrapper, #table-wrapper .dataTables_wrapper { width: 100% !important; }
+  /* Ширину и layout #TaskTable задаёт ТОЛЬКО JS инлайном с !important
+     (CSS width:100% здесь ломает выравнивание шапки/тела) */
   #TaskTable td, #TaskTable th { white-space: nowrap; }
   /* Колонка «Наименование»: длинный текст переносится, строка растёт в высоту */
   #TaskTable td.col-name, #TaskTable th.col-name {
@@ -964,7 +965,7 @@ $(document).ready(function() {
         // восстанавливаем наши значения поверх его пересчёта
         $(window).off('resize.__wEnforce').on('resize.__wEnforce', function() {
             clearTimeout(window.__wEnforceT);
-            window.__wEnforceT = setTimeout(function() { applyColumnWidths(window.__taskDt); }, 320);
+            window.__wEnforceT = setTimeout(function() { _healAlignment(true); }, 320);
         });
         dt.on('columns-reordered', function() {
             saveColumnOrder();
@@ -1031,9 +1032,9 @@ $(document).ready(function() {
         const wrapper = document.querySelector('#table-wrapper');
         if (!wrapper) return;
         wrapper.querySelectorAll('table').forEach(function(table) {
-            table.style.tableLayout = 'fixed';
+            table.style.setProperty('table-layout', 'fixed', 'important');
             const col = table.querySelectorAll('col')[idx];
-            if (col) col.style.width = w + 'px';
+            if (col) col.style.setProperty('width', w + 'px', 'important');
         });
         _syncTablesTotalWidth(wrapper);
     }
@@ -1046,9 +1047,9 @@ $(document).ready(function() {
     }
     function _syncTablesTotalWidth(wrapper) {
         wrapper.querySelectorAll('table').forEach(function(t) {
-            t.style.tableLayout = 'fixed';
+            t.style.setProperty('table-layout', 'fixed', 'important');
             const s = _colsSum(t);
-            if (s) t.style.width = s + 'px';
+            if (s) t.style.setProperty('width', s + 'px', 'important');
         });
     }
 
@@ -1075,16 +1076,30 @@ $(document).ready(function() {
         return true;
     }
 
-    // Лечение: восстановить ширины из настроек, затем перепроверить по пикселям
-    function _healAlignment() {
+    // Лечение: heavy=true — штатный пересчёт геометрии DataTables (как при resize окна,
+    // это чинит компенсацию скроллбара в шапке). ПОРЯДОК КРИТИЧЕН: сначала наши ширины,
+    // затем columns.adjust() (без draw — он клонирует colgroup тела и фиксирует мусор),
+    // затем снова наши ширины поверх внутреннего пересчёта DT.
+    function _healAlignment(heavy) {
         if (window.__widthGuardSuspended || !window.__taskDt) return;
-        applyColumnWidths(window.__taskDt);
+        const dt = window.__taskDt;
+        if (heavy) {
+            applyColumnWidths(dt);
+            try { dt.columns.adjust(); } catch (e) {}
+        }
+        applyColumnWidths(dt);
         const sh = document.querySelector('#table-wrapper .dt-scroll-head');
         const sb = document.querySelector('#table-wrapper .dt-scroll-body');
         if (sh && sb && Math.abs(sh.scrollLeft - sb.scrollLeft) > 2) sh.scrollLeft = sb.scrollLeft;
         requestAnimationFrame(function() {
             if (!window.__widthGuardSuspended && !_checkRectAlignment() && window.__taskDt) {
                 applyColumnWidths(window.__taskDt);
+                requestAnimationFrame(function() {
+                    if (!_checkRectAlignment() && window.__taskDt && !window.__widthGuardSuspended) {
+                        try { window.__taskDt.columns.adjust(); } catch (e) {}
+                        applyColumnWidths(window.__taskDt);
+                    }
+                });
             }
         });
     }
@@ -1123,7 +1138,7 @@ $(document).ready(function() {
         if (!window.__alignTimer) {
             window.__alignTimer = setInterval(function() {
                 if (document.hidden || window.__widthGuardSuspended || !window.__taskDt) return;
-                if (!_checkRectAlignment()) _healAlignment();
+                if (!_checkRectAlignment()) _healAlignment(true);
             }, 1500);
         }
     }
@@ -1139,7 +1154,7 @@ $(document).ready(function() {
             if (!w || w < 20) return;
             wrapper.querySelectorAll('table').forEach(function(t) {
                 const col = t.querySelectorAll('col')[i];
-                if (col) col.style.width = w + 'px';
+                if (col) col.style.setProperty('width', w + 'px', 'important');
             });
         });
         _syncTablesTotalWidth(wrapper);
@@ -1180,9 +1195,9 @@ $(document).ready(function() {
             widths.push(w);
         });
         wrapper.querySelectorAll('table').forEach(function(table) {
-            table.style.tableLayout = 'fixed';
+            table.style.setProperty('table-layout', 'fixed', 'important');
             table.querySelectorAll('col').forEach(function(col, i) {
-                if (widths[i]) col.style.width = widths[i] + 'px';
+                if (widths[i]) col.style.setProperty('width', widths[i] + 'px', 'important');
             });
         });
         _syncTablesTotalWidth(wrapper);
