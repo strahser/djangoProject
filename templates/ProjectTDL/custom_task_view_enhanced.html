@@ -1031,6 +1031,12 @@ $(document).ready(function() {
     }
 
     function _setColumnWidth(idx, w) {
+        // Сразу фиксируем новое значение в снимке «хороших» ширин,
+        // иначе лечение вернёт старое до завершения сохранения
+        if (!window.__lastGoodWidths) _snapshotGoodWidths();
+        if (window.__lastGoodWidths && idx < window.__lastGoodWidths.length) {
+            window.__lastGoodWidths[idx] = w;
+        }
         // Ширину нужно задать в обоих colgroup: видимый заголовок (.dt-scroll-head) и тело таблицы
         const wrapper = document.querySelector('#table-wrapper');
         if (!wrapper) return;
@@ -1159,8 +1165,10 @@ $(document).ready(function() {
         const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
         if (!headTable) return;
         // Колонка чекбоксов без имени — DataTables её перезаписывает при пересчёте.
-        // Берём последнее корректное значение, иначе текущее из шапки.
-        let w0 = (window.__lastGoodWidths && window.__lastGoodWidths[0]) || 0;
+        // Приоритет: сохранённое значение, затем последний корректный снимок,
+        // затем текущее из шапки, затем фактическая ширина заголовка.
+        let w0 = parseInt(widths['__check__'], 10) || 0;
+        if (!w0 || w0 < 20) w0 = (window.__lastGoodWidths && window.__lastGoodWidths[0]) || 0;
         if (!w0 || w0 < 20) {
             const c0 = headTable.querySelectorAll('col')[0];
             w0 = parseFloat(c0 ? c0.style.width : 0);
@@ -1253,6 +1261,12 @@ $(document).ready(function() {
             const w = parseFloat(col.style.width) || Math.round(col.getBoundingClientRect().width);
             if (w > 20) widths[header] = Math.round(w);
         });
+        // Колонка чекбоксов без имени — сохраняем под служебным ключом
+        const c0 = cols[0];
+        if (c0) {
+            const w0 = parseFloat(c0.style.width) || Math.round(c0.getBoundingClientRect().width);
+            if (w0 > 20) widths['__check__'] = Math.round(w0);
+        }
         return widths;
     }
 
