@@ -1032,17 +1032,21 @@ $(document).ready(function() {
 
     function _setColumnWidth(idx, w) {
         // Пользователь задаёт ВИЗУАЛЬНУЮ ширину; переводим в базовую с учётом
-        // текущего коэффициента заполнения и перерисовываем все колонки
+        // текущего коэффициента заполнения. Ключ — ИМЯ колонки, не позиция:
+        // colReorder может переставить th в любой момент.
         const wrapper = document.querySelector('#table-wrapper');
         if (!wrapper) return;
-        const base = window.__baseCols;
-        if (base && idx < base.length) {
-            const sb = wrapper.querySelector('.dt-scroll-body');
-            const avail = sb ? sb.clientWidth : 0;
-            const sum = base.reduce(function(a, b) { return a + (b || 0); }, 0);
-            const k = (avail > sum && sum > 0) ? avail / sum : 1;
-            base[idx] = Math.max(20, Math.round(w / k));
-        }
+        const headTable = wrapper.querySelector('.dt-scroll-head table');
+        const th = headTable ? headTable.querySelectorAll('thead th')[idx] : null;
+        if (!th) return;
+        const nm = idx === 0 ? '__check__' : th.textContent.trim();
+        const sb = wrapper.querySelector('.dt-scroll-body');
+        const avail = sb ? sb.clientWidth : 0;
+        const base = window.__baseByName || {};
+        let sum = 0;
+        for (const k in base) sum += base[k] || 0;
+        const kk = (avail > sum && sum > 0) ? avail / sum : 1;
+        base[nm] = Math.max(20, Math.round(w / kk));
         _syncTablesTotalWidth(wrapper);
     }
 
@@ -1052,24 +1056,35 @@ $(document).ready(function() {
         table.querySelectorAll('col').forEach(function(c) { s += parseFloat(c.style.width) || 0; });
         return s;
     }
-    // Рендер: базовые ширины (__baseCols) масштабируются на контейнер.
-    // Пропорциональное распределение лишнего места — иначе table-layout:fixed
-    // делит его поровну и изменение одной колонки «размазывается» по всем.
+    // Рендер: базовые ширины (__baseByName, ключ — имя колонки) масштабируются
+    // на контейнер. Итерация по ФАКТИЧЕСКИМ th: перестановка colReorder
+    // автоматически подхватывается при следующем рендере.
     function _syncTablesTotalWidth(wrapper) {
+        const headTable = wrapper.querySelector('.dt-scroll-head table');
+        if (!headTable) return;
         const sb = wrapper.querySelector('.dt-scroll-body');
         const avail = sb ? sb.clientWidth : 0;
-        const base = window.__baseCols || [];
-        const sum = base.reduce(function(a, b) { return a + (b || 0); }, 0);
+        const base = window.__baseByName || {};
+        const ths = headTable.querySelectorAll('thead th');
+        let sum = 0, i = 0;
+        ths.forEach(function(th) {
+            const nm = i === 0 ? '__check__' : th.textContent.trim();
+            sum += base[nm] || 0;
+            i++;
+        });
         const k = (avail > sum && sum > 0) ? avail / sum : 1;
         const colsHead = wrapper.querySelectorAll('.dt-scroll-head table col');
         const colsBody = wrapper.querySelectorAll('#TaskTable col');
-        let total = 0;
-        base.forEach(function(b, i) {
+        let total = 0; i = 0;
+        ths.forEach(function(th) {
+            const nm = i === 0 ? '__check__' : th.textContent.trim();
+            const b = base[nm];
             const w = Math.round((b || 0) * k);
             total += w;
             [colsHead[i], colsBody[i]].forEach(function(c) {
                 if (c && b) c.style.setProperty('width', w + 'px', 'important');
             });
+            i++;
         });
         wrapper.querySelectorAll('table').forEach(function(t) {
             t.style.setProperty('table-layout', 'fixed', 'important');
@@ -1173,23 +1188,20 @@ $(document).ready(function() {
         const wrapper = document.querySelector('#table-wrapper');
         const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
         if (!headTable) return;
-        // Базовые (логические) ширины — источник истины для рендера.
-        // Строим один раз; далее их обновляет только _setColumnWidth.
-        const ths = headTable.querySelectorAll('thead th');
-        if (!window.__baseCols || window.__baseCols.length !== ths.length) {
-            window.__baseCols = new Array(ths.length).fill(0);
-            ths.forEach(function(th, i) {
-                let b = 0;
-                if (i === 0) b = parseInt(widths['__check__'], 10) || 0;
-                else b = parseInt(widths[th.textContent.trim()], 10) || 0;
-                if (!b || b < 20) {
-                    const c = headTable.querySelectorAll('col')[i];
-                    b = parseFloat(c ? c.style.width : 0) || 0;
-                }
-                if (!b || b < 20) b = Math.round(th.getBoundingClientRect().width) || 120;
-                window.__baseCols[i] = b;
-            });
-        }
+        // Базовые (логические) ширины — источник истины. Ключ — ИМЯ колонки:
+        // позиция ненадёжна, colReorder переставляет th в любой момент.
+        if (!window.__baseByName) window.__baseByName = {};
+        headTable.querySelectorAll('thead th').forEach(function(th, i) {
+            const nm = i === 0 ? '__check__' : th.textContent.trim();
+            if (window.__baseByName[nm] > 20) return;
+            let b = parseInt(widths[nm], 10) || 0;
+            if (!b || b < 20) {
+                const c = headTable.querySelectorAll('col')[i];
+                b = parseFloat(c ? c.style.width : 0) || 0;
+            }
+            if (!b || b < 20) b = Math.round(th.getBoundingClientRect().width) || 120;
+            window.__baseByName[nm] = b;
+        });
         _syncTablesTotalWidth(wrapper);
     }
 
@@ -1215,24 +1227,11 @@ $(document).ready(function() {
         if (w0 && st.aoColumns[0]) st.aoColumns[0].sWidth = w0 + 'px';
     }
 
-    // Фиксируем текущие ширины ВСЕХ колонок — при изменении одной остальные не сдвигаются
+    // Фиксируем текущие ширины ВСЕХ колонок — при изменении одной остальные не сдвигаются.
+    // В именованной модели база уже «заморожена», достаточно перерендерить.
     function _pinAllColumnWidths() {
         const wrapper = document.querySelector('#table-wrapper');
         if (!wrapper) return;
-        const headTable = wrapper.querySelector('.dt-scroll-head table');
-        const cols = headTable ? headTable.querySelectorAll('col') : wrapper.querySelector('#TaskTable').querySelectorAll('col');
-        const widths = [];
-        cols.forEach(function(col) {
-            let w = parseFloat(col.style.width);
-            if (!w || w < 20) w = Math.round(col.getBoundingClientRect().width);
-            widths.push(w);
-        });
-        wrapper.querySelectorAll('table').forEach(function(table) {
-            table.style.setProperty('table-layout', 'fixed', 'important');
-            table.querySelectorAll('col').forEach(function(col, i) {
-                if (widths[i]) col.style.setProperty('width', widths[i] + 'px', 'important');
-            });
-        });
         _syncTablesTotalWidth(wrapper);
     }
 
@@ -1240,24 +1239,14 @@ $(document).ready(function() {
         const wrapper = document.querySelector('#table-wrapper');
         if (!wrapper) return {};
         const headTable = wrapper.querySelector('.dt-scroll-head table');
-        const cols = headTable ? headTable.querySelectorAll('col') : wrapper.querySelector('#TaskTable').querySelectorAll('col');
+        if (!headTable) return {};
         const widths = {};
-        cols.forEach(function(col, idx) {
-            if (idx === 0) {
-                // Колонка чекбоксов без имени — под служебным ключом
-                if (window.__baseCols && window.__baseCols[0] > 20) widths['__check__'] = window.__baseCols[0];
-                return;
-            }
-            const th = headTable ? headTable.querySelectorAll('thead th')[idx] : null;
-            const header = th ? th.textContent.trim() : '';
-            if (!header) return;
-            // Базовое значение точнее отражает выбор пользователя, чем масштабированный рендер
-            if (window.__baseCols && window.__baseCols[idx] > 20) {
-                widths[header] = window.__baseCols[idx];
-                return;
-            }
-            const w = parseFloat(col.style.width) || Math.round(col.getBoundingClientRect().width);
-            if (w > 20) widths[header] = Math.round(w);
+        // Итерация по фактическим th: имя → базовая ширина. Порядок не важен.
+        headTable.querySelectorAll('thead th').forEach(function(th, i) {
+            const nm = i === 0 ? '__check__' : th.textContent.trim();
+            if (!nm) return;
+            const b = window.__baseByName ? window.__baseByName[nm] : 0;
+            if (b && b > 20) widths[nm] = b;
         });
         return widths;
     }
