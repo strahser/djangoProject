@@ -97,6 +97,8 @@ class ParsingImapEmailToDB:
                             'file_path': saved_path,
                             'size': attach.size or 0,
                             'content_type': attach.content_type or '',
+                            'content_id': getattr(attach, 'content_id', '') or '',
+                            'is_inline': bool(getattr(attach, 'is_inline', False)),
                         },
                     )
                 except Exception as e:

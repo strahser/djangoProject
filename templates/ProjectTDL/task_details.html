@@ -4,6 +4,7 @@
     <div class="task-header">
         <h3>Задача #{{ forloop.counter }}: {{ task.name }} <small>(ID: {{ task.id }})</small></h3>
         <p><strong>Проект:</strong> {{ task.project }} |
+        <strong>Здание:</strong> {{ task.building }} |
         <strong>Статус:</strong> <span class="status-{{ task.status_class }}">{{ task.status }}</span> |
         <strong>Срок:</strong> {{ task.due_date }}</p>
 
@@ -19,7 +20,6 @@
             <h4 class="section-title">📋 Основная информация</h4>
             <table>
                 <tr><td><strong>ID задачи:</strong></td><td>{{ task.id }}</td></tr>
-                <tr><td><strong>Подпроект:</strong></td><td>{{ task.sub_project }}</td></tr>
                 <tr><td><strong>Здание:</strong></td><td>{{ task.building }}</td></tr>
                 <tr><td><strong>Раздел проектирования:</strong></td><td>{{ task.design_chapter }}</td></tr>
                 <tr><td><strong>Ответственный:</strong></td><td>{{ task.contractor }}</td></tr>

@@ -57,14 +57,13 @@ class ReportGenerator:
     """Генератор отчетов по задачам"""
 
     @staticmethod
-    def generate_html_report(tasks_queryset, request=None, admin_url=None, use_layout=False):
+    def generate_html_report(tasks_queryset, request=None, admin_url=None):
         """Генерация HTML отчета по выбранным задачам
 
         Args:
             tasks_queryset: QuerySet задач
             request: HTTP запрос (для построения абсолютных URL)
             admin_url: URL для возврата в админку с фильтрами
-            use_layout: Использовать ли основной layout приложения
         """
         html_content = []
 
@@ -104,7 +103,6 @@ class ReportGenerator:
                 'id': task.id,
                 'name': task.name,
                 'project': task.project_site.name if task.project_site else '-',
-                'sub_project': task.sub_project.name if task.sub_project else '-',
                 'building': f"{task.building_number.name.name} ({task.building_number.building_number})"
                 if task.building_number and task.building_number.name else '-',
                 'design_chapter': task.design_chapter.name if task.design_chapter else '-',
@@ -190,11 +188,7 @@ class ReportGenerator:
         # Форматируем общую стоимость
         total_price_all_formatted = format_currency(total_price_all, 2)
 
-        # Определяем, какой шаблон использовать
-        if use_layout:
-            template_name = 'ProjectTDL/report_with_layout.html'
-        else:
-            template_name = 'ProjectTDL/report.html'
+        template_name = 'ProjectTDL/report.html'
 
         # Подготовка контекста для шаблона
         context = {
@@ -211,7 +205,6 @@ class ReportGenerator:
             'download_timestamp': timezone.now().strftime("%Y%m%d_%H%M"),
             'admin_url': admin_url,
             'home_url': home_url,
-            'use_layout': use_layout,
         }
 
         # Рендерим шаблон

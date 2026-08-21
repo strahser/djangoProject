@@ -6,6 +6,26 @@
   .td-nav .nav-link{color:var(--text-muted,#7b8494);font-weight:700;border-radius:9px;padding:8px 16px}
   .td-nav .nav-link.active{background:var(--accent,#ffcc00);color:#1c2027}
   .td-table td,.td-table th{vertical-align:middle}
+  /* Название задачи и текст на тёмном фоне */
+  body.dark-mode .td-card h3{color:var(--text-color,#e0e0e0)!important}
+  body.dark-mode .td-card .fw-bold{color:var(--text-color,#e0e0e0)!important}
+  body.dark-mode .td-card .form-label{color:var(--text-muted,#a0a0a0)!important}
+  body.dark-mode .td-card .form-control,body.dark-mode .td-card .form-select{background:var(--bg-body,#1a1d23);color:var(--text-color,#e0e0e0);border-color:var(--border-color,#4a4f5e)}
+  body.dark-mode .td-card .form-control::placeholder{color:var(--text-muted,#a0a0a0)}
+  body.dark-mode .subtask-form-title{color:var(--text-color,#e0e0e0)}
+  body.dark-mode .td-card .table a{color:#8ab4f8}
+  body.dark-mode .btn-outline-secondary{color:#e2e6ee!important;border-color:#6c757d!important;background:transparent!important}
+  body.dark-mode .btn-outline-secondary:hover{background:#495057!important;color:#fff!important}
+  body.dark-mode .btn-outline-primary{color:#8ab4f8!important;border-color:#4a6fa5!important}
+  body.dark-mode .btn-outline-primary:hover{background:#4a6fa5!important;color:#fff!important}
+  body.dark-mode .btn-outline-danger{color:#f28b82!important;border-color:#a0605a!important}
+  body.dark-mode .btn-outline-danger:hover{background:#a0605a!important;color:#fff!important}
+  body.dark-mode .td-card{background:var(--bg-card,#2d323e);border-color:var(--border-color,#4a4f5e)}
+  body.dark-mode .breadcrumb-item a{color:#8ab4f8}
+  body.dark-mode .td-chip{background:var(--bg-table-header,#2a2e38);border-color:var(--border-color,#4a4f5e);color:var(--text-color,#e2e6ee)}
+  body.dark-mode .td-table{color:var(--text-color,#e2e6ee)}
+  body.dark-mode .modal-content{background:var(--bg-card,#2d323e);color:var(--text-color,#e0e0e0);border-color:var(--border-color,#4a4f5e)}
+  body.dark-mode .modal .form-control,body.dark-mode .modal .form-select{background:var(--bg-body,#1a1d23);color:var(--text-color,#e0e0e0);border-color:var(--border-color,#4a4f5e)}
 </style>
 <div class="container-fluid py-3" style="max-width:1200px;">
   <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
@@ -50,6 +70,7 @@
         <input type="number" step="0.01" id="td-price" class="form-control form-control-sm" value="{{ task.price|default_if_none:'' }}">
       </div>
       <div class="col-md-4 text-end">
+        <span id="td-save-msg" class="text-danger small me-2" style="display:none;">Ошибка сохранения. Проверьте соединение.</span>
         <button class="btn btn-sm btn-primary" id="td-save-btn"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
         <a class="btn btn-sm btn-outline-secondary" href="{% url 'custom_task_view' %}"><i class="bi bi-x-lg me-1"></i>Закрыть</a>
         <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:ProjectTDL_tasknode_change' task.pk %}"><i class="bi bi-gear me-1"></i>В админке</a>
@@ -59,23 +80,16 @@
   </div>
 
   <ul class="nav td-nav gap-1 mb-3">
-    <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-subtasks" type="button"><i class="bi bi-list-task me-1"></i>Подзадачи ({{ subtasks|length }})</button></li>
+    <li class="nav-item d-flex align-items-center">
+      <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-subtasks" type="button"><i class="bi bi-list-task me-1"></i>Подзадачи ({{ subtasks|length }})</button>
+      <button class="btn btn-sm btn-primary ms-2" id="btnNewSubtask" type="button"><i class="bi bi-plus-lg me-1"></i>Новая подзадача</button>
+    </li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-emails" type="button"><i class="bi bi-envelope me-1"></i>Письма ({{ linked_emails|length }})</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-desc" type="button"><i class="bi bi-card-text me-1"></i>Описание</button></li>
   </ul>
 
   <div class="tab-content">
     <div class="tab-pane fade show active" id="tab-subtasks">
-      <div class="td-card p-3 mb-3">
-        <form method="post" class="row g-2 align-items-end">
-          {% csrf_token %}
-          <div class="col-md-4">{{ subtask_form.name }}</div>
-          <div class="col-md-3">{{ subtask_form.description }}</div>
-          <div class="col-md-2">{{ subtask_form.price }}</div>
-          <div class="col-md-2">{{ subtask_form.due_date }}</div>
-          <div class="col-md-1"><button name="create_subtask" class="btn btn-primary btn-sm w-100"><i class="bi bi-plus-lg"></i></button></div>
-        </form>
-      </div>
       <div class="td-card p-0 table-responsive">
         <table class="table td-table mb-0">
           <thead><tr><th>#</th><th>Название</th><th>Цена</th><th>Срок</th><th>Обновлена</th><th></th></tr></thead>
@@ -83,11 +97,11 @@
             {% for st in subtasks %}
             <tr>
               <td class="text-muted">{{ st.pk }}</td>
-              <td><a href="{% url 'admin:ProjectTDL_tasknode_change' st.pk %}">{{ st.name|default:"—" }}</a></td>
+              <td><a href="{% url 'SubTaskUpdateView' st.pk %}?next={{ request.get_full_path|urlencode }}">{{ st.name|default:"—" }}</a></td>
               <td>{{ st.price|floatformat:2|default:"—" }}</td>
               <td>{{ st.due_date|date:"d.m.Y"|default:"—" }}</td>
               <td class="text-muted small">{{ st.update_stamp|date:"d.m.Y H:i" }}</td>
-              <td class="text-end"><a class="btn btn-sm btn-outline-danger py-0" href="{% url 'admin:ProjectTDL_tasknode_delete' st.pk %}"><i class="bi bi-x"></i></a></td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-danger py-0" href="{% url 'SubTaskDeleteView' st.pk %}"><i class="bi bi-x"></i></a></td>
             </tr>
             {% empty %}<tr><td colspan="6" class="text-center text-muted py-4">Подзадач пока нет</td></tr>
             {% endfor %}
@@ -127,23 +141,69 @@
   </div>
 </div>
 
+<div class="modal fade" id="subtaskModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Новая подзадача</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" id="subtaskForm">
+          {% csrf_token %}
+          <div class="mb-3"><label class="form-label small text-muted">Название</label>{{ subtask_form.name }}</div>
+          <div class="mb-3"><label class="form-label small text-muted">Описание</label>{{ subtask_form.description }}</div>
+          <div class="row g-2">
+            <div class="col-6"><label class="form-label small text-muted">Цена</label>{{ subtask_form.price }}</div>
+            <div class="col-6"><label class="form-label small text-muted">Срок</label>{{ subtask_form.due_date }}</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="submit" form="subtaskForm" name="create_subtask" class="btn btn-primary">Создать</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block custom-js %}
 <script>
 function tdCookie(name){
   var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
   return v ? v[2] : null;
 }
 function tdSave(field, value){
-  fetch('{% url "update_task_field" %}', {
+  return fetch('{% url "update_task_field" %}', {
     method:'POST',
     headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':tdCookie('csrftoken')},
     body:'task_id={{ task.pk }}&field=' + field + '&value=' + encodeURIComponent(value)
+  }).then(function(res){
+    if (!res.ok) { throw new Error(field + ': HTTP ' + res.status); }
+    return res;
   });
 }
 document.getElementById('td-save-btn').addEventListener('click', function(){
-  tdSave('status', document.getElementById('td-status').value);
-  tdSave('due_date', document.getElementById('td-due').value);
-  tdSave('price', document.getElementById('td-price').value);
-  alert('Сохранено');
+  var btn = document.getElementById('td-save-btn');
+  btn.disabled = true;
+  Promise.all([
+    tdSave('status', document.getElementById('td-status').value),
+    tdSave('due_date', document.getElementById('td-due').value),
+    tdSave('price', document.getElementById('td-price').value)
+  ]).then(function(){
+    window.location.href = '{% url "custom_task_view" %}';
+  }).catch(function(err){
+    console.error('Ошибка сохранения задачи:', err);
+    btn.disabled = false;
+    var msg = document.getElementById('td-save-msg');
+    if (msg) { msg.style.display = 'inline'; }
+  });
+});
+$(function(){
+  $('#btnNewSubtask').on('click', function(){
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('subtaskModal')).show();
+  });
 });
 </script>
 {% endblock %}

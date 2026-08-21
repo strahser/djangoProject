@@ -1,23 +1,181 @@
 {% extends 'base.html' %}
 {% load static %}
+{% block head %}
+<style>
+  /* Таблица дерева: на всю ширину, не сжимать */
+  #treeTable { width: 100% !important; }
+  #treeTable td, #treeTable th { white-space: nowrap; vertical-align: middle; }
+  .tree-node-row { cursor: pointer; }
+  .tree-toggle { cursor: pointer; color: var(--text-muted, #7b8494); display: inline-block; width: 1em; transition: transform .15s ease; }
+  .tree-toggle.expanded { transform: rotate(90deg); }
+  /* Тёмная тема */
+  body.dark-mode #treeTable {
+    --bs-table-color: var(--text-color, #e0e0e0);
+    --bs-table-bg: var(--bg-card, #2d323e);
+    --bs-table-border-color: var(--border-color, #4a4f5e);
+    --bs-table-striped-bg: var(--bg-table-header, #363b48);
+    --bs-table-hover-bg: rgba(255, 255, 255, 0.05);
+  }
+  body.dark-mode #treeTable a { color: #8ab4f8; }
+  body.dark-mode #treeTable thead th {
+    background: var(--bg-table-header, #363b48) !important;
+    color: var(--text-color, #e0e0e0) !important;
+    border-color: var(--border-color, #4a4f5e) !important;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid py-3">
-  <div class="d-flex align-items-center gap-3 mb-3">
-    <h3 class="mb-0">Дерево задач</h3>
-    <a href="{% url 'custom_task_view' %}" class="btn btn-sm btn-outline-secondary ms-auto">
+
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+      <h3 class="mb-1 fw-bold"><i class="bi bi-diagram-3 me-2" style="color:#ffc107;"></i>Дерево задач</h3>
+      <div class="text-muted small" style="font-size:12px;">Иерархия задач и подзадач: родитель/дети, фильтры, сворачивание</div>
+    </div>
+    <a href="{% url 'custom_task_view' %}" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-table me-1"></i>Плоский список
     </a>
   </div>
-  <div class="card">
-    <div class="card-body p-0">
-      <ul class="list-unstyled mb-0" style="font-size:14px;">
-        {% for root in roots %}
-          {% include 'ProjectTDL/task_tree_node.html' with node=root depth=0 %}
-        {% empty %}
-          <li class="p-3 text-muted">Нет задач</li>
-        {% endfor %}
-      </ul>
+
+  <form method="get" action="{% url 'task_tree_view' %}" class="mb-3">
+    <div class="card card-body py-3 px-4 bg-light" style="border-color: var(--border-color, #dee2e6); border-radius:8px;">
+      <div class="filter-row">
+        <div class="form-group">
+          <label>Проект</label>
+          <select class="filter-select" name="project_site">
+            <option value="">Все</option>
+            {% for s in all_project_sites %}
+              <option value="{{ s.pk }}" {% if request.GET.project_site == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Здание</label>
+          <select class="filter-select" name="building_number">
+            <option value="">Все</option>
+            {% for b in all_building_types %}
+              <option value="{{ b.pk }}" {% if request.GET.building_number == b.pk|stringformat:"s" %}selected{% endif %}>{{ b.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Раздел</label>
+          <select class="filter-select" name="design_chapter">
+            <option value="">Все</option>
+            {% for d in all_design_chapters %}
+              <option value="{{ d.pk }}" {% if request.GET.design_chapter == d.pk|stringformat:"s" %}selected{% endif %}>{{ d.short_name|default:d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Статус</label>
+          <select class="filter-select" name="status">
+            <option value="">Все</option>
+            {% for s in all_statuses %}
+              <option value="{{ s.pk }}" {% if request.GET.status == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Категория</label>
+          <select class="filter-select" name="category">
+            <option value="">Все</option>
+            {% for c in all_categories %}
+              <option value="{{ c.pk }}" {% if request.GET.category == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Ответственный</label>
+          <select class="filter-select" name="contractor">
+            <option value="">Все</option>
+            {% for c in all_contractors %}
+              <option value="{{ c.pk }}" {% if request.GET.contractor == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" style="justify-content:flex-end;">
+          <label>&nbsp;</label>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel me-1"></i>Применить</button>
+            <a href="{% url 'task_tree_view' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить фильтры"><i class="bi bi-x-circle"></i></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <div class="card shadow-sm">
+    <div class="card-body p-0 table-responsive">
+      <table class="table table-bordered mb-0" id="treeTable">
+        <thead class="table-light">
+          <tr>
+            <th style="width:36px;"><input type="checkbox" class="form-check-input" id="treeCheckAll" title="Выбрать все"></th>
+            <th>Наименование</th>
+            <th>Родитель</th>
+            <th>Проект</th>
+            <th>Здание</th>
+            <th>Раздел</th>
+            <th>Статус</th>
+            <th>Категория</th>
+            <th>Ответственный</th>
+            <th>Цена</th>
+            <th>Срок</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for root in roots %}
+            {% include 'ProjectTDL/task_tree_node.html' with node=root depth=0 %}
+          {% empty %}
+            <tr><td colspan="11" class="text-center text-muted py-4">Нет задач, удовлетворяющих фильтру</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
+
 </div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    function renderTree() {
+      // Показывает/скрывает строки по состоянию иконок-стрелок предков
+      document.querySelectorAll('#treeTable tbody tr[data-id]').forEach(function (row) {
+        var pid = row.getAttribute('data-parent-id');
+        var visible = true;
+        var seen = {};
+        while (pid && visible) {
+          if (seen[pid]) { visible = false; break; } // защита от циклов
+          seen[pid] = true;
+          var icon = document.getElementById('tree-icon-' + pid);
+          if (!icon || !icon.classList.contains('expanded')) {
+            visible = false;
+          } else {
+            var parentRow = document.querySelector('#treeTable tr[data-id="' + pid + '"]');
+            pid = parentRow ? parentRow.getAttribute('data-parent-id') : null;
+          }
+        }
+        row.style.display = visible ? '' : 'none';
+      });
+    }
+
+    document.querySelectorAll('#treeTable .tree-toggle').forEach(function (icon) {
+      icon.addEventListener('click', function (e) {
+        e.stopPropagation();
+        icon.classList.toggle('expanded');
+        renderTree();
+      });
+    });
+
+    document.getElementById('treeCheckAll').addEventListener('change', function () {
+      var checked = this.checked;
+      document.querySelectorAll('#treeTable tbody .task-checkbox').forEach(function (cb) {
+        cb.checked = checked;
+      });
+    });
+
+    renderTree();
+  });
+</script>
 {% endblock %}

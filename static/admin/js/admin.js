@@ -1,8 +1,25 @@
 
 jQuery(document).ready(function($) {
 
-   // override django 1.7 timezone warning
-   DateTimeShortcuts.addTimezoneWarning = function(){return false;};
+   // override django 1.7 timezone warning (только если DateTimeShortcuts определён — на change_list его НЕТ!)
+   try {
+       DateTimeShortcuts.addTimezoneWarning = function(){return false;};
+   } catch (e) { /* DateTimeShortcuts отсутствует на change_list — не критично */ }
+
+   // Инициализация select2 для list_editable полей в таблице (combobox Статус/Категория)
+   // select2.min.js может загружаться позже (jazzmin) — повторяем попытки, пока не загрузится
+   function initTableSelect2() {
+       if (typeof $ !== 'function' || typeof $.fn.select2 !== 'function') {
+           setTimeout(initTableSelect2, 100);
+           return;
+       }
+       $('#result_list select').not('.select2-hidden-accessible').each(function () {
+           if (!$(this).data('select2')) {
+               $(this).select2({ width: 'element' });
+           }
+       });
+   }
+   initTableSelect2();
 
 });
 

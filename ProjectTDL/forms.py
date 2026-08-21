@@ -110,11 +110,10 @@ class TaskFilterForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         qs = TaskNode.objects.filter(node_type='task')
-        self.fields['project_site'] = select_default_widget(qs, 'Площадка', 'project_site')
-        self.fields['sub_project'] = select_default_widget(qs, 'Проект', 'sub_project')
+        self.fields['project_site'] = select_default_widget(qs, 'Проект', 'project_site')
         self.fields['status'] = select_default_widget(qs, 'Статус', 'status')
         self.fields['category'] = select_default_widget(qs, 'Категория', 'category')
-        self.fields['contractor'] = select_default_widget(qs, 'Ответсв.', 'contractor')
+        self.fields['contractor'] = select_default_widget(qs, 'Ответственный', 'contractor')
         self.fields['building_number'] = select_default_widget(qs, 'Здание', 'building_number')
 
         self.helper = FormHelper()
@@ -126,7 +125,6 @@ class TaskFilterForm(forms.Form):
         self.helper.layout = Layout(
         Row(
             Column('project_site'),
-            Column('sub_project'),
             Column('status'),
             Column('category'),
             Column('contractor'),

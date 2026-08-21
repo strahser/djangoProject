@@ -14,21 +14,19 @@ class Category(models.Model):
 
 class ProjectSite(models.Model):
 	name = models.CharField(max_length=100, null=False, verbose_name='Наименование Проекта')
+	default_status = models.ForeignKey('StaticData.Status', null=True, blank=True,
+	                                   on_delete=models.SET_NULL, related_name='+',
+	                                   verbose_name='Статус по умолчанию')
+	default_category = models.ForeignKey('StaticData.Category', null=True, blank=True,
+	                                     on_delete=models.SET_NULL, related_name='+',
+	                                     verbose_name='Категория по умолчанию')
+	default_contractor = models.ForeignKey('ProjectContract.Contractor', null=True, blank=True,
+	                                       on_delete=models.SET_NULL, related_name='+',
+	                                       verbose_name='Ответственный по умолчанию')
 
 	class Meta:
 		verbose_name = 'Проект'
 		verbose_name_plural = 'Проекты'
-
-	def __str__(self):
-		return self.name
-
-
-class SubProject(models.Model):
-	name = models.CharField(max_length=100, null=False, verbose_name='Подпроект')
-
-	class Meta:
-		verbose_name = 'Подпроект'
-		verbose_name_plural = 'Подпроекты'
 
 	def __str__(self):
 		return self.name

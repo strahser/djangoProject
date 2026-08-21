@@ -1,0 +1,15 @@
+<div class="dropdown" id="contacts-dropdown-{{ field }}">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Выбрать из контактов">
+        <i class="bi bi-book"></i>
+    </button>
+    <div class="dropdown-menu dropdown-menu-end" style="min-width:280px;">
+        <div class="px-2 py-1">
+            <input type="text" class="form-control form-control-sm" id="contacts-search-{{ field }}" placeholder="Поиск контактов..." oninput="filterContacts(this.value, '{{ field }}')">
+        </div>
+        <ul class="list-unstyled mb-0" id="contacts-list-{{ field }}" style="max-height: 260px; overflow-y: auto;">
+            {% for contact in contacts %}
+            <li><a class="dropdown-item small" href="#" data-email="{{ contact.primary_email.email|default:'' }}" data-field="{{ field }}" onclick="addContactTo(this); return false;" data-search="{{ contact.name|lower }} {{ contact.primary_email.email|default:''|lower }}">{{ contact.name }} — {{ contact.primary_email.email|default:'нет email' }}</a></li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>

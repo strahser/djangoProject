@@ -262,13 +262,11 @@ class EmailTaskLinkModelTest(CategoryMixin, TestCase):
         super().setUp()
         self.user = User.objects.create_user('testuser2', 'test2@test.com', 'password')
         from ProjectTDL.models import TaskNode
-        from StaticData.models import ProjectSite, SubProject
-        self.sub_project = SubProject.objects.create(name='Test SubProject')
+        from StaticData.models import ProjectSite
         self.project = ProjectSite.objects.create(name='Test Project')
         self.task = Task.objects.create(
             owner=self.user,
             project_site=self.project,
-            sub_project=self.sub_project,
             name='Test Task',
         )
         self.email = Email.objects.create(
@@ -840,6 +838,79 @@ class EmailBodyViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         self.assertIn('не найден', response.content.decode())
 
 
+class InlineImageBodyTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Тесты отображения встроенных картинок (cid) в теле письма."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('inlineimg', 'inline@test.com', 'password')
+        self.client.login(username='inlineimg', password='password')
+
+        self.tmp_dir = tempfile.mkdtemp()
+        with open(os.path.join(self.tmp_dir, 'body.html'), 'w', encoding='utf-8') as f:
+            f.write('<div>Тело</div><div><img src="cid:photo123@example.com" alt="screen"></div>')
+
+        image_path = os.path.join(self.tmp_dir, 'screen.png')
+        with open(image_path, 'wb') as f:
+            f.write(b'\x89PNG\r\n\x1a\n' + b'0' * 16)
+
+        self.email = self.create_test_email(uid='inline-uid-1', link=self.tmp_dir)
+        self.att = Attachment.objects.create(
+            email=self.email,
+            file_path=image_path,
+            filename='screen.png',
+            size=os.path.getsize(image_path),
+            content_type='image/png',
+        )
+
+    def test_body_cid_rewritten_to_inline_url(self):
+        response = self.client.get(reverse('email_ui:email_body', args=[self.email.pk]))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode('utf-8', 'replace')
+        self.assertNotIn('cid:', html)
+        self.assertIn(
+            reverse('email_ui:attachment_inline', args=[self.att.pk]),
+            html,
+        )
+        self.assertIn('<img', html)
+
+    def test_body_cid_exact_match_by_content_id(self):
+        self.att.content_id = '<photo123@example.com>'
+        self.att.save(update_fields=['content_id'])
+        response = self.client.get(reverse('email_ui:email_body', args=[self.email.pk]))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode('utf-8', 'replace')
+        self.assertIn(
+            reverse('email_ui:attachment_inline', args=[self.att.pk]),
+            html,
+        )
+
+    def test_body_no_images_no_rewrite(self):
+        self.att.delete()
+        with open(os.path.join(self.tmp_dir, 'body.html'), 'w', encoding='utf-8') as f:
+            f.write('<div>Тело без картинок</div>')
+        response = self.client.get(reverse('email_ui:email_body', args=[self.email.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('attachment_inline', response.content.decode('utf-8', 'replace'))
+
+    def test_inline_attachment_serves_image(self):
+        response = self.client.get(reverse('email_ui:attachment_inline', args=[self.att.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'image/png')
+        self.assertIn('inline', response['Content-Disposition'])
+
+    def test_inline_attachment_missing_file_404(self):
+        att = Attachment.objects.create(
+            email=self.email,
+            file_path=r'C:\nonexistent\missing.png',
+            filename='missing.png',
+            size=0,
+            content_type='image/png',
+        )
+        response = self.client.get(reverse('email_ui:attachment_inline', args=[att.pk]))
+        self.assertEqual(response.status_code, 404)
+
+
 class FilterFormTest(TestCase):
     """Tests for filter form partial view."""
 
@@ -1057,10 +1128,12 @@ class ResolveSenderToEmailTest(TestCase):
         self.assertEqual(result, 'user@test.com')
 
     def test_name_only_with_contact(self):
+        # БЕЗОПАСНОСТЬ: нечёткий поиск запрещён. Имя без email -> пустая строка,
+        # вызывающий код должен показать ошибку, а не подставлять чужой адрес.
         contact = Contact.objects.create(name='John Doe')
         ContactEmail.objects.create(contact=contact, email='john@test.com', is_primary=True)
         result = resolve_sender_to_email('John Doe')
-        self.assertEqual(result, 'john@test.com')
+        self.assertEqual(result, '')
 
     def test_name_only_no_contact(self):
         result = resolve_sender_to_email('Unknown Person')
@@ -1071,6 +1144,14 @@ class ResolveSenderToEmailTest(TestCase):
 
     def test_none(self):
         self.assertEqual(resolve_sender_to_email(None), '')
+
+    def test_embedded_email_preferred_over_partial_name_contact(self):
+        # Регрессия: "ответить всем" не должен подменять реальный адрес
+        # другим контактом, чьё имя лишь частично совпадает.
+        wrong = Contact.objects.create(name='Иван')
+        ContactEmail.objects.create(contact=wrong, email='ivan.wrong@x.com', is_primary=True)
+        result = resolve_sender_to_email('Иван Петров <ivan.real@x.com>')
+        self.assertEqual(result, 'ivan.real@x.com')
 
 
 class ComposeModalViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
@@ -1132,6 +1213,8 @@ class ReplyModalViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         self.assertEqual(response.context['to'], '')
 
     def test_reply_modal_sender_name_only_with_contact(self):
+        # Имя без явного email в поле From -> ошибка, адрес НЕ подменяется
+        # email-ом случайно подошедшего контакта.
         contact = Contact.objects.create(name='John Smith')
         ContactEmail.objects.create(contact=contact, email='john@smith.com', is_primary=True)
         self.email.sender = 'John Smith'
@@ -1139,7 +1222,67 @@ class ReplyModalViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         response = self.client.get(
             reverse('email_ui:reply_modal', args=[self.email.pk, 'reply'])
         )
-        self.assertEqual(response.context['to'], 'john@smith.com')
+        self.assertEqual(response.context['to'], '')
+        self.assertTrue(response.context['error'])
+
+    def test_reply_all_uses_explicit_emails_not_contacts(self):
+        # "Ответить всем" должен брать явные email из To/Cc, а не подменять их
+        # email-ами контактов с похожими именами.
+        wrong = Contact.objects.create(name='Иван')
+        ContactEmail.objects.create(contact=wrong, email='ivan.wrong@x.com', is_primary=True)
+        self.email.sender = 'Boss <boss@corp.com>'
+        self.email.receiver = 'Иван Петров <ivan.real@x.com>, me@corp.com'
+        self.email.cc = 'Other <other@corp.com>'
+        self.email.save()
+        self.user.email = 'me@corp.com'
+        self.user.save()
+        response = self.client.get(
+            reverse('email_ui:reply_modal', args=[self.email.pk, 'reply_all'])
+        )
+        self.assertEqual(response.context['to'], 'boss@corp.com')
+        # "me@corp.com" (сам пользователь) и "boss@corp.com" (отправитель)
+        # должны быть исключены из Cc.
+        self.assertIn('ivan.real@x.com', response.context['cc'])
+        self.assertIn('other@corp.com', response.context['cc'])
+        self.assertNotIn('me@corp.com', response.context['cc'])
+        self.assertNotIn('ivan.wrong@x.com', response.context['cc'])
+
+    def test_reply_all_excludes_sender_and_user_from_cc(self):
+        # Реальный кейс: пользователь ПОЛУЧИЛ письмо на адрес strakhov.s@cimrus.com,
+        # но request.user.email ЕМУ НЕ РАВЕН. "Я" определяется по SMTP-аккаунту
+        # (адрес ящика), и свой адрес не должен попасть в копию (CC).
+        self.user.email = 'reply@test.com'  # не совпадает с реальным адресом
+        self.user.save()
+        SMTPAccount.objects.create(
+            name='Me', host='smtp.test.com', username='x@test.com',
+            password='p', from_email='strakhov.s@cimrus.com', is_active=True,
+        )
+        self.email.sender = 'Stasyuk <stasyuk@isetgroup.ru>'
+        self.email.receiver = 'strakhov.s@cimrus.com, kapitonov@isetgroup.ru'
+        self.email.cc = 'murat.g@cimrus.com'
+        self.email.save()
+        response = self.client.get(
+            reverse('email_ui:reply_modal', args=[self.email.pk, 'reply_all'])
+        )
+        self.assertEqual(response.context['to'], 'stasyuk@isetgroup.ru')
+        self.assertIn('kapitonov@isetgroup.ru', response.context['cc'])
+        self.assertIn('murat.g@cimrus.com', response.context['cc'])
+        # сам пользователь (strakhov.s) не должен быть в копии
+        self.assertNotIn('strakhov.s@cimrus.com', response.context['cc'])
+
+    def test_reply_all_missing_email_shows_error(self):
+        # Если в To/Cc нет явного email - получатель пропускается и показывается
+        # предупреждение (а не подменяется контактом).
+        self.email.sender = 'Boss <boss@corp.com>'
+        self.email.receiver = 'Иван Петров'
+        self.email.cc = ''
+        self.email.save()
+        response = self.client.get(
+            reverse('email_ui:reply_modal', args=[self.email.pk, 'reply_all'])
+        )
+        self.assertEqual(response.context['to'], 'boss@corp.com')
+        self.assertEqual(response.context['cc'], '')
+        self.assertTrue(response.context['error'])
 
 
 class SendEmailViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
@@ -1358,8 +1501,7 @@ class AdminTaskCreationLinkTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('admin_test', 'admin@test.com', 'password')
         from ProjectTDL.models import TaskNode
-        from StaticData.models import ProjectSite, SubProject
-        self.sub_project = SubProject.objects.create(name='Test Sub')
+        from StaticData.models import ProjectSite
         self.project = ProjectSite.objects.create(name='Test Proj')
         self.email = Email.objects.create(
             uid='admin-link-test',
@@ -1374,7 +1516,6 @@ class AdminTaskCreationLinkTest(TestCase):
         task = Task.objects.create(
             owner=self.user,
             project_site=self.project,
-            sub_project=self.sub_project,
             name='Linked Task',
         )
 
@@ -1415,8 +1556,7 @@ class EmailTaskRelationshipTest(TestCase):
 
     def setUp(self):
         from ProjectTDL.models import TaskNodeNode
-        from StaticData.models import ProjectSite, SubProject
-        self.sub_project = SubProject.objects.create(name='Test Sub')
+        from StaticData.models import ProjectSite
         self.project = ProjectSite.objects.create(name='Test Proj')
         self.user = User.objects.create_user('rel_test', 'rel@test.com', 'password')
         self.email = Email.objects.create(
@@ -1427,7 +1567,6 @@ class EmailTaskRelationshipTest(TestCase):
         self.tasknode = TaskNode.objects.create(
             owner=self.user,
             project_site=self.project,
-            sub_project=self.sub_project,
             name='Relationship Test TaskNode',
             node_type='task',
         )

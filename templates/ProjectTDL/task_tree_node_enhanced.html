@@ -2,8 +2,6 @@
 <li data-id="{{ node.pk }}"
     data-project-site-id="{{ node.project_site_id|default:'' }}"
     data-project-site-name="{{ node.project_site.name|default:'' }}"
-    data-sub-project-id="{{ node.sub_project_id|default:'' }}"
-    data-sub-project-name="{{ node.sub_project.name|default:'' }}"
     data-status-id="{{ node.status_id|default:'' }}"
     data-status-name="{{ node.status.name|default:'' }}"
     data-category-id="{{ node.category_id|default:'' }}"
@@ -12,15 +10,21 @@
     data-contractor-name="{{ node.contractor.name|default:'' }}"
     data-due-date="{{ node.due_date|date:'Y-m-d'|default:'' }}"
     data-price="{{ node.price|default:'' }}"
-    class="tree-node-row" style="padding-left:{{ depth }}px;">
+    class="tree-node-row{% if node.get_children %} tree-parent{% endif %}" style="padding-left:{{ depth }}px;">
   <div class="d-flex align-items-center gap-2 px-3 py-2" style="padding-left:{{ depth|add:24 }}px !important;">
     <input type="checkbox" class="form-check-input task-checkbox" value="{{ node.pk }}">
     {% if node.get_children %}
       <i class="bi bi-chevron-right small tree-toggle"></i>
+      <i class="bi bi-folder2-open tree-parent-icon" title="Родительская задача"></i>
     {% else %}
       <i class="bi bi-dot small text-muted" style="width:1em;"></i>
+      {% if node.node_type == 'subtask' %}
+        <i class="bi bi-subtract tree-subtask-icon" title="Подзадача"></i>
+      {% else %}
+        <i class="bi bi-file-earmark-text tree-leaf-icon"></i>
+      {% endif %}
     {% endif %}
-    <a href="{% url 'task_detail' node.pk %}" class="fw-semibold text-decoration-none" onclick="event.stopPropagation()">{{ node.name }}</a>
+    <a href="{% url 'task_detail' node.pk %}" class="fw-semibold text-decoration-none tree-name{% if node.get_children %} tree-parent-name{% endif %}" onclick="event.stopPropagation()">{{ node.name }}</a>
     <div class="ms-auto d-flex gap-2 align-items-center">
       {% if node.contractor %}
         <span class="text-muted small"><i class="bi bi-person me-1"></i>{{ node.contractor.name }}</span>

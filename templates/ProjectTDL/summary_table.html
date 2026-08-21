@@ -14,6 +14,7 @@
                 <th>ID</th>
                 <th>Название задачи</th>
                 <th>Проект</th>
+                <th>Здание</th>
                 <th>Статус</th>
                 <th>Ответственный</th>
                 <th>Срок</th>
@@ -30,6 +31,7 @@
                 <td><strong>{{ task.id }}</strong></td>
                 <td>{{ task.name }}</td>
                 <td>{{ task.project }}</td>
+                <td>{{ task.building }}</td>
                 <td class="status-{{ task.status_class }}">{{ task.status }}</td>
                 <td>{{ task.contractor }}</td>
                 <td>{{ task.due_date }}</td>

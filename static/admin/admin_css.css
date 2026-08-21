@@ -44,3 +44,18 @@ select option {
     background-color: #495057 !important;
     color: #ffffff !important;
 }
+
+/* Ширина select2 в таблице (list_editable) */
+#result_list .select2-container {
+    min-width: 160px;
+}
+
+/* Растягивание виджетов фильтров по ширине ряда */
+#change-list-filters .form-group {
+    flex: 1 1 220px;
+    min-width: 220px;
+}
+
+#change-list-filters .form-group .select2-container {
+    width: 100% !important;
+}

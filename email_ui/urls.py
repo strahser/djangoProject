@@ -31,6 +31,7 @@ urlpatterns = [
 
     # --- Attachments ---
     path('attachment/<int:att_id>/download/', views.download_attachment, name='download_attachment'),
+    path('attachment/<int:att_id>/inline/', views.serve_inline_attachment, name='attachment_inline'),
 
     # --- Filtering ---
     path('filter-form/partial/', views.filter_form_partial, name='filter_form_partial'),

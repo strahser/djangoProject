@@ -2,6 +2,7 @@ import re
 from typing import List, Optional, Union
 
 import bleach
+from django.urls import reverse
 
 
 _CLEAN_NUMBER_RE = re.compile(r'[\xa0\u202f\u2009\u00a0\u2007 ]')
@@ -58,6 +59,65 @@ def clean_email_html(html_content: str) -> str:
         attributes=ALLOWED_ATTRIBUTES,
         strip=True,
     )
+
+
+_IMG_CID_SRC_RE = re.compile(
+    r'(<img\b[^>]*?\bsrc\s*=\s*["\'])\s*cid:([^"\']+?)\s*(["\'])',
+    re.IGNORECASE,
+)
+
+
+def _normalize_cid(value: str) -> str:
+    """Нормализует Content-ID: снимает кавычки, угловые скобки, префикс cid:."""
+    value = value.strip().strip('<>').strip()
+    if value.lower().startswith('cid:'):
+        value = value[4:]
+    return value.strip().lower()
+
+
+def resolve_inline_image_urls(email, html_content: str) -> str:
+    """Заменяет src="cid:..." в теле письма на URL просмотра вложения.
+
+    Изображения (скриншоты) сохраняются в папке письма вместе с вложениями,
+    но content_id в БД обычно не хранится, поэтому:
+    1) если у вложения заполнен content_id — ищем точное совпадение;
+    2) иначе сопоставляем cid-ссылки по порядку с image-вложениями письма.
+    """
+    if not html_content or '<img' not in html_content.lower():
+        return html_content
+
+    attachments = list(email.attachments.all())
+
+    by_cid = {}
+    for att in attachments:
+        if att.content_id:
+            by_cid.setdefault(_normalize_cid(att.content_id), att)
+
+    image_atts = [
+        a for a in attachments
+        if (a.content_type or '').lower().startswith('image/')
+    ]
+    used = set()
+
+    def _pick(cid: str):
+        att = by_cid.get(_normalize_cid(cid))
+        if att is not None and att.pk not in used:
+            used.add(att.pk)
+            return att
+        for a in image_atts:
+            if a.pk not in used:
+                used.add(a.pk)
+                return a
+        return None
+
+    def _replace(match):
+        att = _pick(match.group(2))
+        if att is None:
+            return match.group(0)
+        url = reverse('email_ui:attachment_inline', args=[att.pk])
+        return f'{match.group(1)}{url}{match.group(3)}'
+
+    return _IMG_CID_SRC_RE.sub(_replace, html_content)
 
 
 def highlight_email_body(html_content: str) -> str:
@@ -306,51 +366,21 @@ def extract_all_email_addresses(text: str) -> List[str]:
 
 def resolve_sender_to_email(sender: str, sender_name: str = '') -> str:
     """
-    Резолвит отправителя в email.
-    1) Если передан sender_name — ищет контакт по имени, возвращает его primary email.
-    2) Если содержит email — извлекает.
-    3) Ищет в Contact по имени.
-    4) Ищет в других письмах с тем же отправителем.
+    Извлекает ЯВНЫЙ email-адрес из строки отправителя/получателя.
+
+    НЕЧЁТКИЙ ПОИСК КОНТАКТОВ ЗАПРЕЩЁН. Адрес должен присутствовать
+    непосредственно в самой строке (формат "Name <email>" или bare email).
+    Если явного email в строке нет - возвращаем пустую строку, чтобы
+    вызывающий код мог показать ОШИБКУ, а не отправлять письмо не тому
+    адресату (подставляя email случайно подошедшего контакта).
+
+    Безопасность сервиса ответов критична: подмена адресата недопустима.
     """
-    from .models import Contact, ContactEmail
-
-    # Шаг 1: поиск по имени отправителя (sender_name из заголовка)
-    if sender_name:
-        result = _search_contact(sender_name)
-        if result:
-            return result
-
     if not sender:
         return ''
-
     sender_clean = sender.strip()
-
-    # Шаг 2: поиск контакта по имени из sender (корректирует неверные email
-    # вида "Innokentiy Andreev <bezborodov.s@cimrus.com>")
-    result = _search_contact(sender_clean)
-    if result:
-        return result
-
-    # Шаг 3: извлечение email (если имя не найдено среди контактов)
-    email = extract_email_address(sender)
-    if email:
-        return email
-
-    from Emails.models import Email as EmailModel
-    similar = EmailModel.objects.filter(
-        sender__icontains=sender_clean
-    ).exclude(
-        sender=sender_clean
-    ).exclude(
-        sender__regex=r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$'
-    ).values_list('sender', flat=True)[:10]
-
-    for s in similar:
-        found = extract_email_address(s)
-        if found:
-            return found
-
-    return ''
+    email = extract_email_address(sender_clean)
+    return email or ''
 
 
 import hashlib

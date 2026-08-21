@@ -21,24 +21,28 @@ import re
 
 # region Table
 class StaticFilterSettings:
-    filtered_value_list = ['project_site', 'sub_project', 'status', 'category', 'contractor', ]
+    filtered_value_list = ['project_site', 'building_number', 'status', 'category', 'contractor', ]
     replaced_list = ['contractor', 'contract', 'category', 'status']
     pivot_columns_values = ['contract', 'status', 'category', ]
     pivot_columns_names = ['Договор', 'Статус', 'Категория']
     export_excluding_list = ['price', 'contract', 'owner', 'description']
 
 
-def create_filter_qs(request, filtered_value_list) -> dict:
+def create_filter_qs(request, filtered_value_list, data=None) -> dict:
+    source = data if data is not None else request.POST
     filter_dict = {}
-    for data in filtered_value_list:
-        _data = request.POST.getlist(data)
+    for field_name in filtered_value_list:
+        _data = source.getlist(field_name) if hasattr(source, 'getlist') else [source.get(field_name)]
         if _data:
-            filter_dict[f'{data}__id__in'] = _data
+            _data = [v for v in _data if v]
+            if _data:
+                filter_dict[f'{field_name}__id__in'] = _data
     return filter_dict
 
 
-def data_filter_qs(request, datefield):
-    get_date = request.POST.get(datefield)
+def data_filter_qs(request, datefield, data=None):
+    source = data if data is not None else request.POST
+    get_date = source.get(datefield)
     res_dict = {}
     _today = datetime.date.today()
     if get_date:
@@ -165,8 +169,64 @@ class TaskNodeTable(tables.Table):
         verbose_name=mark_safe('<input type="checkbox" class="form-check-input" id="checkAll">'), accessor="pk",
         orderable=False,
     )
+
+    def render_name(self, record):
+        # Иконка/отступ для дерева: родители (есть дети) — папка + стрелка; подзадачи — отступ
+        try:
+            has_children = TaskNode.objects.filter(parent_id=record.pk).exists()
+        except Exception:
+            has_children = False
+        depth = record.get_level() if hasattr(record, 'get_level') else 0
+        indent = depth * 22
+        view_mode = getattr(self, 'view_mode', 'flat')
+        if has_children:
+            # В дереве — стрелка раскрытия; в плоском списке только иконка папки
+            toggle = ('<i class="bi bi-chevron-right small tree-toggle me-1" style="cursor:pointer;"></i>'
+                      if view_mode == 'tree' else '')
+            folder = '<i class="bi bi-folder2-open me-1" style="color:#ffc107;"></i>'
+            cls = 'tree-name tree-parent-name'
+            link_cls = 'fw-semibold'  # жирный — только для родителя
+        else:
+            toggle = ''
+            folder = '<i class="bi bi-dot small text-muted me-1" style="width:1em;"></i>'
+            cls = 'tree-name'
+            link_cls = ''  # подзадачи — обычный вес
+        return mark_safe(
+            f'<span style="display:inline-flex;align-items:center;padding-left:{indent}px;">'
+            f'{toggle}{folder}'
+            f'<a href="{reverse("task_detail", args=[record.pk])}" class="{link_cls} text-decoration-none {cls}" '
+            f'onclick="event.stopPropagation()">{record.name}</a></span>'
+        )
+
     def render_contractor(self, record):
         return record.contractor.name if record.contractor else ''
+
+    def render_building_number(self, record):
+        return record.building_number.name.name if record.building_number and record.building_number.name else ''
+
+    def render_project_site(self, record):
+        return record.project_site.name if record.project_site else ''
+
+    def render_category(self, record):
+        return record.category.name if record.category else ''
+
+    def render_contract(self, record):
+        return record.contract.name if record.contract else ''
+
+    def render_owner(self, record):
+        return record.owner.username if record.owner else ''
+
+    def render_description(self, record):
+        if not record.description:
+            return ''
+        text = str(record.description)
+        return text[:80] + ('…' if len(text) > 80 else '')
+
+    def render_creation_stamp(self, record):
+        return record.creation_stamp.strftime('%d.%m.%Y %H:%M') if record.creation_stamp else ''
+
+    def render_update_stamp(self, record):
+        return record.update_stamp.strftime('%d.%m.%Y %H:%M') if record.update_stamp else ''
 
     def render_status(self, record):
         return record.status.name if record.status else ''
@@ -180,13 +240,16 @@ class TaskNodeTable(tables.Table):
     class Meta:
         model = TaskNode
         template_name = "django_tables2/bootstrap_no_pag.html"
-        exclude = ("creation_stamp", 'update_stamp', 'contract', 'description', 'owner', 'category', 'sub_project', 'building_number', 'project_site', 'lft', 'rght', 'level', 'tree_id', 'parent', 'node_type')
+        exclude = ('lft', 'rght', 'level', 'tree_id', 'parent', 'node_type')
         row_attrs = {
             "data-id": lambda record: record.pk,
+            "data-parent-id": lambda record: record.parent_id or '',
+            "data-depth": lambda record: record.get_level() if hasattr(record, 'get_level') else 0,
+            "data-has-children": lambda record: '1' if TaskNode.objects.filter(parent_id=record.pk).exists() else '0',
             "data-project-site-id": lambda record: record.project_site_id or '',
             "data-project-site-name": lambda record: record.project_site.name if record.project_site else '',
-            "data-sub-project-id": lambda record: record.sub_project_id or '',
-            "data-sub-project-name": lambda record: record.sub_project.name if record.sub_project else '',
+            "data-building-id": lambda record: record.building_number_id or '',
+            "data-building-name": lambda record: record.building_number.name.name if record.building_number and record.building_number.name else '',
             "data-status-id": lambda record: record.status_id or '',
             "data-status-name": lambda record: record.status.name if record.status else '',
             "data-category-id": lambda record: record.category_id or '',
@@ -202,4 +265,4 @@ class TaskNodeTable(tables.Table):
                      'class': 'table-light',
                  },
                  }
-        sequence = ("selection", "...",)
+        sequence = ("selection", "name", "...",)

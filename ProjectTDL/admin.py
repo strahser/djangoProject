@@ -35,7 +35,6 @@ class DesignChapterResource(resources.ModelResource):
 class TaskNodeResource(resources.ModelResource):
     id = Field(attribute='id')
     project_site__name = Field(attribute='project_site__name', column_name='project site')
-    sub_project__name = Field(attribute='sub_project__name', column_name='sub project site')
     building_number__name__name = Field(attribute='building_number__name__name', column_name='building')
     building_number__building_number = Field(attribute='building_number__building_number')
     design_chapter__short_name = Field(attribute='design_chapter__short_name', column_name='design chapter')
@@ -49,7 +48,6 @@ class TaskNodeResource(resources.ModelResource):
     class Meta:
         model = TaskNode
         fields = ('id', 'project_site__name',
-                  'sub_project__name',
                   'building_number__name__name',
                   'building_number__building_number',
                   'design_chapter__short_name', 'name', 'description',
@@ -131,15 +129,15 @@ class UniversalAdmin(admin.ModelAdmin):
 
 @admin.register(TaskNode)
 class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
-    excluding_list = ['description', 'parent', 'owner', 'contract', ]
+    excluding_list = ['description', 'parent', 'owner', 'contract', 'lft', 'rght', 'tree_id', 'level', ]
     additional_list = ['creation_stamp', 'add_emails_button', 'add_report_button']
-    actions = [duplicate_event, 'html_replace', 'generate_html_report', 'generate_html_report_with_layout']
+    actions = [duplicate_event, 'html_replace', 'generate_html_report']
     list_display_links = ('id',)
     list_display = get_standard_display_list(TaskNode, excluding_list=excluding_list, additional_list=additional_list)
     list_editable = ('status', 'category', 'price', 'due_date',)
-    list_filter = ['project_site__name', 'sub_project', 'building_number',
+    list_filter = ['project_site__name', 'building_number',
                    'status', 'category', 'contractor', 'contract', 'node_type', ]
-    search_fields = ['name', 'project_site__name', 'sub_project__name', 'contractor__name']
+    search_fields = ['name', 'project_site__name', 'contractor__name']
     inlines = [TaskInline, TaskEmailLinkInline, TaskDueDateHistoryInline]
     resource_classes = [TaskNodeResource]
     list_per_page = 20
@@ -272,7 +270,7 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
                 return None
 
             tasks = queryset.select_related(
-                'project_site', 'sub_project', 'building_number__name',
+                'project_site', 'building_number__name',
                 'design_chapter', 'contractor', 'status', 'category', 'contract'
             ).prefetch_related('due_date_history')
 
@@ -283,7 +281,7 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
                         f"выбранные ID: {task_ids[:10]}{'...' if len(task_ids) > 10 else ''}")
 
             html_report = ReportGenerator.generate_html_report(
-                tasks, request, admin_url=admin_url, use_layout=False
+                tasks, request, admin_url=admin_url
             )
 
             response = HttpResponse(html_report, content_type='text/html')
@@ -300,42 +298,12 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
             self.message_user(request, f'Ошибка при генерации отчета: {str(e)}', level=messages.ERROR)
             return None
 
-    @admin.action(description='Сгенерировать отчет с layout')
-    def generate_html_report_with_layout(self, request, queryset):
-        try:
-            task_count = queryset.count()
-            if task_count == 0:
-                messages.warning(request, "Не выбрано ни одной задачи для отчета")
-                return None
-
-            tasks = queryset.select_related(
-                'project_site', 'sub_project', 'building_number__name',
-                'design_chapter', 'contractor', 'status', 'category', 'contract'
-            ).prefetch_related('due_date_history')
-
-            task_ids = list(queryset.values_list('id', flat=True))
-            admin_url = self._get_admin_return_url(request, task_ids)
-
-            html_report = ReportGenerator.generate_html_report(
-                tasks, request, admin_url=admin_url, use_layout=True
-            )
-
-            response = HttpResponse(html_report, content_type='text/html')
-            response['Content-Disposition'] = 'inline; filename="tasks_report_layout.html"'
-            return response
-
-        except Exception as e:
-            logger.error(f'Ошибка при генерации отчета с layout: {str(e)}', exc_info=True)
-            self.message_user(request, f'Ошибка при генерации отчета с layout: {str(e)}', level=messages.ERROR)
-            return None
-
     def changelist_view(self, request, extra_context=None):
         response = super().changelist_view(request, extra_context=extra_context)
 
         if hasattr(response, 'context_data'):
             response.context_data['report_actions_info'] = {
                 'generate_report': 'Создает компактный отчет в новой вкладке',
-                'generate_report_with_layout': 'Создает отчет в стиле приложения',
             }
 
         try:
@@ -354,9 +322,9 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
         return response
 
     class Media(object):
-        js = ('admin/js/admin.js',)
+        # js подключается глобально через jazzmin custom_js (jasmin.py) — не дублируем
         css = {
-            'all': ('admin/css/admin_custom.css',)
+            'all': ('admin/admin_css_v2.css',)
         }
 
 

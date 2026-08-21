@@ -99,37 +99,29 @@
                               placeholder="email1@example.com, email2@example.com"
                               oninput="autoResize(this);EmailApp.markDirty()"
                               style="resize:none;">{{ to|default:'' }}</textarea>
-                    <div class="dropdown" id="contacts-dropdown">
-                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Выбрать из контактов">
-                            <i class="bi bi-book"></i>
-                        </button>
-                        <div class="dropdown-menu dropdown-menu-end" style="min-width:280px;">
-                            <div class="px-2 py-1">
-                                <input type="text" class="form-control form-control-sm" id="contacts-search" placeholder="Поиск контактов..." oninput="filterContacts(this.value)">
-                            </div>
-                            <ul class="list-unstyled mb-0" id="contacts-list" style="max-height: 260px; overflow-y: auto;">
-                                {% for contact in contacts %}
-                                <li><a class="dropdown-item small" href="#" data-email="{{ contact.primary_email.email|default:'' }}" data-field="to" onclick="addContactTo(this); return false;" data-search="{{ contact.name|lower }} {{ contact.primary_email.email|default:''|lower }}">{{ contact.name }} — {{ contact.primary_email.email|default:'нет email' }}</a></li>
-                                {% endfor %}
-                            </ul>
-                        </div>
-                    </div>
+                    {% include 'email_ui/partials/contact_picker.html' with field='to' %}
                 </div>
             </div>
             <div class="row mb-2">
                 <div class="col">
                     <label class="form-label small text-muted mb-1">Копия</label>
-                    <textarea name="cc" class="form-control form-control-sm" rows="1"
-                              placeholder="email@example.com"
-                              oninput="autoResize(this);EmailApp.markDirty()"
-                              style="resize:none;">{{ cc|default:'' }}</textarea>
+                    <div class="d-flex gap-1">
+                        <textarea name="cc" class="form-control form-control-sm" rows="1"
+                                  placeholder="email@example.com"
+                                  oninput="autoResize(this);EmailApp.markDirty()"
+                                  style="resize:none;">{{ cc|default:'' }}</textarea>
+                        {% include 'email_ui/partials/contact_picker.html' with field='cc' %}
+                    </div>
                 </div>
                 <div class="col">
                     <label class="form-label small text-muted mb-1">Скрытая копия</label>
-                    <textarea name="bcc" class="form-control form-control-sm" rows="1"
-                              placeholder="email@example.com"
-                              oninput="autoResize(this);EmailApp.markDirty()"
-                              style="resize:none;"></textarea>
+                    <div class="d-flex gap-1">
+                        <textarea name="bcc" class="form-control form-control-sm" rows="1"
+                                  placeholder="email@example.com"
+                                  oninput="autoResize(this);EmailApp.markDirty()"
+                                  style="resize:none;"></textarea>
+                        {% include 'email_ui/partials/contact_picker.html' with field='bcc' %}
+                    </div>
                 </div>
             </div>
             <div class="mb-0">
@@ -176,9 +168,11 @@ document.body.addEventListener('htmx:configRequest', function(evt) {
     }
 });
 
-function filterContacts(query) {
+function filterContacts(query, field) {
     var q = query.toLowerCase().trim();
-    document.querySelectorAll('#contacts-list .dropdown-item').forEach(function(item) {
+    var list = document.getElementById('contacts-list-' + (field || 'to'));
+    if (!list) return;
+    list.querySelectorAll('.dropdown-item').forEach(function(item) {
         var searchData = item.getAttribute('data-search') || '';
         item.style.display = (!q || searchData.indexOf(q) !== -1) ? '' : 'none';
     });

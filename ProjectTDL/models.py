@@ -59,7 +59,6 @@ class TaskNode(MPTTModel):
                             on_delete=models.CASCADE, verbose_name='Родитель')
     node_type = models.CharField(max_length=10, choices=NODE_TYPES, default='task', verbose_name='Тип')
     project_site = models.ForeignKey('StaticData.ProjectSite', on_delete=models.CASCADE, verbose_name='Проект')
-    sub_project = models.ForeignKey('StaticData.SubProject', on_delete=models.DO_NOTHING, verbose_name='Подпроект')
     building_number = models.ForeignKey('StaticData.BuildingNumber', null=True, blank=True, on_delete=models.CASCADE, verbose_name='Здание')
     design_chapter = models.ForeignKey('StaticData.DesignChapter', null=True, blank=True, on_delete=models.CASCADE, verbose_name='Раздел')
     contractor = models.ForeignKey('ProjectContract.Contractor', null=True, blank=True, on_delete=models.CASCADE, verbose_name='Ответственный')
@@ -92,12 +91,58 @@ class TaskNode(MPTTModel):
 
 class ProjectPin(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, verbose_name='Пользователь')
-    project_site = models.ForeignKey('StaticData.ProjectSite', on_delete=models.CASCADE, verbose_name='Площадка')
+    project_site = models.ForeignKey('StaticData.ProjectSite', on_delete=models.CASCADE, verbose_name='Проект')
 
     class Meta:
-        verbose_name = 'Закреплённая площадка'
-        verbose_name_plural = 'Закреплённые площадки'
+        verbose_name = 'Закреплённый проект'
+        verbose_name_plural = 'Закреплённые проекты'
         unique_together = ('user', 'project_site')
 
     def __str__(self):
         return f'{self.project_site.name} ({self.user.username})'
+
+
+class UserSettings(models.Model):
+    inherit_props = models.BooleanField(default=False, verbose_name='Наследовать свойства от родителя')
+    new_task_position = models.CharField(max_length=10, default='bottom', verbose_name='Порядок новых подзадач',
+                                         choices=[('top', 'Вверху списка'), ('bottom', 'Внизу списка')])
+    default_tree_view = models.BooleanField(default=False, verbose_name='Дерево по умолчанию')
+    default_project_site = models.BooleanField(default=False, verbose_name='Заполнять проект из контекста')
+    default_category = models.BooleanField(default=False, verbose_name='Заполнять категорию из контекста')
+    default_status = models.BooleanField(default=False, verbose_name='Заполнять статус из контекста')
+    default_contractor = models.BooleanField(default=False, verbose_name='Заполнять ответственного из контекста')
+    default_building = models.BooleanField(default=False, verbose_name='Заполнять здание из контекста')
+    column_visibility = models.JSONField(default=dict, verbose_name='Видимость колонок')
+    column_widths = models.JSONField(default=dict, verbose_name='Ширины колонок')
+    column_order = models.JSONField(default=list, verbose_name='Порядок колонок')
+    panel_fields = models.JSONField(default=dict, verbose_name='Поля панели свойств')
+    page_length = models.IntegerField(null=True, blank=True, verbose_name='Записей на страницу')
+    auto_save = models.BooleanField(default=True, verbose_name='Сохранять состояние фильтров')
+    active_project = models.ForeignKey('StaticData.ProjectSite', null=True, blank=True, on_delete=models.SET_NULL,
+                                       verbose_name='Активный проект')
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                related_name='task_user_settings', verbose_name='Пользователь')
+
+    class Meta:
+        verbose_name = 'Настройки пользователя'
+        verbose_name_plural = 'Настройки пользователей'
+
+    def __str__(self):
+        return f'Настройки {self.user.username}'
+
+
+class TaskFilterState(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name='task_filter_states', verbose_name='Пользователь')
+    project_site = models.ForeignKey('StaticData.ProjectSite', on_delete=models.CASCADE, null=True, blank=True,
+                                     verbose_name='Проект')
+    params = models.JSONField(default=dict, verbose_name='Параметры фильтров')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Обновлено')
+
+    class Meta:
+        verbose_name = 'Сохранённое состояние фильтров'
+        verbose_name_plural = 'Сохранённые состояния фильтров'
+        unique_together = ('user', 'project_site')
+
+    def __str__(self):
+        return f'Фильтры {self.user.username} · {self.project_site or "все проекты"}'

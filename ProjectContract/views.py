@@ -29,7 +29,7 @@ from ProjectContract.models import Contractor
 def contract_dashboard(request):
     """Дашборд договоров: прогресс оплат, итоги, фильтры."""
     contracts = Contract.objects.select_related(
-        'project_site', 'contractor', 'sub_project'
+        'project_site', 'contractor'
     ).prefetch_related('contractpayments_set').order_by('project_site__name', 'name')
 
     q = (request.GET.get('q') or '').strip()

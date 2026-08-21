@@ -36,8 +36,8 @@ from .models import (
 )
 from .services.email_sender import EmailSenderService
 from .utils import (
-    clean_email_html, extract_all_email_addresses, resolve_sender_to_email,
-    sanitize_id, sanitize_id_list, highlight_email_body,
+    clean_email_html, extract_email_address, extract_all_email_addresses, resolve_sender_to_email,
+    resolve_inline_image_urls, sanitize_id, sanitize_id_list, highlight_email_body,
 )
 PER_PAGE = 50
 ALLOWED_SORT_FIELDS = ['sender', 'receiver', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
@@ -355,11 +355,26 @@ def email_body(request, pk):
     try:
         with open(html_path, 'r', encoding='utf-8') as f:
             raw_html = f.read()
-        cleaned = clean_email_html(raw_html)
+        resolved = resolve_inline_image_urls(email, raw_html)
+        cleaned = clean_email_html(resolved)
         highlighted = highlight_email_body(cleaned)
         return HttpResponse(_frame(highlighted))
     except Exception as e:
         return HttpResponse(_frame(f'<p>Ошибка загрузки: {e}</p>'))
+
+
+@login_required
+def serve_inline_attachment(request, att_id):
+    """Отдаёт вложение inline — для картинок, встроенных в тело письма."""
+    att = get_object_or_404(Attachment, pk=att_id)
+    if not os.path.exists(att.file_path):
+        raise Http404("Файл не найден")
+    content_type, encoding = mimetypes.guess_type(att.filename)
+    if not content_type:
+        content_type = att.content_type or 'application/octet-stream'
+    response = FileResponse(open(att.file_path, 'rb'), content_type=content_type)
+    response['Content-Disposition'] = f'inline; filename="{att.filename}"'
+    return response
 
 
 @login_required
@@ -487,7 +502,7 @@ def attach_to_tasks_modal(request, pk):
     date_to = request.GET.get('date_to') or ''
 
     tasks = TaskNode.objects.select_related(
-        'project_site', 'sub_project', 'status', 'contractor'
+        'project_site', 'status', 'contractor'
     ).order_by('-due_date')
     if q:
         tasks = tasks.filter(
@@ -527,7 +542,7 @@ def attach_tasks_page(request, pk):
     date_to = request.GET.get('date_to') or ''
 
     tasks = TaskNode.objects.select_related(
-        'project_site', 'sub_project', 'status', 'contractor'
+        'project_site', 'status', 'contractor'
     ).order_by('-due_date')
     if q:
         tasks = tasks.filter(
@@ -892,30 +907,78 @@ def reply_modal(request, pk, reply_type='reply'):
 
     to_addr = ''
     cc_addr = ''
+    resolve_errors = []
     user_email = (request.user.email or '').lower() if request.user and hasattr(request.user, 'email') else ''
+
     if reply_type == 'reply':
-        to_addr = resolve_sender_to_email(email.sender or '', sender_name=email.sender_name) or (email.sender or '')
+        # Адрес получателя извлекается ТОЛЬКО явно из поля From.
+        # Нечёткий поиск контактов запрещён - если email отсутствует, это ошибка.
+        to_addr = resolve_sender_to_email(email.sender or '')
+        if not to_addr:
+            resolve_errors.append(
+                'Не удалось определить email получателя для ответа: '
+                'в поле отправителя письма нет явного адреса. Укажите его вручную.'
+            )
     elif reply_type == 'reply_all':
-        sender_email = resolve_sender_to_email(email.sender or '', sender_name=email.sender_name)
-        to_addr = sender_email or (email.sender or '')
+        sender_email = resolve_sender_to_email(email.sender or '')
+        if not sender_email:
+            resolve_errors.append(
+                'Не удалось определить email отправителя для ответа: '
+                'в поле отправителя письма нет явного адреса. Укажите его вручную.'
+            )
+        else:
+            to_addr = sender_email
+        # Адреса, которые НЕЛЬЗЯ включать в "Копию" (CC):
+        #  - сам получатель ответа (To, обычно это отправитель письма),
+        #  - сам пользователь (все его собственные адреса),
+        #  - отправитель исходного письма.
+        # Это гарантирует, что отправитель/пользователь никогда не попадёт в копию.
+        excluded = set()
+        if to_addr:
+            excluded.add(to_addr.lower())
+        if sender_email:
+            excluded.add(sender_email.lower())
+        # Собственные адреса пользователя (чтобы не отвечать самому себе в копии):
+        if user_email:
+            excluded.add(user_email.lower())
+        # Адрес почтового ящика, через который забирается почта (settings.YA_USER).
+        from django.conf import settings
+        ya_user = getattr(settings, 'YA_USER', '') or ''
+        if ya_user:
+            excluded.add(ya_user.lower())
+        # Адрес аккаунта, к которому относится письмо (если задан).
+        if email.smtp_account and email.smtp_account.from_email:
+            excluded.add(email.smtp_account.from_email.lower())
+        # Все активные SMTP-аккаунты - адреса, от имени которых пользователь может отправлять.
+        from email_ui.models import SMTPAccount
+        for acc in SMTPAccount.objects.filter(is_active=True):
+            if acc.from_email:
+                excluded.add(acc.from_email.lower())
         cc_set = set()
-        if email.receiver:
-            for r in email.receiver.split(','):
-                r = r.strip()
-                if not r:
+        missing = []
+        for raw_field in (email.receiver, email.cc):
+            if not raw_field:
+                continue
+            for entry in raw_field.split(','):
+                entry = entry.strip()
+                if not entry:
                     continue
-                addr = resolve_sender_to_email(r) or r
-                if addr.lower() != user_email and addr.lower() != (sender_email or '').lower():
-                    cc_set.add(addr)
-        if email.cc:
-            for c in email.cc.split(','):
-                c = c.strip()
-                if not c:
+                addr = extract_email_address(entry)
+                if not addr:
+                    # Явный email отсутствует - не подменяем контактом, фиксируем пропуск.
+                    missing.append(entry)
                     continue
-                addr = resolve_sender_to_email(c) or c
-                if addr.lower() != user_email:
-                    cc_set.add(addr)
+                if addr.lower() in excluded:
+                    continue
+                cc_set.add(addr)
         cc_addr = ', '.join(sorted(cc_set)) if cc_set else ''
+        if missing:
+            resolve_errors.append(
+                'Часть получателей (поля To/Cc) не содержит явного email-адреса и была '
+                'пропущена: ' + '; '.join(missing[:10]) +
+                ('. Проверьте список получателей вручную перед отправкой.' if len(missing) <= 10
+                 else ' и ещё ' + str(len(missing) - 10) + '... Проверьте список получателей вручную перед отправкой.')
+            )
     elif reply_type == 'forward':
         to_addr = ''
 
@@ -930,6 +993,7 @@ def reply_modal(request, pk, reply_type='reply'):
         'subject': subject_map.get(reply_type, email.subject),
         'to': to_addr,
         'cc': cc_addr,
+        'error': ' '.join(resolve_errors) if resolve_errors else '',
         'body': body_text,
         'contacts': contacts,
         'forward_attachments': forward_attachments,
@@ -1066,10 +1130,9 @@ def reply_send(request, pk):
     # Формируем получателей
     to_raw = cd.get('to', '')
     if not to_raw and mode in ('reply', 'reply_all'):
-        to_raw = resolve_sender_to_email(email.sender or '', sender_name=email.sender_name) or (email.sender or '')
+        # Адрес извлекается ТОЛЬКО явно из поля From. Нечёткий поиск запрещён.
+        to_raw = resolve_sender_to_email(email.sender or '')
     to_list = extract_all_email_addresses(to_raw)
-    if not to_list:
-        to_list = [addr.strip() for addr in to_raw.split(',') if addr.strip()]
 
     cc_raw = cd.get('cc', '')
     if not cc_raw and mode == 'reply_all':
@@ -1080,8 +1143,18 @@ def reply_send(request, pk):
             cc_parts.append(email.cc)
         cc_raw = ', '.join(cc_parts)
     cc_list = extract_all_email_addresses(cc_raw)
-    if not cc_list:
-        cc_list = [addr.strip() for addr in cc_raw.split(',') if addr.strip()]
+
+    # БЕЗОПАСНОСТЬ: адрес получателя обязателен и должен быть действительным.
+    # Отсекаем любые невалидные адреса (защита от случайной подстановки).
+    from .utils import _EMAIL_STANDALONE_RE
+    to_list = [a for a in to_list if _EMAIL_STANDALONE_RE.match(a)]
+    cc_list = [a for a in cc_list if _EMAIL_STANDALONE_RE.match(a)]
+    if not to_list:
+        return render(request, 'email_ui/partials/compose_modal.html', {
+            'form': form, 'email': email, 'mode': mode, 'contacts': contacts,
+            'error': 'Не указан ни один действительный email получателя. '
+                     'Укажите адрес вручную перед отправкой ответа.',
+        }, status=400)
 
     subject = cd.get('subject', '')
     if not subject:
