@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 *.pyc
 *.pyo
 *.pyd
@@ -13,7 +13,14 @@ env/
 db.sqlite3
 django.bat
 media/
-static/
+static/*
+!static/DataTables
+!static/select2
+!static/pivot
+!static/css
+static/css/*
+!static/css/bootstrap-icons.min.css
+!static/css/fonts
 
 # Logs and temp files
 *.log

@@ -45,6 +45,60 @@
     border-color: var(--border-color, #4a4f5e);
   }
   body.dark-mode .table { --bs-table-hover-bg: rgba(255,255,255,0.03); }
+  /* Таблица на всю ширину контейнера (не сжимать после редиректа) */
+  #TaskTable { width: 100% !important; table-layout: auto; }
+  #table-wrapper, #table-wrapper .dataTables_wrapper { width: 100% !important; }
+  #TaskTable td, #TaskTable th { white-space: nowrap; }
+  /* Колонка «Наименование»: длинный текст переносится, строка растёт в высоту */
+  #TaskTable td.col-name, #TaskTable th.col-name {
+    white-space: normal;
+    vertical-align: middle;
+    min-width: 180px;
+    line-height: 1.4;
+  }
+  /* Ручка изменения ширины колонки (видимый заголовок в .dt-scroll-head) */
+  #TaskTable thead th, .dt-scroll-head table thead th { position: relative; }
+  .th-resizer {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 8px;
+    cursor: pointer; z-index: 5;
+    user-select: none;
+  }
+  .th-resizer::after {
+    content: '';
+    position: absolute; top: 25%; bottom: 25%; right: 3px;
+    width: 2px;
+    background: var(--border-color, #adb5bd);
+    border-radius: 1px;
+  }
+  body.dark-mode .th-resizer::after { background: var(--border-color, #4a4f5e); }
+  .th-resizer:hover::after, .th-resizer.active::after { background: #0d6efd; }
+  body.dark-mode .th-resizer:hover::after, body.dark-mode .th-resizer.active::after { background: #ffc107; }
+
+  /* Выпадающее окно точной ширины колонки */
+  .col-width-popup {
+    position: fixed; z-index: 2100;
+    min-width: 235px;
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--text-color, #333);
+  }
+  .col-width-popup .cwp-title {
+    font-weight: 600; margin-bottom: 7px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px;
+  }
+  .col-width-popup .cwp-row { display: flex; align-items: center; gap: 6px; margin-bottom: 9px; }
+  .col-width-popup .cwp-row label { margin: 0; white-space: nowrap; }
+  .col-width-popup .cwp-input { width: 92px; }
+  .col-width-popup .cwp-btns { display: flex; gap: 6px; justify-content: flex-end; }
+  body.dark-mode .col-width-popup { background: var(--bg-card, #2d323e); border-color: var(--border-color, #4a4f5e); color: var(--text-color, #e0e0e0); }
+  body.dark-mode .col-width-popup input {
+    background: var(--bg-body, #1a1d23); color: var(--text-color, #e0e0e0); border-color: var(--border-color, #4a4f5e);
+  }
+  #TaskTable .dt-type-numeric { text-align: left !important; }
   #TaskTable tbody tr:nth-child(even) td,
   #TaskTable tbody tr:nth-child(odd) td { background: transparent; }
   body.dark-mode #TaskTable tbody tr td { color: var(--text-color, #e0e0e0); }
@@ -87,22 +141,6 @@
   .action-bar.active { display: flex; }
   body.dark-mode .action-bar { background: var(--bg-card, #2d323e); border-color: var(--border-color, #4a4f5e); }
 
-  .project-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; align-items: center; }
-  .project-tabs .btn { font-size: 13px; padding: 5px 14px; font-weight: 500; border-radius: 8px; transition: all 0.15s; }
-  .project-tab-close { cursor: pointer; opacity: 0.6; font-size: 16px; line-height: 1; margin-left: 6px; }
-  .project-tab-close:hover { opacity: 1; }
-  .project-tabs .add-btn { font-size: 13px; padding: 5px 12px; line-height: 1.5; }
-  .pin-dropdown { position: absolute; top: 100%; left: 0; z-index: 1060;
-    background: var(--bg-card, #fff); border: 1px solid var(--border-color, #dee2e6);
-    border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-    max-height: 250px; overflow-y: auto; min-width: 160px; display: none; }
-  .pin-dropdown.show { display: block; }
-  .pin-dropdown .pin-option { padding: 6px 12px; cursor: pointer; font-size: 13px; }
-  .pin-dropdown .pin-option:hover { background: rgba(var(--bs-primary-rgb), 0.08); }
-  .pin-dropdown .pin-option.pinned::after { content: ' ✓'; color: var(--bs-success, #198754); }
-  body.dark-mode .pin-dropdown { background: var(--bg-card, #2d323e); border-color: var(--border-color, #4a4f5e); }
-  body.dark-mode .pin-dropdown .pin-option:hover { background: rgba(255,193,7,0.08); }
-
   body.dark-mode .table-container { background: transparent; }
   body.dark-mode .table-responsive { background: transparent !important; }
   body.dark-mode #table-wrapper { background: transparent !important; }
@@ -115,7 +153,9 @@
   body.dark-mode .dataTables_wrapper .dataTables_length label {
     color: var(--text-muted, #a0a0a0) !important;
   }
-  body.dark-mode .dataTables_wrapper .dataTables_length select {
+  body.dark-mode .dataTables_wrapper .dataTables_length select,
+  body.dark-mode .dt-length select,
+  body.dark-mode .dt-search input {
     background: var(--bg-body, #1a1d23) !important;
     color: var(--text-color, #e0e0e0) !important;
     border-color: var(--border-color, #4a4f5e) !important;
@@ -193,6 +233,42 @@
   }
   body.dark-mode #navbar-top { background: var(--bg-card, #2d323e) !important; }
   body.dark-mode #navbar-top .btn-primary { background: var(--bg-table-header, #363b48); border-color: var(--border-color, #4a4f5e); }
+  body.dark-mode .header-panel .btn-outline-primary {
+    color: #8ab4f8 !important;
+    -webkit-text-fill-color: #8ab4f8 !important;
+    border-color: #6a8fc0 !important;
+    background: transparent !important;
+  }
+  body.dark-mode .header-panel .btn-outline-primary:hover {
+    color: #fff !important;
+    -webkit-text-fill-color: #fff !important;
+    background: #4a6fa5 !important;
+    border-color: #4a6fa5 !important;
+  }
+  body.dark-mode .header-panel .btn-outline-secondary {
+    color: #c9d1d9 !important;
+    -webkit-text-fill-color: #c9d1d9 !important;
+    border-color: #6a7180 !important;
+    background: transparent !important;
+  }
+  body.dark-mode .header-panel .btn-outline-secondary:hover {
+    color: #fff !important;
+    -webkit-text-fill-color: #fff !important;
+    background: #4a4f5e !important;
+    border-color: #5a5f6e !important;
+  }
+  body.dark-mode .action-bar .btn-outline-primary {
+    color: #8ab4f8 !important;
+    -webkit-text-fill-color: #8ab4f8 !important;
+    border-color: #6a8fc0 !important;
+    background: transparent !important;
+  }
+  body.dark-mode .action-bar .btn-outline-primary:hover {
+    color: #fff !important;
+    -webkit-text-fill-color: #fff !important;
+    background: #4a6fa5 !important;
+    border-color: #4a6fa5 !important;
+  }
 
   .tree-line {
     border-left: 1px solid var(--border-color, #dee2e6);
@@ -205,8 +281,64 @@
   .tree-node-row { position: relative; }
   .tree-node-row .tree-toggle { cursor: pointer; transition: transform .2s; }
   .tree-node-row .tree-toggle.expanded { transform: rotate(90deg); }
+  /* Выделение родительских задач в дереве */
+  #TaskTable .tree-toggle { cursor: pointer; transition: transform .2s; display: inline-block; }
+  #TaskTable .tree-toggle.expanded { transform: rotate(90deg); }
+  .tree-node-row.tree-parent {
+    background: rgba(255, 193, 7, 0.06);
+    border-left: 3px solid #ffc107;
+  }
+  .tree-node-row.tree-parent:hover { background: rgba(255, 193, 7, 0.12); }
+  .tree-parent-icon { color: #ffc107; font-size: 15px; }
+  .tree-parent-name { color: #b8860b; font-weight: 700 !important; }
+  body.dark-mode .tree-parent-name { color: #ffc107; }
+  .tree-subtask-icon { color: var(--text-muted, #7b8494); font-size: 14px; }
+  .tree-leaf-icon { color: var(--text-muted, #7b8494); font-size: 14px; }
+  body.dark-mode .tree-node-row.tree-parent {
+    background: rgba(255, 193, 7, 0.08);
+    border-left-color: #ffc107;
+  }
   body.dark-mode .tree-line { border-color: var(--border-color, #4a4f5e); }
   body.dark-mode .tree-vert-line { border-color: var(--border-color, #4a4f5e); }
+
+  .ctx-menu {
+    position: fixed;
+    z-index: 2000;
+    min-width: 220px;
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    padding: 6px;
+  }
+  .ctx-item {
+    display: block;
+    width: 100%;
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text-color, #333);
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .ctx-item:hover { background: rgba(var(--bs-primary-rgb), 0.08); color: #0d6efd; }
+  .ctx-danger { color: #dc3545; }
+  .ctx-danger:hover { background: rgba(220,53,69,0.1); color: #dc3545; }
+  body.dark-mode .ctx-menu { background: var(--bg-card, #2d323e); border-color: var(--border-color, #4a4f5e); }
+  body.dark-mode .ctx-item { color: var(--text-color, #e0e0e0); }
+  body.dark-mode .ctx-item:hover { background: rgba(255,193,7,0.1); color: #ffc107; }
+  body.dark-mode .ctx-danger { color: #f87171; }
+
+  .settings-fields-table .settings-field-row { cursor: grab; }
+  .settings-fields-table .settings-field-row.dragging { opacity: 0.5; }
+  .settings-fields-table .col-drag-handle {
+    color: var(--text-muted, #6c757d);
+    cursor: grab; user-select: none; font-size: 14px; letter-spacing: -2px;
+  }
+  body.dark-mode .settings-fields-table .col-drag-handle { color: #a0a0a0; }
+  body.dark-mode .settings-fields-table { --bs-table-color: var(--text-color, #e0e0e0); --bs-table-bg: transparent; }
+  .dtcr-cloned { z-index: 2000; opacity: 0.9; }
 </style>
 {% endblock %}
 
@@ -233,30 +365,24 @@
 
   <input type="hidden" id="currentDbMode" value="{{ db_mode }}">
 
-  <div class="project-tabs" id="projectTabs" style="position:relative;">
-    <button class="btn btn-outline-secondary project-tab active" data-id="">Все проекты</button>
-    <button class="btn btn-outline-secondary add-btn" id="pinAddBtn" title="Управление проектами"><i class="bi bi-gear me-1"></i>Проекты</button>
-    <div class="pin-dropdown" id="pinDropdown"></div>
-  </div>
-
   <div class="mb-2 collapse show" id="filterCollapse">
     <div class="card card-body py-3 px-4 bg-light" style="border-color: var(--border-color, #dee2e6); border-radius:8px;">
       <div class="filter-row">
         <div class="form-group">
-          <label>Площадка</label>
+          <label>Проект</label>
           <select class="filter-select" name="project_site" data-filter="1">
             <option value="">Все</option>
             {% for s in all_project_sites %}
-              <option value="{{ s.pk }}">{{ s.name }}</option>
+              <option value="{{ s.pk }}" {% if filter_state.project_site == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="form-group">
-          <label>Проект</label>
-          <select class="filter-select" name="sub_project" data-filter="1">
+          <label>Здание</label>
+          <select class="filter-select" name="building_number" data-filter="1">
             <option value="">Все</option>
-            {% for s in all_sub_projects %}
-              <option value="{{ s.pk }}">{{ s.name }}</option>
+            {% for b in all_building_types %}
+              <option value="{{ b.pk }}" {% if filter_state.building_number == b.pk|stringformat:"s" %}selected{% endif %}>{{ b.name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -265,7 +391,7 @@
           <select class="filter-select" name="status" data-filter="1">
             <option value="">Все</option>
             {% for s in all_statuses %}
-              <option value="{{ s.pk }}">{{ s.name }}</option>
+              <option value="{{ s.pk }}" {% if filter_state.status == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -274,7 +400,7 @@
           <select class="filter-select" name="category" data-filter="1">
             <option value="">Все</option>
             {% for c in all_categories %}
-              <option value="{{ c.pk }}">{{ c.name }}</option>
+              <option value="{{ c.pk }}" {% if filter_state.category == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -283,7 +409,7 @@
           <select class="filter-select" name="contractor" data-filter="1">
             <option value="">Все</option>
             {% for c in all_contractors %}
-              <option value="{{ c.pk }}">{{ c.name }}</option>
+              <option value="{{ c.pk }}" {% if filter_state.contractor == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -291,25 +417,27 @@
           <label>Срок</label>
           <select class="filter-select" name="due_date" data-filter="1">
             <option value="">Все</option>
-            <option value="today">Сегодня</option>
-            <option value="week">Эта неделя</option>
-            <option value="past">Просроченные</option>
+            <option value="today" {% if filter_state.due_date == 'today' %}selected{% endif %}>Сегодня</option>
+            <option value="week" {% if filter_state.due_date == 'week' %}selected{% endif %}>Эта неделя</option>
+            <option value="past" {% if filter_state.due_date == 'past' %}selected{% endif %}>Просроченные</option>
           </select>
         </div>
         <div class="form-group" style="justify-content:flex-end;">
-          <button class="btn btn-sm btn-outline-secondary" id="filterResetBtn" title="Сбросить"><i class="bi bi-x-circle"></i></button>
+          <label>&nbsp;</label>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="form-check form-switch m-0">
+              <input class="form-check-input" type="checkbox" id="autoSaveFilters" {% if user_settings.auto_save %}checked{% endif %}>
+              <label class="form-check-label" for="autoSaveFilters" style="font-size:12px;white-space:nowrap;">Сохранять состояние</label>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" id="filterResetBtn" title="Сбросить"><i class="bi bi-x-circle"></i></button>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
   <div class="d-flex justify-content-between align-items-center mb-2">
-    <div class="btn-group" role="group">
-      <input type="radio" class="btn-check" name="viewMode" id="viewFlat" autocomplete="off" checked>
-      <label class="btn btn-outline-primary btn-sm" for="viewFlat"><i class="bi bi-table me-1"></i>Список</label>
-      <input type="radio" class="btn-check" name="viewMode" id="viewTree" autocomplete="off">
-      <label class="btn btn-outline-primary btn-sm" for="viewTree"><i class="bi bi-diagram-3 me-1"></i>Дерево</label>
-    </div>
+    <div class="text-muted small"><i class="bi bi-diagram-3 me-1"></i>Дерево задач</div>
     <div class="text-muted small">
       Записей: <span id="filter-count" class="fw-bold">{{ tasks|length }}</span>
       &middot; Выбрано: <span id="selected-count" class="fw-bold text-primary">0</span>
@@ -323,6 +451,7 @@
     <a class="btn btn-sm btn-outline-info" id="act-email" href="#"><i class="bi bi-envelope me-1"></i>Письма</a>
     <a class="btn btn-sm btn-outline-danger" id="act-delete" href="#"><i class="bi bi-trash me-1"></i>Удалить</a>
     <a class="btn btn-sm btn-outline-warning" id="act-add-subtask" href="#"><i class="bi bi-diagram-2 me-1"></i>Подзадачу</a>
+    <a class="btn btn-sm btn-outline-primary" id="act-report" href="#" target="_blank" title="Сформировать HTML отчет по выбранным задачам"><i class="bi bi-file-earmark-text me-1"></i>Отчет</a>
   </div>
 
   <div id="flat-view-container" class="view-container">
@@ -334,24 +463,14 @@
     </form>
   </div>
 
-  <div id="tree-view-container" class="view-container d-none">
-    <div class="card shadow-sm">
-      <div class="card-body p-0">
-        <ul class="list-unstyled mb-0 tree-root" id="tree-list">
-          {% include 'ProjectTDL/task_tree_nodes_partial.html' %}
-        </ul>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 <div class="bottom-edit-panel" id="bottomPanel">
   <div class="container-fluid">
     <div class="row align-items-end g-2">
-      <div class="col-12 col-md-2">
+      <div class="col-12 col-md-2 panel-field" data-field="project_site">
         <label class="form-label small text-muted mb-1">
-          Площадка
+          Проект
           <button class="btn btn-outline-secondary fk-manage-btn" data-model="project_site" title="Управление"><i class="bi bi-gear"></i></button>
         </label>
         <select name="project_site" class="form-select form-select-sm bulk-field">
@@ -361,19 +480,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-12 col-md-2">
-        <label class="form-label small text-muted mb-1">
-          Проект
-          <button class="btn btn-outline-secondary fk-manage-btn" data-model="sub_project" title="Управление"><i class="bi bi-gear"></i></button>
-        </label>
-        <select name="sub_project" class="form-select form-select-sm bulk-field">
-          <option value="">Не менять</option>
-          {% for s in all_sub_projects %}
-            <option value="{{ s.pk }}">{{ s.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-6 col-md-2">
+      <div class="col-6 col-md-2 panel-field" data-field="status">
         <label class="form-label small text-muted mb-1">
           Статус
           <button class="btn btn-outline-secondary fk-manage-btn" data-model="status" title="Управление"><i class="bi bi-gear"></i></button>
@@ -385,7 +492,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-6 col-md-2">
+      <div class="col-6 col-md-2 panel-field" data-field="category">
         <label class="form-label small text-muted mb-1">
           Категория
           <button class="btn btn-outline-secondary fk-manage-btn" data-model="category" title="Управление"><i class="bi bi-gear"></i></button>
@@ -397,7 +504,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-6 col-md-2">
+      <div class="col-6 col-md-2 panel-field" data-field="contractor">
         <label class="form-label small text-muted mb-1">
           Ответственный
           <button class="btn btn-outline-secondary fk-manage-btn" data-model="contractor" title="Управление"><i class="bi bi-gear"></i></button>
@@ -409,19 +516,37 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-6 col-md-1">
+      <div class="col-6 col-md-2 panel-field" data-field="design_chapter">
+        <label class="form-label small text-muted mb-1">
+          Раздел
+          <button class="btn btn-outline-secondary fk-manage-btn" data-model="design_chapter" title="Управление"><i class="bi bi-gear"></i></button>
+        </label>
+        <select name="design_chapter" class="form-select form-select-sm bulk-field">
+          <option value="">Не менять</option>
+          {% for d in all_design_chapters %}
+            <option value="{{ d.pk }}">{{ d.short_name|default:d.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2 panel-field" data-field="building_number">
+        <label class="form-label small text-muted mb-1">Здание</label>
+        <select name="building_number" class="form-select form-select-sm bulk-field">
+          <option value="">Не менять</option>
+          {% for b in all_buildings %}
+            <option value="{{ b.pk }}">{{ b.name.name|default:'' }}{% if b.building_number %} ({{ b.building_number }}){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-1 panel-field" data-field="due_date">
         <label class="form-label small text-muted mb-1">Срок</label>
         <input type="date" name="due_date" class="form-control form-control-sm bulk-field">
       </div>
-      <div class="col-6 col-md-1">
+      <div class="col-6 col-md-1 panel-field" data-field="price">
         <label class="form-label small text-muted mb-1">Цена</label>
         <input type="number" step="0.01" name="price" class="form-control form-control-sm bulk-field" placeholder="0">
       </div>
-      <div class="col-12 col-md-2 d-flex gap-1">
-        <button type="button" id="apply-bulk-update" class="btn btn-primary btn-sm flex-grow-1">
-          <i class="bi bi-check-lg me-1"></i>Применить
-        </button>
-        <button type="button" id="clear-selection" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x-lg"></i></button>
+      <div class="col-12 col-md-1">
+        <button type="button" id="clear-selection" class="btn btn-outline-secondary btn-sm w-100"><i class="bi bi-x-lg"></i></button>
       </div>
     </div>
   </div>
@@ -441,6 +566,27 @@
             <input type="text" class="form-control" id="fkManageInput" placeholder="Название">
             <button class="btn btn-success" type="button" id="fkManageAddBtn"><i class="bi bi-plus-lg"></i></button>
           </div>
+        </div>
+        <div class="mb-3 d-none" id="fkManageDefaults">
+          <label class="form-label small fw-semibold">Свойства по умолчанию для новых задач</label>
+          <select class="form-select form-select-sm mb-2" id="fkDefaultStatus">
+            <option value="">Статус: не задан</option>
+            {% for s in all_statuses %}
+              <option value="{{ s.pk }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+          <select class="form-select form-select-sm mb-2" id="fkDefaultCategory">
+            <option value="">Категория: не задана</option>
+            {% for c in all_categories %}
+              <option value="{{ c.pk }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+          <select class="form-select form-select-sm" id="fkDefaultContractor">
+            <option value="">Ответственный: не задан</option>
+            {% for c in all_contractors %}
+              <option value="{{ c.pk }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
         </div>
         <div class="mb-3">
           <label class="form-label small">Существующие</label>
@@ -465,20 +611,23 @@
         </div>
         <div class="row g-2">
           <div class="col-6">
-            <label class="form-label small">Площадка</label>
+            <label class="form-label small">Проект</label>
             <select class="form-select form-select-sm" id="qtProjectSite">
               <option value="">—</option>
               {% for s in all_project_sites %}
-                <option value="{{ s.pk }}">{{ s.name }}</option>
+                <option value="{{ s.pk }}"
+                        data-default-status="{{ s.default_status_id|default:'' }}"
+                        data-default-category="{{ s.default_category_id|default:'' }}"
+                        data-default-contractor="{{ s.default_contractor_id|default:'' }}">{{ s.name }}</option>
               {% endfor %}
             </select>
           </div>
           <div class="col-6">
-            <label class="form-label small">Проект</label>
-            <select class="form-select form-select-sm" id="qtSubProject">
+            <label class="form-label small">Здание</label>
+            <select class="form-select form-select-sm" id="qtBuilding">
               <option value="">—</option>
-              {% for s in all_sub_projects %}
-                <option value="{{ s.pk }}">{{ s.name }}</option>
+              {% for b in all_building_types %}
+                <option value="{{ b.pk }}">{{ b.name }}</option>
               {% endfor %}
             </select>
           </div>
@@ -509,6 +658,15 @@
               {% endfor %}
             </select>
           </div>
+          <div class="col-6">
+            <label class="form-label small">Раздел</label>
+            <select class="form-select form-select-sm" id="qtDesignChapter">
+              <option value="">—</option>
+              {% for d in all_design_chapters %}
+                <option value="{{ d.pk }}">{{ d.short_name|default:d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -520,7 +678,7 @@
 </div>
 
 <div class="modal fade" id="settingsModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Настройки</h5>
@@ -538,22 +696,28 @@
             <option value="top">Вверху списка</option>
           </select>
         </div>
-        <div class="form-check form-switch mb-3">
-          <input class="form-check-input" type="checkbox" id="settingDefaultTreeView">
-          <label class="form-check-label" for="settingDefaultTreeView">По умолчанию открывать вид «Дерево»</label>
-        </div>
         <hr>
-        <label class="form-label fw-semibold">Отображаемые колонки</label>
-        <div id="column-toggles"></div>
+        <label class="form-label fw-semibold">Отображение</label>
+        <div class="text-muted small mb-2" style="font-size:12px;">Перетаскивайте строки для порядка колонок в списке задач</div>
+        <table class="table table-sm align-middle settings-fields-table">
+          <thead>
+            <tr>
+              <th style="width:60%">Поле</th>
+              <th class="text-center">Задачи</th>
+              <th class="text-center">Контекст задачи</th>
+            </tr>
+          </thead>
+          <tbody id="settings-fields-body"></tbody>
+        </table>
         <hr>
         <label class="form-label fw-semibold">Поля по умолчанию при создании задачи</label>
         <div class="form-check">
           <input class="form-check-input" type="checkbox" id="settingDefaultProjectSite">
-          <label class="form-check-label" for="settingDefaultProjectSite">Заполнять площадку из контекста</label>
+          <label class="form-check-label" for="settingDefaultProjectSite">Заполнять проект из контекста</label>
         </div>
         <div class="form-check">
-          <input class="form-check-input" type="checkbox" id="settingDefaultSubProject">
-          <label class="form-check-label" for="settingDefaultSubProject">Заполнять проект из контекста</label>
+          <input class="form-check-input" type="checkbox" id="settingDefaultBuilding">
+          <label class="form-check-label" for="settingDefaultBuilding">Заполнять здание из контекста</label>
         </div>
         <div class="form-check">
           <input class="form-check-input" type="checkbox" id="settingDefaultCategory">
@@ -575,79 +739,597 @@
     </div>
   </div>
 </div>
+<div id="ctxMenu" class="ctx-menu d-none">
+  <a class="ctx-item" data-action="open" href="#"><i class="bi bi-folder me-2"></i>Открыть</a>
+  <a class="ctx-item" data-action="edit" href="#"><i class="bi bi-pencil me-2"></i>Редактировать</a>
+  <a class="ctx-item" data-action="clone" href="#"><i class="bi bi-copy me-2"></i>Клонировать</a>
+  <hr class="my-1">
+  <a class="ctx-item" data-action="subtask" href="#"><i class="bi bi-diagram-2 me-2"></i>Создать подзадачу</a>
+  <a class="ctx-item ctx-danger" data-action="delete" href="#"><i class="bi bi-trash me-2"></i>Удалить</a>
+</div>
+<div id="colWidthPopup" class="col-width-popup d-none">
+  <div class="cwp-title"></div>
+  <div class="cwp-row"><span>Текущая ширина:</span><b class="cwp-current"></b></div>
+  <div class="cwp-row">
+    <label for="cwpInput">Новая ширина:</label>
+    <input type="number" id="cwpInput" class="form-control form-control-sm cwp-input" min="60" max="3000" step="10">
+    <span>px</span>
+  </div>
+  <div class="cwp-btns">
+    <button type="button" class="btn btn-sm btn-secondary cwp-cancel">Отмена</button>
+    <button type="button" class="btn btn-sm btn-primary cwp-apply">Применить</button>
+  </div>
+</div>
+{{ user_settings|json_script:"user-settings-data" }}
 {% endblock %}
 
 {% block custom-js %}
-<link rel="stylesheet" href="https://cdn.datatables.net/2.0.3/css/dataTables.dataTables.css" />
-<script src="https://cdn.datatables.net/2.0.3/js/dataTables.js"></script>
+<link rel="stylesheet" href="{% static 'DataTables/datatables.css' %}" />
+<link rel="stylesheet" href="{% static 'DataTables/colReorder.dataTables.css' %}" />
+<script src="{% static 'DataTables/datatables.js' %}"></script>
+<script src="{% static 'DataTables/dataTables.colReorder.js' %}"></script>
 <script>
 const FILTER_AJAX_URL = '{% url "filter_tasks_ajax" %}';
 const BULK_UPDATE_URL = '{% url "bulk_update_tasks" %}';
+const BULK_DELETE_URL = '{% url "bulk_delete_tasks" %}';
 const MANAGE_REF_URL = '{% url "manage_reference" %}';
 const QUICK_CREATE_URL = '{% url "quick_create_task" %}';
 const QUICK_CREATE_SUBTASK_URL = '{% url "quick_create_subtask" %}';
 const CASCADE_URL = '{% url "cascade_filter_options" %}';
-const PIN_LIST_URL = '{% url "list_pinned_projects" %}';
-const PIN_ADD_URL = '{% url "add_pinned_project" %}';
-const PIN_REMOVE_URL = '{% url "remove_pinned_project" %}';
+const SAVE_SETTINGS_URL = '{% url "save_user_settings" %}';
+const SAVE_FILTER_STATE_URL = '{% url "save_filter_state" %}';
 const CSRF_TOKEN = $('[name="csrfmiddlewaretoken"]').val();
 
 $.ajaxSetup({ cache: false });
 const FK_LABELS = {
-    project_site: 'Площадка', sub_project: 'Проект', status: 'Статус',
-    category: 'Категория', contractor: 'Ответственный'
+    project_site: 'Проект', status: 'Статус',
+    category: 'Категория', contractor: 'Ответственный',
+    design_chapter: 'Раздел'
 };
 const FK_SELECT_MAP = {
-    project_site: 'project_site', sub_project: 'sub_project', status: 'status',
+    project_site: 'project_site', status: 'status',
     category: 'category', contractor: 'contractor'
+};
+const QT_SELECT_MAP = {
+    project_site: '#qtProjectSite', status: '#qtStatus',
+    category: '#qtCategory', contractor: '#qtContractor'
 };
 
 $(document).ready(function() {
-    var dbMode = $('#currentDbMode').val();
-    var lastDbMode = localStorage.getItem('task_last_db_mode');
-    if (lastDbMode !== dbMode) {
-        localStorage.removeItem('task_active_project_site');
-        localStorage.setItem('task_last_db_mode', dbMode);
+    var serverSettings = {};
+    var userSettingsEl = document.getElementById('user-settings-data');
+    if (userSettingsEl) {
+        try { serverSettings = JSON.parse(userSettingsEl.textContent); } catch (e) {}
     }
-    let pinnedProjects = [];
     let dt = initDataTable();
+    function applyColumnVisibility(dt) {
+        const colVis = (serverSettings && serverSettings.column_visibility) || {};
+        dt.columns().every(function() {
+            const idx = this.index();
+            const header = $(this.header()).text().trim();
+            if (!header || idx === 0) return;
+            if (Object.prototype.hasOwnProperty.call(colVis, header)) {
+                this.visible(colVis[header]);
+            }
+        });
+    }
+
+    // Поля нижней панели свойств — управляются отдельно от колонок таблицы
+    const PANEL_FIELDS = [
+        { name: 'project_site', label: 'Проект' },
+        { name: 'building_number', label: 'Здание' },
+        { name: 'status', label: 'Статус' },
+        { name: 'category', label: 'Категория' },
+        { name: 'contractor', label: 'Ответственный' },
+        { name: 'design_chapter', label: 'Раздел' },
+        { name: 'due_date', label: 'Срок' },
+        { name: 'price', label: 'Цена' }
+    ];
+    function syncPanelWithSettings() {
+        const pf = (serverSettings && serverSettings.panel_fields) || {};
+        PANEL_FIELDS.forEach(function(f) {
+            const block = $('#bottomPanel .panel-field[data-field="' + f.name + '"]');
+            if (!block.length) return;
+            const visible = Object.prototype.hasOwnProperty.call(pf, f.name) ? pf[f.name] : true;
+            block.toggleClass('d-none', !visible);
+        });
+    }
+    // Единая таблица настроек: строки — поля, столбцы — «Задачи» и «Контекст задачи»
+    const SETTINGS_FIELDS = [
+        { label: 'Наименование', col: 'Наименование', panel: null },
+        { label: 'ID', col: 'ID', panel: null },
+        { label: 'Владелец', col: 'Владелец', panel: null },
+        { label: 'Проект', col: 'Проект', panel: 'project_site' },
+        { label: 'Здание', col: 'Здание', panel: 'building_number' },
+        { label: 'Раздел', col: 'Раздел', panel: 'design_chapter' },
+        { label: 'Ответственный', col: 'Ответственный', panel: 'contractor' },
+        { label: 'Статус', col: 'Статус', panel: 'status' },
+        { label: 'Категория', col: 'Категория', panel: 'category' },
+        { label: 'Договор', col: 'Договор', panel: null },
+        { label: 'Описание', col: 'Описание', panel: null },
+        { label: 'Цена', col: 'Цена', panel: 'price' },
+        { label: 'Срок', col: 'Завершение', panel: 'due_date' },
+        { label: 'Дата создания', col: 'Дата создания', panel: null },
+        { label: 'Дата изменения', col: 'Дата изменения', panel: null }
+    ];
+
+    function buildSettingsTable() {
+        const t = $('#TaskTable').DataTable();
+        const container = $('#settings-fields-body').empty();
+        const colVis = (serverSettings && serverSettings.column_visibility) || {};
+        const pf = (serverSettings && serverSettings.panel_fields) || {};
+        const byCol = {};
+        SETTINGS_FIELDS.forEach(function(f) { byCol[f.col] = f; });
+        // Порядок строк — текущий порядок колонок таблицы
+        const ordered = [];
+        const seen = {};
+        if (t) {
+            t.columns().every(function() {
+                const h = $(this.header()).text().trim();
+                if (!h) return;
+                const f = byCol[h];
+                if (f && !seen[h]) { ordered.push(f); seen[h] = true; }
+            });
+        }
+        SETTINGS_FIELDS.forEach(function(f) {
+            if (!seen[f.col]) { ordered.push(f); seen[f.col] = true; }
+        });
+        ordered.forEach(function(f) {
+            const tr = $('<tr class="settings-field-row" draggable="true" data-col="' + f.col.replace(/"/g, '&quot;') + '">');
+            tr.append('<td><span class="col-drag-handle" title="Перетащить">⋮⋮</span> ' + f.label + '</td>');
+            const colVisible = Object.prototype.hasOwnProperty.call(colVis, f.col) ? colVis[f.col] : true;
+            tr.append('<td class="text-center"><input class="form-check-input settings-col-toggle" type="checkbox" data-col="' + f.col.replace(/"/g, '&quot;') + '" ' + (colVisible ? 'checked' : '') + '></td>');
+            if (f.panel) {
+                const pVisible = Object.prototype.hasOwnProperty.call(pf, f.panel) ? pf[f.panel] : true;
+                tr.append('<td class="text-center"><input class="form-check-input settings-panel-toggle" type="checkbox" data-panel="' + f.panel + '" ' + (pVisible ? 'checked' : '') + '></td>');
+            } else {
+                tr.append('<td class="text-center text-muted">—</td>');
+            }
+            container.append(tr);
+        });
+        $('.settings-col-toggle').off('change').on('change', function() {
+            const colName = $(this).attr('data-col');
+            const colIdx = _headerToIndex(t, colName);
+            if (colIdx < 0) return;
+            t.column(colIdx).visible($(this).is(':checked'));
+            colVis[colName] = $(this).is(':checked');
+            serverSettings.column_visibility = colVis;
+            $.post(SAVE_SETTINGS_URL, {
+                column_visibility: JSON.stringify(colVis),
+                csrfmiddlewaretoken: CSRF_TOKEN
+            });
+        });
+        $('.settings-panel-toggle').off('change').on('change', function() {
+            const field = $(this).attr('data-panel');
+            pf[field] = $(this).is(':checked');
+            serverSettings.panel_fields = pf;
+            syncPanelWithSettings();
+            $.post(SAVE_SETTINGS_URL, {
+                panel_fields: JSON.stringify(pf),
+                csrfmiddlewaretoken: CSRF_TOKEN
+            });
+        });
+    }
     let selectedTasks = new Set();
     let lastClickedId = null;
-    let activeProjectSite = localStorage.getItem('task_active_project_site') || '';
+    let activeProjectSite = String(serverSettings.active_project_id || '');
 
-    $.getJSON(PIN_LIST_URL, function(data) {
-        pinnedProjects = data;
-        renderPinnedTabs();
-        if ($('.filter-select[name="project_site"]').val()) {
-            triggerCascade();
-        }
-    });
+    if ($('.filter-select[name="project_site"]').val() || $('.filter-select[name="building_number"]').val()) {
+        triggerCascade();
+    }
 
     function initDataTable() {
         if ($.fn.DataTable.isDataTable('#TaskTable')) {
             $('#TaskTable').DataTable().destroy();
         }
-        return new DataTable('#TaskTable', {
+        const dt = new DataTable('#TaskTable', {
             language: { url: "{% static 'DataTables/ru.json' %}" },
-            columnDefs: [{ orderable: false, targets: [0] }],
-            layout: { top2Start: 'pageLength', topStart: 'info' },
-            lengthMenu: [[10, 15, 20, 50, -1], [10, 15, 20, 50, '']]
+            columnDefs: [
+                { orderable: false, targets: [0] },
+            ],
+            colReorder: true,
+            layout: { topStart: 'info' },
+            lengthMenu: [[10, 15, 20, 50, -1], [10, 15, 20, 50, '']],
+            autoWidth: false,
+            scrollX: true,
+        });
+        if (dt.colReorder) {
+            // Чекбокс (колонка 0) закрепляем — его нельзя перетаскивать
+            const cr = dt.settings()[0]._colReorder;
+            if (cr) cr.c.columns = Array.from({ length: dt.columns().count() }, (_, i) => i).slice(1);
+        }
+        dt.on('init.dt', function() {
+            window.__widthGuardSuspended = true;
+            applyColumnVisibility(dt);
+            syncPanelWithSettings();
+            applyColumnOrder(dt);
+            applyColumnWidths(dt);
+            addColumnResizers();
+            initSelectAllCheckbox();
+            // Дерево: показываем все строки без пагинации
+            dt.page.len(-1).draw(false);
+            // После перерисовки ещё раз фиксируем ширины и геометрию таблиц
+            applyColumnWidths(dt);
+            initTreeView();
+            // Поздние пересчёты лейаута (скроллбар, клон шапки) могут затирать стили
+            setTimeout(function() { applyColumnWidths(dt); }, 150);
+            setTimeout(function() { applyColumnWidths(dt); window.__widthGuardSuspended = false; }, 800);
+        });
+        dt.on('draw.dt', function() { markNameColumn(); });
+        // Гарантия: после ЛЮБОЙ перерисовки/пересчёта колонок ширины из настроек восстанавливаются
+        dt.on('draw.dt column-sizing.dt', function() { applyColumnWidths(dt); });
+        window.__taskDt = dt;
+        _installTableWidthGuard();
+        // После resize окна DataTables (throttle 200мс) перезаписывает ширины —
+        // восстанавливаем наши значения поверх его пересчёта
+        $(window).off('resize.__wEnforce').on('resize.__wEnforce', function() {
+            clearTimeout(window.__wEnforceT);
+            window.__wEnforceT = setTimeout(function() { applyColumnWidths(window.__taskDt); }, 320);
+        });
+        dt.on('columns-reordered', function() {
+            saveColumnOrder();
+            applyColumnWidths(dt);
+            markNameColumn();
+            if ($('#settingsModal').hasClass('show')) buildSettingsTable();
+        });
+        return dt;
+    }
+
+    function _columnNames(dt) {
+        const names = [];
+        dt.columns().every(function() { names.push($(this.header()).text().trim()); });
+        return names;
+    }
+
+    function applyColumnOrder(dt) {
+        const order = serverSettings.column_order;
+        if (!order || !Array.isArray(order) || !order.length) return;
+        if (!dt.colReorder) return;
+        const idxByName = {};
+        dt.columns().every(function() { idxByName[$(this.header()).text().trim()] = this.index(); });
+        const idxs = order.map(function(name) { return idxByName[name]; }).filter(function(i) { return typeof i === 'number'; });
+        if (idxs.length === order.length) {
+            dt.colReorder.order(idxs, false);
+        }
+    }
+
+    function saveColumnOrder() {
+        const dt = $('#TaskTable').DataTable();
+        if (!dt) return;
+        const names = _columnNames(dt);
+        serverSettings.column_order = names;
+        $.post(SAVE_SETTINGS_URL, {
+            column_order: JSON.stringify(names),
+            csrfmiddlewaretoken: CSRF_TOKEN
         });
     }
+
+    function markNameColumn() {
+        const wrapper = document.querySelector('#table-wrapper');
+        if (!wrapper) return;
+        wrapper.querySelectorAll('.dt-scroll-head table thead th, #TaskTable thead th').forEach(function(th) {
+            th.classList.toggle('col-name', th.textContent.trim() === 'Наименование');
+        });
+        const nameIdx = Array.from(wrapper.querySelectorAll('.dt-scroll-head table thead th')).findIndex(function(th) {
+            return th.textContent.trim() === 'Наименование';
+        });
+        if (nameIdx < 0) return;
+        wrapper.querySelectorAll('#TaskTable tbody tr').forEach(function(tr) {
+            const cell = tr.children[nameIdx];
+            if (cell) {
+                if (!cell.classList.contains('col-name')) cell.classList.add('col-name');
+            }
+        });
+        // Убрать col-name у всех прочих ячеек
+        wrapper.querySelectorAll('#TaskTable tbody td.col-name').forEach(function(td) {
+            if (Array.prototype.indexOf.call(td.parentElement.children, td) !== nameIdx) td.classList.remove('col-name');
+        });
+    }
+
+    function _setColumnWidth(idx, w) {
+        // Ширину нужно задать в обоих colgroup: видимый заголовок (.dt-scroll-head) и тело таблицы
+        const wrapper = document.querySelector('#table-wrapper');
+        if (!wrapper) return;
+        wrapper.querySelectorAll('table').forEach(function(table) {
+            table.style.tableLayout = 'fixed';
+            const col = table.querySelectorAll('col')[idx];
+            if (col) col.style.width = w + 'px';
+        });
+        _syncTablesTotalWidth(wrapper);
+    }
+
+    // Общая ширина каждой таблицы = сумма СВОИХ колонок, иначе шапка разъезжается с телом
+    function _colsSum(table) {
+        let s = 0;
+        table.querySelectorAll('col').forEach(function(c) { s += parseFloat(c.style.width) || 0; });
+        return s;
+    }
+    function _syncTablesTotalWidth(wrapper) {
+        wrapper.querySelectorAll('table').forEach(function(t) {
+            t.style.tableLayout = 'fixed';
+            const s = _colsSum(t);
+            if (s) t.style.width = s + 'px';
+        });
+    }
+
+    // Проверка фактического совпадения геометрии шапки и тела (пиксели на экране)
+    function _checkRectAlignment() {
+        const wrapper = document.querySelector('#table-wrapper');
+        if (!wrapper) return true;
+        const head = wrapper.querySelector('.dt-scroll-head table');
+        const body = document.querySelector('#TaskTable');
+        if (!head || !body || !body.offsetParent) return true;
+        const hs = head.querySelectorAll('thead th');
+        const firstRow = body.querySelector('tbody tr');
+        if (!hs.length || !firstRow) return true;
+        const bs = firstRow.children;
+        const n = Math.min(hs.length, bs.length);
+        for (let i = 0; i < n; i++) {
+            const hr = hs[i].getBoundingClientRect();
+            const br = bs[i].getBoundingClientRect();
+            if (Math.abs(hr.width - br.width) > 1 || Math.abs(hr.left - br.left) > 1) return false;
+        }
+        const sh = wrapper.querySelector('.dt-scroll-head');
+        const sb = wrapper.querySelector('.dt-scroll-body');
+        if (sh && sb && Math.abs(sh.scrollLeft - sb.scrollLeft) > 2) return false;
+        return true;
+    }
+
+    // Лечение: восстановить ширины из настроек, затем перепроверить по пикселям
+    function _healAlignment() {
+        if (window.__widthGuardSuspended || !window.__taskDt) return;
+        applyColumnWidths(window.__taskDt);
+        const sh = document.querySelector('#table-wrapper .dt-scroll-head');
+        const sb = document.querySelector('#table-wrapper .dt-scroll-body');
+        if (sh && sb && Math.abs(sh.scrollLeft - sb.scrollLeft) > 2) sh.scrollLeft = sb.scrollLeft;
+        requestAnimationFrame(function() {
+            if (!window.__widthGuardSuspended && !_checkRectAlignment() && window.__taskDt) {
+                applyColumnWidths(window.__taskDt);
+            }
+        });
+    }
+
+    // Самовосстанавливающийся guard: DataTables при resize окна (_fnAdjustColumnSizing)
+    // перезаписывает table.style.width контентной суммой — из-за этого тело «растягивается»
+    // относительно шапки. Guard откатывает любые посторонние записи к сохранённым ширинам.
+    // ВАЖНО: applyFilters() заменяет #table-wrapper целиком — guard обязан переустанавливаться
+    // при каждой реинициализации таблицы и при подмене узлов.
+    function _installTableWidthGuard() {
+        const wrapper = document.querySelector('#table-wrapper');
+        if (!wrapper || !window.MutationObserver) return;
+        if (window.__widthGuardMo) { try { window.__widthGuardMo.disconnect(); } catch (e) {} }
+        let scheduled = false;
+        const enforce = function() {
+            const log = (window.__guardLog = window.__guardLog || []);
+            log.push({t: Date.now(), susp: !!window.__widthGuardSuspended});
+            if (log.length > 20) log.splice(0, log.length - 20);
+            if (scheduled || window.__widthGuardSuspended || !window.__taskDt) return;
+            scheduled = true;
+            requestAnimationFrame(function() {
+                scheduled = false;
+                if (window.__widthGuardSuspended || !window.__taskDt) return;
+                _installTableWidthGuard(); // узлы могли быть подменены — следим за новыми
+                applyColumnWidths(window.__taskDt);
+            });
+        };
+        const mo = new MutationObserver(enforce);
+        wrapper.querySelectorAll('table').forEach(function(t) {
+            mo.observe(t, { attributes: true, attributeFilter: ['style'] });
+        });
+        mo.observe(wrapper, { childList: true });
+        window.__widthGuardMo = mo;
+        // Страховочный таймер: раз в 1.5с проверяем фактическое выравнивание
+        // (ловит любые причины: zoom, DPI, transient-состояния DataTables)
+        if (!window.__alignTimer) {
+            window.__alignTimer = setInterval(function() {
+                if (document.hidden || window.__widthGuardSuspended || !window.__taskDt) return;
+                if (!_checkRectAlignment()) _healAlignment();
+            }, 1500);
+        }
+    }
+
+    // Применить ширины по имени заголовка (устойчиво к перемещению колонок)
+    function _applyWidthsByName(widths) {
+        if (!widths || !Object.keys(widths).length) return;
+        const wrapper = document.querySelector('#table-wrapper');
+        const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
+        if (!headTable) return;
+        headTable.querySelectorAll('thead th').forEach(function(th, i) {
+            const w = parseInt(widths[th.textContent.trim()], 10);
+            if (!w || w < 20) return;
+            wrapper.querySelectorAll('table').forEach(function(t) {
+                const col = t.querySelectorAll('col')[i];
+                if (col) col.style.width = w + 'px';
+            });
+        });
+        _syncTablesTotalWidth(wrapper);
+    }
+
+    // Записать текущие DOM-ширины во внутреннее состояние DataTables (sWidth),
+    // чтобы redraw / columns.adjust() / resize окна их не сбрасывали
+    function _pushWidthsIntoDt(dt) {
+        if (!dt) return;
+        const wrapper = document.querySelector('#table-wrapper');
+        const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
+        if (!headTable) return;
+        const st = dt.settings()[0];
+        const idxByName = {};
+        dt.columns().every(function() { idxByName[$(this.header()).text().trim()] = this.index(); });
+        const cols = headTable.querySelectorAll('col');
+        headTable.querySelectorAll('thead th').forEach(function(th, i) {
+            const w = parseFloat(cols[i] ? cols[i].style.width : 0);
+            const di = idxByName[th.textContent.trim()];
+            if (w && typeof di === 'number' && st.aoColumns[di]) st.aoColumns[di].sWidth = w + 'px';
+        });
+        // Колонка чекбоксов без имени — синхронизируем по позиции 0
+        const c0 = cols[0];
+        const w0 = parseFloat(c0 ? c0.style.width : 0);
+        if (w0 && st.aoColumns[0]) st.aoColumns[0].sWidth = w0 + 'px';
+    }
+
+    // Фиксируем текущие ширины ВСЕХ колонок — при изменении одной остальные не сдвигаются
+    function _pinAllColumnWidths() {
+        const wrapper = document.querySelector('#table-wrapper');
+        if (!wrapper) return;
+        const headTable = wrapper.querySelector('.dt-scroll-head table');
+        const cols = headTable ? headTable.querySelectorAll('col') : wrapper.querySelector('#TaskTable').querySelectorAll('col');
+        const widths = [];
+        cols.forEach(function(col) {
+            let w = parseFloat(col.style.width);
+            if (!w || w < 20) w = Math.round(col.getBoundingClientRect().width);
+            widths.push(w);
+        });
+        wrapper.querySelectorAll('table').forEach(function(table) {
+            table.style.tableLayout = 'fixed';
+            table.querySelectorAll('col').forEach(function(col, i) {
+                if (widths[i]) col.style.width = widths[i] + 'px';
+            });
+        });
+        _syncTablesTotalWidth(wrapper);
+    }
+
+    function _getColWidths() {
+        const wrapper = document.querySelector('#table-wrapper');
+        if (!wrapper) return {};
+        const headTable = wrapper.querySelector('.dt-scroll-head table');
+        const cols = headTable ? headTable.querySelectorAll('col') : wrapper.querySelector('#TaskTable').querySelectorAll('col');
+        const widths = {};
+        cols.forEach(function(col, idx) {
+            if (idx === 0) return;
+            const th = headTable ? headTable.querySelectorAll('thead th')[idx] : null;
+            const header = th ? th.textContent.trim() : '';
+            if (!header) return;
+            const w = parseFloat(col.style.width) || Math.round(col.getBoundingClientRect().width);
+            if (w > 20) widths[header] = Math.round(w);
+        });
+        return widths;
+    }
+
+    function applyColumnWidths(dt) {
+        // По имени заголовка — устойчиво к перемещению/скрытию колонок
+        _applyWidthsByName(serverSettings.column_widths || {});
+        _pushWidthsIntoDt(dt);
+    }
+
+    function addColumnResizers() {
+        // Видимый заголовок — в .dt-scroll-head (в #TaskTable заголовок служебный, высота 1px)
+        const wrapper = document.querySelector('#table-wrapper');
+        const headerThs = wrapper ? wrapper.querySelectorAll('.dt-scroll-head table thead th') : [];
+        if (!headerThs.length) return;
+        headerThs.forEach(function(th) {
+            if ($(th).find('.th-resizer').length) return;
+            const handle = $('<span class="th-resizer" title="Задать ширину колонки"></span>');
+            $(th).append(handle);
+        });
+    }
+
+    function saveColumnWidths() {
+        const widths = _getColWidths();
+        serverSettings.column_widths = widths;
+        $.post(SAVE_SETTINGS_URL, {
+            column_widths: JSON.stringify(widths),
+            csrfmiddlewaretoken: CSRF_TOKEN
+        });
+    }
+
+    // Клик по ручке — выпадающее окно с точной шириной колонки
+    $(document).on('click', '.dt-scroll-head .th-resizer', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const th = $(this).closest('th');
+        showColWidthPopup(th, th.index());
+    });
+
+    // Выпадающее окно ширины колонки
+    let cwpCtx = null;
+    function hideColWidthPopup(revert) {
+        const popup = $('#colWidthPopup');
+        if (popup.hasClass('d-none')) return;
+        if (revert && cwpCtx) {
+            $(cwpCtx.th).css('width', cwpCtx.origW + 'px');
+            _setColumnWidth(cwpCtx.colIdx, cwpCtx.origW);
+        }
+        popup.addClass('d-none');
+        cwpCtx = null;
+        window.__widthGuardSuspended = false;
+    }
+    function showColWidthPopup(th, colIdx) {
+        window.__widthGuardSuspended = true;
+        _pinAllColumnWidths();
+        const curW = Math.round(th.outerWidth());
+        cwpCtx = { th: th[0], colIdx: colIdx, origW: curW };
+        const popup = $('#colWidthPopup');
+        popup.find('.cwp-title').text(th.text().trim());
+        popup.find('.cwp-current').text(curW + ' px');
+        popup.find('.cwp-input').val(curW);
+        popup.removeClass('d-none');
+        const rect = th[0].getBoundingClientRect();
+        const pw = popup.outerWidth() || 235;
+        const ph = popup.outerHeight() || 130;
+        popup.css({
+            left: Math.max(4, Math.min(rect.right - pw + 8, window.innerWidth - pw - 8)),
+            top: Math.min(rect.bottom + 4, window.innerHeight - ph - 8)
+        });
+        popup.find('.cwp-input').trigger('focus').trigger('select');
+    }
+    // Живой предпросмотр новой ширины при вводе
+    $(document).on('input', '#colWidthPopup .cwp-input', function() {
+        if (!cwpCtx) return;
+        const w = parseInt(this.value, 10);
+        if (!isNaN(w) && w >= 60) {
+            $(cwpCtx.th).css('width', w + 'px');
+            _setColumnWidth(cwpCtx.colIdx, w);
+        }
+    });
+    $(document).on('keydown', '#colWidthPopup .cwp-input', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); $('#colWidthPopup .cwp-apply').trigger('click'); }
+    });
+    $(document).on('click', '#colWidthPopup .cwp-apply', function() {
+        if (cwpCtx) {
+            const w = parseInt($('#colWidthPopup .cwp-input').val(), 10);
+            if (!isNaN(w) && w >= 60) {
+                $(cwpCtx.th).css('width', w + 'px');
+                _setColumnWidth(cwpCtx.colIdx, w);
+                cwpCtx = null;
+                // Синхронизировать внутренние ширины DataTables — иначе при redraw/resize
+                // шапка перестанет соответствовать телу таблицы
+                _pushWidthsIntoDt($('#TaskTable').DataTable());
+                saveColumnWidths();
+            }
+        }
+        $('#colWidthPopup').addClass('d-none');
+        cwpCtx = null;
+        window.__widthGuardSuspended = false;
+    });
+    $(document).on('click', '#colWidthPopup .cwp-cancel', function() { hideColWidthPopup(true); });
 
     function updateCounters() {
         const count = selectedTasks.size;
         $('#selected-count').text(count);
-        $('#actionBar').toggleClass('active', count === 1);
+        $('#actionBar').toggleClass('active', count >= 1);
         $('#bottomPanel').toggleClass('active', count > 0);
 
+        // Одиночный выбор: карточка, клонирование, письма, подзадача
+        const single = count === 1;
+        const multi = count > 1;
+        $('#act-open, #act-clone, #act-email, #act-add-subtask').toggleClass('d-none', !single);
+        // При массовом выборе доступны только «Отчет» и «Удалить»
+        $('#act-delete').toggleClass('d-none', count === 0);
+
+        if (count >= 1) {
+            const base = window.location.origin;
+            const ids = Array.from(selectedTasks);
+            $('#act-report').attr('href', base + '/reports/custom/?task_ids=' + ids.join(','));
+        }
         if (count === 1) {
             const id = Array.from(selectedTasks)[0];
             const base = window.location.origin;
             $('#act-open').attr('href', base + '/task/' + id + '/');
             $('#act-clone').attr('href', base + '/TaskCloneView/' + id);
             $('#act-email').attr('href', base + '/select_email/' + id);
-            $('#act-delete').attr('href', base + '/admin/ProjectTDL/tasknode/' + id + '/delete/');
+            $('#act-delete').attr('href', base + '/TaskDeleteView/' + id);
+        } else if (multi) {
+            $('#act-delete').attr('href', '#');
         }
 
         if (count === 0) return;
@@ -685,7 +1367,7 @@ $(document).ready(function() {
         $('input[name="price"]').val(pv || '').attr('placeholder', pv ? '' : 'Разная');
 
         display('data-project-site-id', 'project_site');
-        display('data-sub-project-id', 'sub_project');
+        display('data-building-id', 'building_number');
         display('data-status-id', 'status');
         display('data-category-id', 'category');
         display('data-contractor-id', 'contractor');
@@ -721,6 +1403,14 @@ $(document).ready(function() {
         syncCheckboxes();
     }
 
+    function initSelectAllCheckbox() {
+        const wrapper = document.querySelector('#table-wrapper');
+        if (!wrapper) return;
+        wrapper.querySelectorAll('.dt-scroll-head table thead th:first-child input[type="checkbox"], #TaskTable thead th:first-child input[type="checkbox"]').forEach(function(cb) {
+            cb.classList.add('header-select-all');
+        });
+    }
+
     function syncCheckboxes() {
         $('.task-checkbox').each(function() {
             const id = $(this).val();
@@ -729,7 +1419,10 @@ $(document).ready(function() {
             $(this).closest('tr').toggleClass('selected-row', checked);
             $(this).closest('.tree-node-row').toggleClass('selected', checked);
         });
-        $('#checkAll').prop('checked', selectedTasks.size === $('.task-checkbox').length);
+        // «Выбрать все» отражает видимые строки (в дереве скрытые подзадачи не считаем)
+        const visibleBoxes = $('.task-checkbox:visible');
+        const allVisible = visibleBoxes.length > 0 && visibleBoxes.filter(':checked').length === visibleBoxes.length;
+        $('.header-select-all').prop('checked', allVisible);
         updateCounters();
     }
 
@@ -760,11 +1453,12 @@ $(document).ready(function() {
         syncCheckboxes();
     });
 
-    $('#checkAll').on('click', function() {
-        const checked = $(this).is(':checked');
+    // Чекбокс «выбрать все» в шапке: выбирает видимые задачи (в дереве — только развёрнутые)
+    $(document).on('click', '.header-select-all', function() {
+        const checked = this.checked;
         selectedTasks.clear();
         if (checked) {
-            $('.task-checkbox').each(function() { selectedTasks.add($(this).val()); });
+            $('.task-checkbox:visible').each(function() { selectedTasks.add($(this).val()); });
         }
         syncCheckboxes();
     });
@@ -773,17 +1467,27 @@ $(document).ready(function() {
         selectedTasks.clear(); syncCheckboxes();
     });
 
-    $('input[name="viewMode"]').on('change', function() {
-        $('#flat-view-container').toggleClass('d-none', $('#viewTree').is(':checked'));
-        $('#tree-view-container').toggleClass('d-none', $('#viewFlat').is(':checked'));
+    // Массовое удаление выбранных задач
+    $(document).on('click', '#act-delete', function(e) {
+        if (selectedTasks.size <= 1) return; // одиночный выбор — обычная ссылка на форму удаления
+        e.preventDefault();
+        const ids = Array.from(selectedTasks);
+        if (!confirm('Удалить выбранные задачи (' + ids.length + ')?\nПодзадачи будут удалены вместе с родительскими.')) return;
+        const btn = $(this).html('<span class="spinner-border spinner-border-sm"></span>');
+        $.ajax({
+            url: BULK_DELETE_URL, type: 'POST',
+            data: { task_ids: ids, csrfmiddlewaretoken: CSRF_TOKEN },
+            success: function(resp) {
+                if (resp.status === 'ok') {
+                    location.reload();
+                } else { alert(resp.message); btn.html('<i class="bi bi-trash me-1"></i>Удалить'); }
+            },
+            error: function() { alert('Ошибка удаления'); btn.html('<i class="bi bi-trash me-1"></i>Удалить'); }
+        });
     });
-
-    const defaultTree = localStorage.getItem('task_default_view_tree') === 'true';
-    if (defaultTree) { $('#viewTree').prop('checked', true).trigger('change'); }
 
     let filterTimer = null;
     $('.filter-select[data-filter="1"]').on('change', function() {
-        if ($(this).attr('name') === 'project_site') renderPinnedTabs();
         clearTimeout(filterTimer);
         filterTimer = setTimeout(applyFilters, 250);
     });
@@ -791,111 +1495,46 @@ $(document).ready(function() {
     $('#filterResetBtn').on('click', function() {
         $('.filter-select').val('');
         activeProjectSite = '';
-        localStorage.setItem('task_active_project_site', '');
-        renderPinnedTabs();
         applyFilters();
     });
 
-    $(document).on('click', '.project-tab[data-id]', function() {
-        const id = $(this).data('id');
-        $('.filter-select[name="project_site"]').val(id);
-        activeProjectSite = id || '';
-        localStorage.setItem('task_active_project_site', activeProjectSite);
-        renderPinnedTabs();
-        triggerCascade();
+    function saveFilterState() {
+        if (!serverSettings.auto_save && !$('#autoSaveFilters').is(':checked')) return;
+        const params = { auto_save: $('#autoSaveFilters').is(':checked') };
+        $('.filter-select[data-filter="1"]').each(function() {
+            params[$(this).attr('name')] = $(this).val() || '';
+        });
+        params.csrfmiddlewaretoken = CSRF_TOKEN;
+        $.post(SAVE_FILTER_STATE_URL, params);
+    }
+
+    $('#autoSaveFilters').on('change', function() {
+        saveFilterState();
     });
 
-    $(document).on('click', '.project-tab-close', function(e) {
-        e.stopPropagation();
-        const id = $(this).closest('.project-tab-specific').data('id');
-        $.post(PIN_REMOVE_URL, { project_site_id: id, csrfmiddlewaretoken: CSRF_TOKEN }, function() {
-            pinnedProjects = pinnedProjects.filter(function(p) { return String(p.id) !== String(id); });
-            $('.filter-select[name="project_site"]').val('');
-            activeProjectSite = '';
-            localStorage.setItem('task_active_project_site', '');
-            renderPinnedTabs();
-            applyFilters();
-        });
-    });
-
-    function renderPinnedTabs() {
-        $('.project-tab-specific').remove();
-        $('.project-tab').removeClass('active');
-        $('.project-tab[data-id=""]').addClass('active');
-        const currentVal = $('.filter-select[name="project_site"]').val();
-        pinnedProjects.forEach(function(p) {
-            const isActive = String(p.id) === String(currentVal);
-            const tab = $('<button class="btn btn-outline-secondary btn-sm project-tab project-tab-specific' + (isActive ? ' active' : '') + '" data-id="' + p.id + '">'
-                + p.name + ' <span class="project-tab-close ms-1">&times;</span></button>');
-            $('#projectTabs').append(tab);
-        });
+    function rebuildSelectOptions(sel, items, emptyLabel) {
+        const currentVal = sel.val();
+        const opts = '<option value="">' + (emptyLabel || 'Все') + '</option>' + (items || []).map(function(i) {
+            return '<option value="' + i.pk + '">' + i.name + '</option>';
+        }).join('');
+        sel.html(opts);
+        if (currentVal && sel.find('option[value="' + currentVal + '"]').length) {
+            sel.val(currentVal);
+        }
     }
 
     function triggerCascade() {
-        const val = $('.filter-select[name="project_site"]').val();
-        $.getJSON(CASCADE_URL, { project_site: val || '' }, function(data) {
-            ['sub_project', 'status', 'category', 'contractor'].forEach(function(key) {
-                const items = data[key + 's'] || [];
-                const sel = $('.filter-select[name="' + key + '"]');
-                const currentVal = sel.val();
-                const opts = '<option value="">Все</option>' + items.map(function(i) {
-                    return '<option value="' + i.pk + '">' + i.name + '</option>';
-                }).join('');
-                sel.html(opts).val(currentVal);
+        const projectVal = $('.filter-select[name="project_site"]').val();
+        const buildingVal = $('.filter-select[name="building_number"]').val();
+        $.getJSON(CASCADE_URL, { project_site: projectVal || '', building_number: buildingVal || '' }, function(data) {
+            const keyMap = { status: 'statuses', category: 'categories', contractor: 'contractors' };
+            ['status', 'category', 'contractor'].forEach(function(key) {
+                rebuildSelectOptions($('.filter-select[name="' + key + '"]'), data[keyMap[key]] || []);
             });
+            rebuildSelectOptions($('.filter-select[name="building_number"]'), data.buildings || [], 'Все');
             applyFilters();
         });
     }
-
-    function buildPinDropdown() {
-        const pinnedIds = pinnedProjects.map(function(p) { return String(p.id); });
-        const items = [];
-        $('.filter-select[name="project_site"] option').each(function() {
-            const v = $(this).val();
-            if (!v) return;
-            const isPinned = pinnedIds.includes(v);
-            items.push('<div class="pin-option' + (isPinned ? ' pinned' : '') + '" data-id="' + v + '">' + $(this).text() + '</div>');
-        });
-        items.push('<div class="dropdown-divider" style="border-top:1px solid var(--border-color,#dee2e6);margin:4px 0;"></div>');
-        items.push('<div class="dropdown-item text-success fw-semibold new-project-site-btn" style="cursor:pointer;padding:6px 12px;font-size:13px;"><i class="bi bi-plus-circle me-1"></i>Новый проект</div>');
-        $('#pinDropdown').html(items.join(''));
-    }
-
-    $(document).on('click', '#pinAddBtn', function(e) {
-        e.stopPropagation();
-        buildPinDropdown();
-        $('#pinDropdown').toggleClass('show');
-    });
-
-    $(document).on('click', function(e) {
-        if (!$(e.target).closest('#pinAddBtn, #pinDropdown').length) {
-            $('#pinDropdown').removeClass('show');
-        }
-    });
-
-    $(document).on('click', '.pin-option', function() {
-        const id = $(this).data('id');
-        const name = $(this).text().replace(' ✓', '');
-        const pinnedIds = pinnedProjects.map(function(p) { return String(p.id); });
-        const isUnpin = pinnedIds.includes(String(id));
-        const url = isUnpin ? PIN_REMOVE_URL : PIN_ADD_URL;
-        $.post(url, { project_site_id: id, csrfmiddlewaretoken: CSRF_TOKEN }, function() {
-            if (isUnpin) {
-                pinnedProjects = pinnedProjects.filter(function(p) { return String(p.id) !== String(id); });
-            } else {
-                pinnedProjects.push({id: id, name: name});
-            }
-            buildPinDropdown();
-            renderPinnedTabs();
-            if (isUnpin) {
-                $('.filter-select[name="project_site"]').val('');
-                activeProjectSite = '';
-                localStorage.setItem('task_active_project_site', '');
-                renderPinnedTabs();
-                applyFilters();
-            }
-        });
-    });
 
     function applyFilters() {
         const params = {};
@@ -903,43 +1542,115 @@ $(document).ready(function() {
             const v = $(this).val();
             if (v) params[$(this).attr('name')] = v;
         });
+        // Дерево: все узлы (родители+подзадачи) по MPTT
+        params.view = 'tree';
         $.getJSON(FILTER_AJAX_URL, params, function(data) {
             $('#table-wrapper').html(data.table);
-            $('#tree-list').html(data.tree);
             $('#filter-count').text(data.count);
             dt = initDataTable();
             selectedTasks.clear(); syncCheckboxes();
+            initTreeView();
+            saveFilterState();
         });
     }
 
-    $('#apply-bulk-update').on('click', function() {
-        if (selectedTasks.size === 0) { alert('Выберите хотя бы одну задачу'); return; }
-        const params = {};
-        params.task_ids = Array.from(selectedTasks);
-        $('.bulk-field').each(function() {
-            const v = $(this).val();
-            if (v) params[$(this).attr('name')] = v;
+    // ==== Дерево в стиле DataTable: скрытие/раскрытие подзадач ====
+    function initTreeView() {
+        const table = document.querySelector('#TaskTable');
+        if (!table) return;
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        // Скрыть все подзадачи (строки с data-parent-id), оставить только корни
+        tbody.querySelectorAll('tr[data-id]').forEach(function(row) {
+            const hasChildren = row.getAttribute('data-has-children') === '1';
+            const parentId = row.getAttribute('data-parent-id');
+            if (hasChildren) {
+                row.setAttribute('data-expanded', '0');
+            }
+            if (parentId) { row.style.display = 'none'; }
         });
-        const btn = $(this).html('<span class="spinner-border spinner-border-sm"></span>').prop('disabled', true);
+    }
+
+    $(document).on('click', '#TaskTable tbody .tree-toggle', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = $(this).closest('tr[data-id]');
+        const id = row.attr('data-id');
+        if (!id) return;
+        const expanded = row.attr('data-expanded') === '1';
+        row.attr('data-expanded', expanded ? '0' : '1');
+        $(this).toggleClass('expanded');
+        // Показать/скрыть прямых детей
+        $('#TaskTable tbody tr[data-parent-id="' + id + '"]').each(function() {
+            const wasHidden = this.style.display === 'none';
+            this.style.display = expanded ? 'none' : '';
+            // Если сворачиваем — скрыть и всех потомков
+            if (expanded) {
+                const childId = $(this).attr('data-id');
+                $('#TaskTable tbody tr[data-parent-id="' + childId + '"]').css('display', 'none');
+            }
+        });
+    });
+
+    // Автоматическое применение изменений полей панели свойств (без кнопки «Применить»)
+    const FIELD_COL_HEADER = {
+        project_site: 'Проект', building_number: 'Здание', design_chapter: 'Раздел',
+        contractor: 'Ответственный', status: 'Статус', category: 'Категория',
+        due_date: 'Завершение', price: 'Цена'
+    };
+    const FIELD_DATA_ATTR = {
+        project_site: 'data-project-site-id', building_number: 'data-building-id',
+        design_chapter: null, contractor: 'data-contractor-id',
+        status: 'data-status-id', category: 'data-category-id',
+        due_date: 'data-due-date', price: 'data-price'
+    };
+
+    function applyBulkField(name, value) {
+        if (selectedTasks.size === 0) return;
+        const params = { task_ids: Array.from(selectedTasks) };
+        if (value) params[name] = value;
         $.ajax({
             url: BULK_UPDATE_URL, type: 'POST',
             data: $.param(params, true),
             headers: { 'X-CSRFToken': CSRF_TOKEN },
             success: function(resp) {
-                if (resp.status === 'ok') {
-                    $('.bulk-field').val(''); $('#clear-selection').trigger('click');
-                    location.reload();
-                } else { alert(': ' + resp.message); }
+                if (resp.status !== 'ok') { alert(resp.message); return; }
+                refreshSelectedRows(name, value);
+                $('.bulk-field[name="' + name + '"]').val('');
             },
-            error: function() { alert(''); },
-            complete: function() { btn.html('<i class="bi bi-check-lg me-1"></i>').prop('disabled', false); }
+            error: function() { alert('Ошибка применения'); }
         });
+    }
+
+    function refreshSelectedRows(name, value) {
+        const ids = Array.from(selectedTasks);
+        if (!ids.length) return;
+        const headerName = FIELD_COL_HEADER[name];
+        let colIdx = -1;
+        if (headerName) {
+            const ths = document.querySelectorAll('#TaskTable thead th');
+            ths.forEach(function(th, i) { if (th.textContent.trim() === headerName) colIdx = i; });
+        }
+        let text = $('.bulk-field[name="' + name + '"] option:selected').text() || '';
+        if (name === 'due_date') text = value ? value.split('-').reverse().join('.') : '';
+        if (name === 'price') text = value ? parseFloat(String(value).replace(',', '.')).toFixed(2) + ' ₽' : '';
+        const attr = FIELD_DATA_ATTR[name];
+        $('[data-id]').filter(function() { return ids.includes($(this).attr('data-id')); }).each(function() {
+            if (attr) $(this).attr(attr, value || '');
+            if (colIdx >= 0) {
+                const cell = $(this).children()[colIdx];
+                if (cell) $(cell).text(text);
+            }
+        });
+    }
+
+    $(document).on('change', '.bulk-field', function() {
+        applyBulkField($(this).attr('name'), $(this).val());
     });
 
     if (activeProjectSite) {
         $('.filter-select[name="project_site"]').val(activeProjectSite);
     }
-    renderPinnedTabs();
 
     let currentFkModel = '';
 
@@ -948,6 +1659,10 @@ $(document).ready(function() {
         $('#fkManageModalTitle').text(' : ' + (FK_LABELS[model] || model));
         $('#fkManageAddLabel').text(' ' + (FK_LABELS[model] || ''));
         $('#fkManageInput').val('');
+        $('#fkManageDefaults').toggleClass('d-none', model !== 'project_site');
+        if (model === 'project_site') {
+            $('#fkDefaultStatus, #fkDefaultCategory, #fkDefaultContractor').val('');
+        }
         loadFkList();
         $('#fkManageModal').modal('show');
     }
@@ -976,9 +1691,15 @@ $(document).ready(function() {
     $('#fkManageAddBtn').on('click', function() {
         const name = $('#fkManageInput').val().trim();
         if (!name) return;
+        const data = { action: 'add', name: name, model: currentFkModel };
+        if (currentFkModel === 'project_site') {
+            data.default_status = $('#fkDefaultStatus').val();
+            data.default_category = $('#fkDefaultCategory').val();
+            data.default_contractor = $('#fkDefaultContractor').val();
+        }
         $.ajax({
             url: MANAGE_REF_URL, type: 'POST',
-            data: { action: 'add', name: name, model: currentFkModel },
+            data: data,
             headers: { 'X-CSRFToken': CSRF_TOKEN },
             success: function(resp) {
                 if (resp.status === 'ok') {
@@ -1004,38 +1725,90 @@ $(document).ready(function() {
         });
     });
 
+    function buildFkOptions(objects) {
+        return '<option value="">   </option>' + (objects || []).map(function(o) {
+            let attrs = '';
+            ['status', 'category', 'contractor'].forEach(function(k) {
+                const prop = 'default_' + k.replace('-', '_') + '_id';
+                if (o[prop]) attrs += ' data-default-' + k + '="' + o[prop] + '"';
+            });
+            return '<option value="' + o.pk + '"' + attrs + '>' + o.name + '</option>';
+        }).join('');
+    }
+
     function reloadFkSelects() {
         $.getJSON(MANAGE_REF_URL, {model: currentFkModel}, function(data) {
+            const opts = buildFkOptions(data.objects);
             const selectName = FK_SELECT_MAP[currentFkModel];
-            if (!selectName) return;
-            const opts = '<option value="">   </option>' + (data.objects || []).map(function(o) {
-                return '<option value="' + o.pk + '">' + o.name + '</option>';
-            }).join('');
-            $('select[name="' + selectName + '"]').html(opts).val('');
+            if (selectName) {
+                const sel = $('select[name="' + selectName + '"]');
+                const prevVal = sel.val();
+                sel.html(opts).val(prevVal);
+            }
+            const qtId = QT_SELECT_MAP[currentFkModel];
+            if (qtId) {
+                const sel = $(qtId);
+                const prevVal = sel.val();
+                sel.html(opts).val(prevVal);
+            }
         });
+    }
+
+    function getQtSiteDefaults() {
+        const siteId = $('#qtProjectSite').val();
+        const opt = siteId ? $('#qtProjectSite option[value="' + siteId + '"]') : null;
+        const empty = { qtStatus: '', qtCategory: '', qtContractor: '' };
+        if (!opt || !opt.length) return empty;
+        return {
+            qtStatus: opt.data('default-status') || '',
+            qtCategory: opt.data('default-category') || '',
+            qtContractor: opt.data('default-contractor') || '',
+        };
+    }
+
+    function applyQtSiteDefaults(fillOnlyEmpty) {
+        const defaults = getQtSiteDefaults();
+        for (const [elId, val] of Object.entries(defaults)) {
+            if (fillOnlyEmpty) {
+                if (!$('#' + elId).val() && val) $('#' + elId).val(val);
+            } else {
+                $('#' + elId).val(val);
+            }
+        }
     }
 
     $('#quickTaskModal').on('show.bs.modal', function() {
         $('#qtName').val('');
-        $('#qtProjectSite, #qtSubProject, #qtStatus, #qtCategory, #qtContractor').val('');
+        $('#qtProjectSite, #qtBuilding, #qtStatus, #qtCategory, #qtContractor, #qtDesignChapter').val('');
 
         const prefillMap = {
-            qtProjectSite: ['task_default_project_site', 'project_site'],
-            qtSubProject: ['task_default_sub_project', 'sub_project'],
-            qtCategory: ['task_default_category', 'category'],
-            qtStatus: ['task_default_status', 'status'],
-            qtContractor: ['task_default_contractor', 'contractor'],
+            qtProjectSite: ['default_project_site', 'project_site'],
+            qtBuilding: ['default_project_site', 'building_number'],
+            qtCategory: ['default_category', 'category'],
+            qtStatus: ['default_status', 'status'],
+            qtContractor: ['default_contractor', 'contractor'],
         };
+        // Здание подставляется из фильтра, если проект выбран/активен
+        const activeSite = $('select[name="project_site"]').val();
+        const bldVal = $('select[name="building_number"]').val();
+        if (bldVal && (activeSite || activeProjectSite)) {
+            $('#qtBuilding').val(bldVal);
+        }
 
-        for (const [elId, [lsKey, filterName]] of Object.entries(prefillMap)) {
-            if (localStorage.getItem(lsKey) === 'true') {
+        for (const [elId, [flagKey, filterName]] of Object.entries(prefillMap)) {
+            if (serverSettings[flagKey]) {
                 const filterVal = $('select[name="' + filterName + '"]').val();
                 if (filterVal) $('#' + elId).val(filterVal);
             }
         }
-        if (!localStorage.getItem('task_default_project_site') === 'true' && activeProjectSite) {
+        if (!$('#qtProjectSite').val() && activeProjectSite) {
             $('#qtProjectSite').val(activeProjectSite);
         }
+        applyQtSiteDefaults(true);
+    });
+
+    $('#qtProjectSite').on('change', function() {
+        applyQtSiteDefaults(false);
     });
 
     $('#qtCreateBtn').on('click', function() {
@@ -1047,10 +1820,11 @@ $(document).ready(function() {
             data: {
                 name: name,
                 project_site: $('#qtProjectSite').val(),
-                sub_project: $('#qtSubProject').val(),
+                building_number: $('#qtBuilding').val(),
                 status: $('#qtStatus').val(),
                 category: $('#qtCategory').val(),
                 contractor: $('#qtContractor').val(),
+                design_chapter: $('#qtDesignChapter').val(),
             },
             headers: { 'X-CSRFToken': CSRF_TOKEN },
             success: function(resp) {
@@ -1064,49 +1838,107 @@ $(document).ready(function() {
         });
     });
 
-    function buildColumnToggles() {
-        if (!dt) return;
-        const container = $('#column-toggles').empty();
-        dt.columns().every(function() {
-            const idx = this.index();
-            const header = $(this.header()).text().trim();
-            if (!header || idx === 0) return;
-            const visible = this.visible();
-            const saved = localStorage.getItem('col_visible_' + idx);
-            const isChecked = saved !== null ? (saved === 'true') : visible;
-            this.visible(isChecked);
-            const chk = $('<div class="form-check"><input class="form-check-input col-toggle" type="checkbox" data-col="' + idx + '" ' + (isChecked ? 'checked' : '') + '><label class="form-check-label">' + header + '</label></div>');
-            container.append(chk);
-        });
-        $('.col-toggle').off('change').on('change', function() {
-            const col = dt.column($(this).data('col'));
-            col.visible($(this).is(':checked'));
-            localStorage.setItem('col_visible_' + $(this).data('col'), $(this).is(':checked'));
-        });
+    function _headerToIndex(dt, name) {
+        let found = -1;
+        dt.columns().every(function() { if ($(this.header()).text().trim() === name) found = this.index(); });
+        return found;
     }
 
+    function applySettingsColumnOrder() {
+        const t = $('#TaskTable').DataTable();
+        if (!t || !t.colReorder) return;
+        const idxByName = {};
+        t.columns().every(function() { idxByName[$(this.header()).text().trim()] = this.index(); });
+        const order = [];
+        $('#settings-fields-body .settings-field-row').each(function() {
+            const colName = $(this).attr('data-col');
+            if (Object.prototype.hasOwnProperty.call(idxByName, colName)) order.push(idxByName[colName]);
+        });
+        // Чекбокс (колонка 0) всегда первый
+        const i0 = order.indexOf(0);
+        if (i0 > 0) order.splice(i0, 1);
+        if (order[0] !== 0) order.unshift(0);
+        t.colReorder.order(order, false);
+        saveColumnOrder();
+    }
+
+    // Drag & drop строк таблицы настроек
+    let dragFieldRow = null;
+    $(document).on('dragstart.settings-row', '.settings-field-row', function(e) {
+        dragFieldRow = this;
+        $(this).addClass('dragging');
+        e.originalEvent.dataTransfer.effectAllowed = 'move';
+        try { e.originalEvent.dataTransfer.setData('text/plain', ''); } catch (err) {}
+    });
+    $(document).on('dragover.settings-row', '.settings-field-row', function(e) {
+        e.preventDefault();
+        e.originalEvent.dataTransfer.dropEffect = 'move';
+    });
+    $(document).on('drop.settings-row', '.settings-field-row', function(e) {
+        e.preventDefault();
+        if (!dragFieldRow || dragFieldRow === this) { dragFieldRow = null; return; }
+        const container = $('#settings-fields-body')[0];
+        const items = Array.from(container.children);
+        const fromIndex = items.indexOf(dragFieldRow);
+        const toIndex = items.indexOf(this);
+        if (fromIndex < 0 || toIndex < 0) { dragFieldRow = null; return; }
+        if (fromIndex < toIndex) container.insertBefore(dragFieldRow, this.nextSibling);
+        else container.insertBefore(dragFieldRow, this);
+        applySettingsColumnOrder();
+        dragFieldRow = null;
+    });
+    $(document).on('dragend.settings-row', '.settings-field-row', function() {
+        $(this).removeClass('dragging');
+        dragFieldRow = null;
+    });
+
     $('#saveSettingsBtn').on('click', function() {
-        localStorage.setItem('task_inherit_props', $('#settingInheritProps').is(':checked'));
-        localStorage.setItem('task_new_position', $('#settingNewTaskPosition').val());
-        localStorage.setItem('task_default_view_tree', $('#settingDefaultTreeView').is(':checked'));
-        localStorage.setItem('task_default_project_site', $('#settingDefaultProjectSite').is(':checked'));
-        localStorage.setItem('task_default_sub_project', $('#settingDefaultSubProject').is(':checked'));
-        localStorage.setItem('task_default_category', $('#settingDefaultCategory').is(':checked'));
-        localStorage.setItem('task_default_status', $('#settingDefaultStatus').is(':checked'));
-        localStorage.setItem('task_default_contractor', $('#settingDefaultContractor').is(':checked'));
+        serverSettings.inherit_props = $('#settingInheritProps').is(':checked');
+        serverSettings.new_task_position = $('#settingNewTaskPosition').val();
+        serverSettings.default_project_site = $('#settingDefaultProjectSite').is(':checked');
+        serverSettings.default_building = $('#settingDefaultBuilding').is(':checked');
+        serverSettings.default_category = $('#settingDefaultCategory').is(':checked');
+        serverSettings.default_status = $('#settingDefaultStatus').is(':checked');
+        serverSettings.default_contractor = $('#settingDefaultContractor').is(':checked');
+        const colVis = {};
+        $('.settings-col-toggle').each(function() {
+            colVis[$(this).attr('data-col')] = $(this).is(':checked');
+        });
+        serverSettings.column_visibility = colVis;
+        const curOrder = _columnNames(dt);
+        serverSettings.column_order = curOrder;
+        const panelFields = {};
+        $('.settings-panel-toggle').each(function() {
+            panelFields[$(this).attr('data-panel')] = $(this).is(':checked');
+        });
+        serverSettings.panel_fields = panelFields;
+        $.post(SAVE_SETTINGS_URL, {
+            inherit_props: serverSettings.inherit_props,
+            new_task_position: serverSettings.new_task_position,
+            default_tree_view: serverSettings.default_tree_view,
+            default_project_site: serverSettings.default_project_site,
+            default_building: serverSettings.default_building,
+            default_category: serverSettings.default_category,
+            default_status: serverSettings.default_status,
+            default_contractor: serverSettings.default_contractor,
+            column_visibility: JSON.stringify(colVis),
+            column_order: JSON.stringify(curOrder),
+            panel_fields: JSON.stringify(panelFields),
+            csrfmiddlewaretoken: CSRF_TOKEN,
+        });
         $('#settingsModal').modal('hide');
     });
 
     $('#settingsModal').on('show.bs.modal', function() {
-        $('#settingInheritProps').prop('checked', localStorage.getItem('task_inherit_props') === 'true');
-        $('#settingNewTaskPosition').val(localStorage.getItem('task_new_position') || 'bottom');
-        $('#settingDefaultTreeView').prop('checked', localStorage.getItem('task_default_view_tree') === 'true');
-        $('#settingDefaultProjectSite').prop('checked', localStorage.getItem('task_default_project_site') === 'true');
-        $('#settingDefaultSubProject').prop('checked', localStorage.getItem('task_default_sub_project') === 'true');
-        $('#settingDefaultCategory').prop('checked', localStorage.getItem('task_default_category') === 'true');
-        $('#settingDefaultStatus').prop('checked', localStorage.getItem('task_default_status') === 'true');
-        $('#settingDefaultContractor').prop('checked', localStorage.getItem('task_default_contractor') === 'true');
-        buildColumnToggles();
+        $('#settingInheritProps').prop('checked', serverSettings.inherit_props === true);
+        $('#settingNewTaskPosition').val(serverSettings.new_task_position || 'bottom');
+        $('#settingDefaultProjectSite').prop('checked', serverSettings.default_project_site === true);
+        $('#settingDefaultBuilding').prop('checked', serverSettings.default_building === true);
+        $('#settingDefaultCategory').prop('checked', serverSettings.default_category === true);
+        $('#settingDefaultStatus').prop('checked', serverSettings.default_status === true);
+        $('#settingDefaultContractor').prop('checked', serverSettings.default_contractor === true);
+        buildSettingsTable();
+        syncPanelWithSettings();
     });
 
     $(document).on('click', '#act-add-subtask', function(e) {
@@ -1127,15 +1959,71 @@ $(document).ready(function() {
         });
     });
 
-    $(document).on('change', '.filter-select[name="project_site"]', triggerCascade);
+    // Контекстное меню (правый клик по строке задачи)
+    let ctxTaskId = null;
+    function hideCtxMenu() { $('#ctxMenu').addClass('d-none'); }
+    function showCtxMenu(e, id) {
+        e.preventDefault();
+        ctxTaskId = String(id);
+        const menu = $('#ctxMenu').removeClass('d-none');
+        const mw = menu.outerWidth() || 220;
+        const mh = menu.outerHeight() || 200;
+        menu.css({
+            left: Math.min(e.pageX, window.innerWidth - mw - 4),
+            top: Math.min(e.pageY, window.innerHeight - mh - 4)
+        });
+    }
 
-    $(document).on('click', '.tree-toggle', function(e) {
-        e.stopPropagation();
-        const li = $(this).closest('.tree-node-row');
-        const sublist = li.find('> .tree-sublist');
-        sublist.toggleClass('d-none');
-        $(this).toggleClass('expanded');
+    $(document).on('contextmenu', '#TaskTable tbody tr, .tree-node-row', function(e) {
+        const id = $(this).attr('data-id');
+        if (!id) return;
+        showCtxMenu(e, id);
     });
+
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('#ctxMenu').length) hideCtxMenu();
+        if (!$(e.target).closest('#colWidthPopup, .th-resizer').length) hideColWidthPopup(true);
+    });
+
+    $(document).on('keydown', function(e) {
+        if (e.key === 'Escape') { hideCtxMenu(); hideColWidthPopup(true); }
+    });
+
+    $(document).on('click', '#ctxMenu .ctx-item', function(e) {
+        e.preventDefault();
+        const action = $(this).data('action');
+        const id = ctxTaskId;
+        hideCtxMenu();
+        if (!id) return;
+        const base = window.location.origin;
+        if (action === 'open') {
+            window.location.href = base + '/task/' + id + '/';
+        } else if (action === 'edit') {
+            window.location.href = base + '/TaskUpdateView/' + id;
+        } else if (action === 'clone') {
+            window.location.href = base + '/TaskCloneView/' + id;
+        } else if (action === 'delete') {
+            window.location.href = base + '/TaskDeleteView/' + id;
+        } else if (action === 'subtask') {
+            const name = prompt('Название подзадачи:');
+            if (!name) return;
+            $.ajax({
+                url: QUICK_CREATE_SUBTASK_URL, type: 'POST',
+                data: { parent_id: id, name: name },
+                headers: { 'X-CSRFToken': CSRF_TOKEN },
+                success: function(resp) {
+                    if (resp.status === 'ok') { location.reload(); }
+                    else { alert(resp.message); }
+                },
+                error: function() { alert('Ошибка'); }
+            });
+        }
+    });
+
+    $(document).on('change', '.filter-select[name="project_site"]', triggerCascade);
+    $(document).on('change', '.filter-select[name="building_number"]', triggerCascade);
+
+    // (старый обработчик .tree-toggle для li-дерева удалён — дерево теперь в DataTable)
 });
 </script>
 {% endblock %}
