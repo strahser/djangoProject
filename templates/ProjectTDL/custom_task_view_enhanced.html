@@ -1031,20 +1031,18 @@ $(document).ready(function() {
     }
 
     function _setColumnWidth(idx, w) {
-        // Сразу фиксируем новое значение в снимке «хороших» ширин,
-        // иначе лечение вернёт старое до завершения сохранения
-        if (!window.__lastGoodWidths) _snapshotGoodWidths();
-        if (window.__lastGoodWidths && idx < window.__lastGoodWidths.length) {
-            window.__lastGoodWidths[idx] = w;
-        }
-        // Ширину нужно задать в обоих colgroup: видимый заголовок (.dt-scroll-head) и тело таблицы
+        // Пользователь задаёт ВИЗУАЛЬНУЮ ширину; переводим в базовую с учётом
+        // текущего коэффициента заполнения и перерисовываем все колонки
         const wrapper = document.querySelector('#table-wrapper');
         if (!wrapper) return;
-        wrapper.querySelectorAll('table').forEach(function(table) {
-            table.style.setProperty('table-layout', 'fixed', 'important');
-            const col = table.querySelectorAll('col')[idx];
-            if (col) col.style.setProperty('width', w + 'px', 'important');
-        });
+        const base = window.__baseCols;
+        if (base && idx < base.length) {
+            const sb = wrapper.querySelector('.dt-scroll-body');
+            const avail = sb ? sb.clientWidth : 0;
+            const sum = base.reduce(function(a, b) { return a + (b || 0); }, 0);
+            const k = (avail > sum && sum > 0) ? avail / sum : 1;
+            base[idx] = Math.max(20, Math.round(w / k));
+        }
         _syncTablesTotalWidth(wrapper);
     }
 
@@ -1054,16 +1052,28 @@ $(document).ready(function() {
         table.querySelectorAll('col').forEach(function(c) { s += parseFloat(c.style.width) || 0; });
         return s;
     }
+    // Рендер: базовые ширины (__baseCols) масштабируются на контейнер.
+    // Пропорциональное распределение лишнего места — иначе table-layout:fixed
+    // делит его поровну и изменение одной колонки «размазывается» по всем.
     function _syncTablesTotalWidth(wrapper) {
-        // Если контейнер шире суммы колонок — растягиваем ОБЕ таблицы на него:
-        // при table-layout:fixed лишнее место делится между колонками ОДИНАКОВО,
-        // поэтому шапка и тело остаются совпадающими
         const sb = wrapper.querySelector('.dt-scroll-body');
         const avail = sb ? sb.clientWidth : 0;
+        const base = window.__baseCols || [];
+        const sum = base.reduce(function(a, b) { return a + (b || 0); }, 0);
+        const k = (avail > sum && sum > 0) ? avail / sum : 1;
+        const colsHead = wrapper.querySelectorAll('.dt-scroll-head table col');
+        const colsBody = wrapper.querySelectorAll('#TaskTable col');
+        let total = 0;
+        base.forEach(function(b, i) {
+            const w = Math.round((b || 0) * k);
+            total += w;
+            [colsHead[i], colsBody[i]].forEach(function(c) {
+                if (c && b) c.style.setProperty('width', w + 'px', 'important');
+            });
+        });
         wrapper.querySelectorAll('table').forEach(function(t) {
             t.style.setProperty('table-layout', 'fixed', 'important');
-            const s = Math.max(_colsSum(t), avail);
-            if (s) t.style.setProperty('width', s + 'px', 'important');
+            if (total) t.style.setProperty('width', total + 'px', 'important');
         });
     }
 
@@ -1153,7 +1163,6 @@ $(document).ready(function() {
             window.__alignTimer = setInterval(function() {
                 if (document.hidden || window.__widthGuardSuspended || !window.__taskDt) return;
                 if (!_checkRectAlignment()) _healAlignment(true);
-                else _snapshotGoodWidths();
             }, 1500);
         }
     }
@@ -1164,44 +1173,24 @@ $(document).ready(function() {
         const wrapper = document.querySelector('#table-wrapper');
         const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
         if (!headTable) return;
-        // Колонка чекбоксов без имени — DataTables её перезаписывает при пересчёте.
-        // Приоритет: сохранённое значение, затем последний корректный снимок,
-        // затем текущее из шапки, затем фактическая ширина заголовка.
-        let w0 = parseInt(widths['__check__'], 10) || 0;
-        if (!w0 || w0 < 20) w0 = (window.__lastGoodWidths && window.__lastGoodWidths[0]) || 0;
-        if (!w0 || w0 < 20) {
-            const c0 = headTable.querySelectorAll('col')[0];
-            w0 = parseFloat(c0 ? c0.style.width : 0);
-        }
-        const th0 = headTable.querySelectorAll('thead th')[0];
-        if (!w0 || w0 < 20) w0 = th0 ? Math.round(th0.getBoundingClientRect().width) : 40;
-        if (w0 >= 20) {
-            wrapper.querySelectorAll('table').forEach(function(t) {
-                const col = t.querySelectorAll('col')[0];
-                if (col) col.style.setProperty('width', w0 + 'px', 'important');
+        // Базовые (логические) ширины — источник истины для рендера.
+        // Строим один раз; далее их обновляет только _setColumnWidth.
+        const ths = headTable.querySelectorAll('thead th');
+        if (!window.__baseCols || window.__baseCols.length !== ths.length) {
+            window.__baseCols = new Array(ths.length).fill(0);
+            ths.forEach(function(th, i) {
+                let b = 0;
+                if (i === 0) b = parseInt(widths['__check__'], 10) || 0;
+                else b = parseInt(widths[th.textContent.trim()], 10) || 0;
+                if (!b || b < 20) {
+                    const c = headTable.querySelectorAll('col')[i];
+                    b = parseFloat(c ? c.style.width : 0) || 0;
+                }
+                if (!b || b < 20) b = Math.round(th.getBoundingClientRect().width) || 120;
+                window.__baseCols[i] = b;
             });
         }
-        headTable.querySelectorAll('thead th').forEach(function(th, i) {
-            const w = parseInt(widths[th.textContent.trim()], 10);
-            if (!w || w < 20) return;
-            wrapper.querySelectorAll('table').forEach(function(t) {
-                const col = t.querySelectorAll('col')[i];
-                if (col) col.style.setProperty('width', w + 'px', 'important');
-            });
-        });
         _syncTablesTotalWidth(wrapper);
-    }
-
-    // Снимок фактических ширин всех колонок в момент, когда всё выровнено
-    function _snapshotGoodWidths() {
-        const wrapper = document.querySelector('#table-wrapper');
-        const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
-        if (!headTable) return;
-        const arr = [];
-        headTable.querySelectorAll('thead th').forEach(function(th) {
-            arr.push(Math.round(th.getBoundingClientRect().width));
-        });
-        window.__lastGoodWidths = arr;
     }
 
     // Записать текущие DOM-ширины во внутреннее состояние DataTables (sWidth),
@@ -1254,19 +1243,22 @@ $(document).ready(function() {
         const cols = headTable ? headTable.querySelectorAll('col') : wrapper.querySelector('#TaskTable').querySelectorAll('col');
         const widths = {};
         cols.forEach(function(col, idx) {
-            if (idx === 0) return;
+            if (idx === 0) {
+                // Колонка чекбоксов без имени — под служебным ключом
+                if (window.__baseCols && window.__baseCols[0] > 20) widths['__check__'] = window.__baseCols[0];
+                return;
+            }
             const th = headTable ? headTable.querySelectorAll('thead th')[idx] : null;
             const header = th ? th.textContent.trim() : '';
             if (!header) return;
+            // Базовое значение точнее отражает выбор пользователя, чем масштабированный рендер
+            if (window.__baseCols && window.__baseCols[idx] > 20) {
+                widths[header] = window.__baseCols[idx];
+                return;
+            }
             const w = parseFloat(col.style.width) || Math.round(col.getBoundingClientRect().width);
             if (w > 20) widths[header] = Math.round(w);
         });
-        // Колонка чекбоксов без имени — сохраняем под служебным ключом
-        const c0 = cols[0];
-        if (c0) {
-            const w0 = parseFloat(c0.style.width) || Math.round(c0.getBoundingClientRect().width);
-            if (w0 > 20) widths['__check__'] = Math.round(w0);
-        }
         return widths;
     }
 
