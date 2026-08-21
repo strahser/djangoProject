@@ -1049,9 +1049,14 @@ $(document).ready(function() {
         return s;
     }
     function _syncTablesTotalWidth(wrapper) {
+        // Если контейнер шире суммы колонок — растягиваем ОБЕ таблицы на него:
+        // при table-layout:fixed лишнее место делится между колонками ОДИНАКОВО,
+        // поэтому шапка и тело остаются совпадающими
+        const sb = wrapper.querySelector('.dt-scroll-body');
+        const avail = sb ? sb.clientWidth : 0;
         wrapper.querySelectorAll('table').forEach(function(t) {
             t.style.setProperty('table-layout', 'fixed', 'important');
-            const s = _colsSum(t);
+            const s = Math.max(_colsSum(t), avail);
             if (s) t.style.setProperty('width', s + 'px', 'important');
         });
     }
