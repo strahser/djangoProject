@@ -49,6 +49,9 @@
   #table-wrapper, #table-wrapper .dataTables_wrapper { width: 100% !important; }
   /* Ширину и layout #TaskTable задаёт ТОЛЬКО JS инлайном с !important
      (CSS width:100% здесь ломает выравнивание шапки/тела) */
+  /* Родной CSS DT центрирует таблицы (margin:0 auto) — на широких экранах
+     тело уезжает вправо относительно шапки */
+  #table-wrapper table.dataTable { margin-left: 0 !important; margin-right: 0 !important; }
   #TaskTable td, #TaskTable th { white-space: nowrap; }
   /* Колонка «Наименование»: длинный текст переносится, строка растёт в высоту */
   #TaskTable td.col-name, #TaskTable th.col-name {
@@ -1139,6 +1142,7 @@ $(document).ready(function() {
             window.__alignTimer = setInterval(function() {
                 if (document.hidden || window.__widthGuardSuspended || !window.__taskDt) return;
                 if (!_checkRectAlignment()) _healAlignment(true);
+                else _snapshotGoodWidths();
             }, 1500);
         }
     }
@@ -1149,6 +1153,21 @@ $(document).ready(function() {
         const wrapper = document.querySelector('#table-wrapper');
         const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
         if (!headTable) return;
+        // Колонка чекбоксов без имени — DataTables её перезаписывает при пересчёте.
+        // Берём последнее корректное значение, иначе текущее из шапки.
+        let w0 = (window.__lastGoodWidths && window.__lastGoodWidths[0]) || 0;
+        if (!w0 || w0 < 20) {
+            const c0 = headTable.querySelectorAll('col')[0];
+            w0 = parseFloat(c0 ? c0.style.width : 0);
+        }
+        const th0 = headTable.querySelectorAll('thead th')[0];
+        if (!w0 || w0 < 20) w0 = th0 ? Math.round(th0.getBoundingClientRect().width) : 40;
+        if (w0 >= 20) {
+            wrapper.querySelectorAll('table').forEach(function(t) {
+                const col = t.querySelectorAll('col')[0];
+                if (col) col.style.setProperty('width', w0 + 'px', 'important');
+            });
+        }
         headTable.querySelectorAll('thead th').forEach(function(th, i) {
             const w = parseInt(widths[th.textContent.trim()], 10);
             if (!w || w < 20) return;
@@ -1158,6 +1177,18 @@ $(document).ready(function() {
             });
         });
         _syncTablesTotalWidth(wrapper);
+    }
+
+    // Снимок фактических ширин всех колонок в момент, когда всё выровнено
+    function _snapshotGoodWidths() {
+        const wrapper = document.querySelector('#table-wrapper');
+        const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
+        if (!headTable) return;
+        const arr = [];
+        headTable.querySelectorAll('thead th').forEach(function(th) {
+            arr.push(Math.round(th.getBoundingClientRect().width));
+        });
+        window.__lastGoodWidths = arr;
     }
 
     // Записать текущие DOM-ширины во внутреннее состояние DataTables (sWidth),
