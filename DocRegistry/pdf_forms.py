@@ -9,6 +9,7 @@ import io
 from datetime import date
 
 try:
+    from reportlab.lib.colors import HexColor, white
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
@@ -40,7 +41,32 @@ def _styles():
         'nb': ParagraphStyle('nb', fontName=font_b, fontSize=10, leading=13),
         'cell': ParagraphStyle('cell', fontName=font, fontSize=9, leading=11),
         'cellc': ParagraphStyle('cellc', fontName=font, fontSize=9, leading=11, alignment=1),
+        'stamp_title': ParagraphStyle('stamp_title', fontName=font_b, fontSize=8, leading=9, alignment=1),
+        'stamp_text': ParagraphStyle('stamp_text', fontName=font, fontSize=7, leading=8, alignment=1),
     }
+
+
+STAMP_FILL = '#2f9e63'  # зелёная плашка как э-подпись на скриншоте
+
+
+def _stamp_table(person: str, stamped_at: str, s: dict) -> Table:
+    """Штамп СОГЛАСОВАНО: зелёная плашка с белой рамкой и скруглением, белый текст."""
+    inner = [
+        [Paragraph('<b><font color="white">СОГЛАСОВАНО</font></b>', s['stamp_title'])],
+        [Paragraph(f'<font color="white">{person}<br/>{stamped_at}</font>', s['stamp_text'])],
+    ]
+    t = Table(inner, colWidths=[28.5 * mm])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), HexColor(STAMP_FILL)),
+        ('BOX', (0, 0), (-1, -1), 1.2, white),
+        ('ROUNDEDCORNERS', [4, 4, 4, 4]),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    return t
 
 
 def _doc():
@@ -228,7 +254,7 @@ def _approval_sheet(when, month_ru, signers, rows, note_tom, header) -> bytes:
 
     s = _styles()
     buf, doc = _doc()
-    stamped_at = timezone.localtime(timezone.now()).strftime('%d.%m.%Y %H:%M')
+    stamped_at = timezone.localtime(timezone.now()).strftime('%d.%m.%Y, %H:%M:%S')
     months = {'01': 'января', '02': 'февраля', '03': 'марта', '04': 'апреля',
               '05': 'мая', '06': 'июня', '07': 'июля', '08': 'августа',
               '09': 'сентября', '10': 'октября', '11': 'ноября', '12': 'декабря'}
@@ -251,12 +277,11 @@ def _approval_sheet(when, month_ru, signers, rows, note_tom, header) -> bytes:
         if sg.company:
             pos += f' ({sg.company})'
         if sg.stamp:
-            # штамп как э-подпись: СОГЛАСОВАНО + ФИО + дата/время генерации
-            sign_cell = (f'<b><font color="#1a56db">СОГЛАСОВАНО</font></b><br/>'
-                         f'{sg.person}<br/>{stamped_at}')
+            # штамп-плашка как э-подпись: заливка + рамка + ФИО + дата/время
+            sign_cell = _stamp_table(sg.person or '', stamped_at, s)
         else:
-            sign_cell = ''
-        data.append([Paragraph(pos, s['cell']), Paragraph(sign_cell, s['cell']),
+            sign_cell = Paragraph('', s['cell'])
+        data.append([Paragraph(pos, s['cell']), sign_cell,
                      Paragraph(sg.person or '', s['cell']), Paragraph(sg.mark or '', s['cell'])])
     t = Table(data, colWidths=[70 * mm, 30 * mm, 40 * mm, 32 * mm])
     t.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.5, (0, 0, 0)),
