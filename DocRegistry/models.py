@@ -59,8 +59,10 @@ class DocRevision(models.Model):
     ]
 
     entry = models.ForeignKey(
-        DocRegisterEntry, on_delete=models.CASCADE,
+        DocRegisterEntry, on_delete=models.SET_NULL,
+        null=True, blank=True,
         related_name='revisions', verbose_name='Запись реестра',
+        help_text='Пусто до шага 3 (register) — приём идёт раньше привязки к реестру',
     )
     rev_no = models.PositiveIntegerField(default=1, verbose_name='№ ревизии')
     file = models.FileField(
@@ -104,6 +106,7 @@ class DocRevision(models.Model):
         verbose_name_plural = 'Ревизии документации'
         ordering = ['entry__code', 'rev_no']
         constraints = [
+            # SQLite: NULL-записи не конфликтуют — интейки до register безопасны
             models.UniqueConstraint(fields=['entry', 'rev_no'], name='docregistry_rev_unique'),
         ]
 

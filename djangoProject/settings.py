@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     'jazzmin',
     'admin_form_action',
     'rest_framework',
+    'rest_framework.authtoken',
     'django_select2',
     # пакеты Джанго
     'django.contrib.humanize',
@@ -100,6 +101,17 @@ AUTOSAVE_PERIOD =1440 #minutes (1 раз в сутки)
 BACKUP_KEEP_VERSIONS = 2
 MEDIA_ROOT =r"e:\Проекты Симрус\Переписка"
 BACKUP_PATH = folder = os.path.join('e:\\','Проекты Симрус', 'backup')
+
+# Движок валидации РД (DesignBase FastAPI, M1 DOC-2/DOC-3)
+DESIGNBASE_URL = os.environ.get('DESIGNBASE_URL', 'http://127.0.0.1:8010')
+
+# DRF: агенту — по токену (M1 DOC-3), людям — сессия
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

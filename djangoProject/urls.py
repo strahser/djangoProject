@@ -19,6 +19,7 @@ urlpatterns = [
     path('grappelli/', include('grappelli.urls')),  # grappelli URLS
     path('grappelli-docs/', include('grappelli.urls_docs')),  # grappelli docs URLS
     path("contract/", include("ProjectContract.urls")),
+    path("api/docs/", include("DocRegistry.urls")),
     path("emails/", include("Emails.urls")),
     path('tinymce/', include('tinymce.urls')),
     path("select2/", include("django_select2.urls")),

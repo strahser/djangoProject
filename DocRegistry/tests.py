@@ -58,3 +58,99 @@ class DocRegistryModelTest(TestCase):
         self.assertEqual(accdb_row_hash(v), accdb_row_hash(dict(v)))
         v2 = dict(v, cipher='B')
         self.assertNotEqual(accdb_row_hash(v), accdb_row_hash(v2))
+
+
+class DocApiFlowTest(TestCase):
+    """Сквозной флоу агента: intake → validate → register → issue (+remarks, queue, card)."""
+
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.user = User.objects.create_user('agent', 'a@a.a', 'pw')
+        self.client.force_login(self.user)
+        from Emails.models import Email
+        self.email = Email.objects.create(subject='Чертежи КЖ1', sender='podr@x.ru', category=None)
+
+    def _mock_engine(self, podano_verdict='OK'):
+        from unittest.mock import patch
+        from DocRegistry import designbase_client as dbc
+        calls = {'n': 0}
+
+        def fake(path, params=None, payload=None, timeout=60):
+            calls['n'] += 1
+            if 'diff' in path:
+                return {'hint': 'CHANGED', 'changed_pages': [2]}
+            if 'pechat' in path:
+                return {'found': True, 'exact_match': True, 'matches': []}
+            if 'podano' in path:
+                return {'code': 500, 'verdict': podano_verdict,
+                        'row': {'Дата подачи на согласование': '2026-09-01'},
+                        'matched_folder': '2026-09-01_Test'}
+            if 'dds' in path:
+                return {'cipher': 'X', 'rows': []}
+            return {}
+        return patch.object(dbc, 'get', side_effect=lambda p, params=None, timeout=60: fake(p, params)), \
+            patch.object(dbc, 'post', side_effect=lambda p, payload=None, timeout=120: fake(p, None, payload))
+
+    def test_full_flow(self):
+        from DocRegistry.models import DocRevision
+        r = self.client.post('/api/docs/intake/', {'email_id': self.email.pk}, content_type='application/json')
+        self.assertEqual(r.status_code, 201)
+        rev = r.json()['id']
+        self.assertIsNone(r.json()['entry'])
+
+        get_p, post_p = self._mock_engine()
+        with get_p, post_p:
+            v = self.client.post(f'/api/docs/{rev}/validate/', {}, content_type='application/json')
+        self.assertEqual(v.status_code, 200)
+        self.assertEqual(v.json()['verdict'], 'PASS')
+        self.assertEqual(v.json()['status'], 'checked_ok')
+
+        # без confirm новая запись — 400
+        r400 = self.client.post(f'/api/docs/{rev}/register/', {}, content_type='application/json')
+        self.assertEqual(r400.status_code, 400)
+        reg = self.client.post(f'/api/docs/{rev}/register/', {'confirm': True}, content_type='application/json')
+        self.assertEqual(reg.status_code, 200)
+        self.assertEqual(reg.json()['status'], 'registered')
+
+        iss = self.client.post(f'/api/docs/{rev}/issue/', {'waybill_no': '301'}, content_type='application/json')
+        self.assertEqual(iss.status_code, 201)
+        self.assertEqual(DocRevision.objects.get(pk=rev).status, 'issued')
+
+        q = self.client.get('/api/docs/queue/')
+        self.assertEqual(q.status_code, 200)
+        self.assertIn('received', q.json())
+
+        card = self.client.get(f'/api/docs/entry/{reg.json()["entry"]}/')
+        self.assertEqual(card.status_code, 200)
+        self.assertEqual(len(card.json()['revisions']), 1)
+        self.assertEqual(len(card.json()['issues']), 1)
+
+    def test_validate_no_code_fails(self):
+        r = self.client.post('/api/docs/intake/', {'email_id': self.email.pk}, content_type='application/json')
+        rev = r.json()['id']
+        get_p, post_p = self._mock_engine(podano_verdict='NO_CODE')
+        with get_p, post_p:
+            v = self.client.post(f'/api/docs/{rev}/validate/', {'code': 500}, content_type='application/json')
+        self.assertEqual(v.json()['verdict'], 'FAIL')
+        self.assertEqual(v.json()['status'], 'has_remarks')
+        # замечание вручную
+        rm = self.client.post(f'/api/docs/{rev}/remarks/', {'text': 'Нет в accdb'}, content_type='application/json')
+        self.assertEqual(rm.status_code, 201)
+        # выдача из has_remarks запрещена
+        iss = self.client.post(f'/api/docs/{rev}/issue/', {'waybill_no': '1'}, content_type='application/json')
+        self.assertEqual(iss.status_code, 400)
+
+    def test_validate_unreachable_503(self):
+        from unittest.mock import patch
+        from DocRegistry import designbase_client as dbc
+        r = self.client.post('/api/docs/intake/', {'email_id': self.email.pk}, content_type='application/json')
+        rev = r.json()['id']
+        with patch.object(dbc, 'get', side_effect=dbc.DesignBaseUnreachable('down')), \
+                patch.object(dbc, 'post', side_effect=dbc.DesignBaseUnreachable('down')):
+            v = self.client.post(f'/api/docs/{rev}/validate/', {'code': 500}, content_type='application/json')
+        self.assertEqual(v.status_code, 503)
+
+    def test_unauthorized(self):
+        self.client.logout()
+        self.assertEqual(self.client.get('/api/docs/queue/').status_code, 401)
+
