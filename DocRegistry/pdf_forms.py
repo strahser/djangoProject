@@ -141,11 +141,51 @@ def approval_sheet_bytes(iss, signers, month_ru: str | None = None) -> bytes:
     (Подано\\2026\\...\\Лист согласования.docx): шапка + §1 подписанты + §2 перечень + примечание."""
     from datetime import date as _date
 
-    s = _styles()
     entry = iss.entry
-    buf, doc = _doc()
-    designer = entry.developer.name if entry.developer else DESIGNER_DEFAULT
     when = iss.waybill_date or _date.today()
+    designer = entry.developer.name if entry.developer else DESIGNER_DEFAULT
+    revs = list(entry.revisions.order_by('rev_no')) if entry else []
+    rows = []
+    if not revs:
+        rows.append((entry.cipher or '',
+                     entry.building.name if entry.building else '',
+                     f'{when.year} г.'))
+    for r in revs:
+        fname = r.attachment.filename if r.attachment else (r.file.name.split('/')[-1] if r.file else '')
+        rows.append((entry.cipher or '',
+                     fname[:80] or (entry.building.name if entry.building else ''),
+                     f'{when.year} г.'))
+    return _approval_sheet(designer, when, month_ru, signers, rows, entry.cipher or '')
+
+
+def approval_sheet_multi(entries, signers, when=None, month_ru: str | None = None) -> bytes:
+    """Лист согласования сразу на несколько записей реестра (§2 — по строке на запись).
+
+    Для админ-экшена: выделил записи → бланк PDF. Подписанты резолвятся вызывающим
+    (одно здание со своими → свои, иначе общие).
+    """
+    from datetime import date as _date
+
+    when = when or _date.today()
+    designers = {(e.developer.name if e.developer else '') for e in entries}
+    designers.discard('')
+    designer = next(iter(designers)) if len(designers) == 1 else DESIGNER_DEFAULT
+    rows = []
+    for e in entries:
+        name = e.building.name if e.building else ''
+        if e.file_name and e.file_name != e.cipher:
+            name = f'{name} — {e.file_name[:60]}' if name else e.file_name[:80]
+        ver = e.submit_date.strftime('%d.%m.%Y') if e.submit_date else f'{when.year} г.'
+        rows.append((e.cipher or '', name, ver))
+    ciphers = sorted({e.cipher for e in entries if e.cipher})
+    note_tom = ciphers[0] if len(ciphers) == 1 else ', '.join(ciphers)
+    return _approval_sheet(designer, when, month_ru, signers, rows, note_tom)
+
+
+def _approval_sheet(designer, when, month_ru, signers, rows, note_tom) -> bytes:
+    """Ядро листа: шапка + §1 подписанты + §2 перечень (rows: cipher, name, version) + примечание."""
+    s = _styles()
+    buf, doc = _doc()
     months = {'01': 'января', '02': 'февраля', '03': 'марта', '04': 'апреля',
               '05': 'мая', '06': 'июня', '07': 'июля', '08': 'августа',
               '09': 'сентября', '10': 'октября', '11': 'ноября', '12': 'декабря'}
@@ -180,16 +220,9 @@ def approval_sheet_bytes(iss, signers, month_ru: str | None = None) -> bytes:
     docs = [[Paragraph('<b>№ п/п</b>', s['cellc']), Paragraph('<b>Обозначение документа</b>', s['cellc']),
              Paragraph('<b>Наименование (кратко)</b>', s['cellc']),
              Paragraph('<b>Версия / дата изменения</b>', s['cellc'])]]
-    revs = list(entry.revisions.order_by('rev_no')) if entry else []
-    if not revs:
-        docs.append([Paragraph('1', s['cellc']), Paragraph(entry.cipher or '', s['cell']),
-                     Paragraph(entry.building.name if entry.building else '', s['cell']),
-                     Paragraph(str(when.year) + ' г.', s['cellc'])])
-    for i, r in enumerate(revs, start=1):
-        fname = r.attachment.filename if r.attachment else (r.file.name.split('/')[-1] if r.file else '')
-        docs.append([Paragraph(str(i), s['cellc']), Paragraph(entry.cipher or '', s['cell']),
-                     Paragraph(fname[:80] or (entry.building.name if entry.building else ''), s['cell']),
-                     Paragraph(str(when.year) + ' г.', s['cellc'])])
+    for i, (cipher, name, ver) in enumerate(rows, start=1):
+        docs.append([Paragraph(str(i), s['cellc']), Paragraph(cipher, s['cell']),
+                     Paragraph(name, s['cell']), Paragraph(ver, s['cellc'])])
     t2 = Table(docs, colWidths=[14 * mm, 58 * mm, 66 * mm, 34 * mm])
     t2.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.5, (0, 0, 0)),
                             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -197,7 +230,7 @@ def approval_sheet_bytes(iss, signers, month_ru: str | None = None) -> bytes:
                             ('BOTTOMPADDING', (0, 0), (-1, -1), 12)]))
     story += [t2, Spacer(1, 4 * mm),
               Paragraph('<b>Примечание:</b>', s['nb']),
-              Paragraph(f'Все перечисленные разделы входят в общий том {entry.cipher}.', s['n']),
+              Paragraph(f'Все перечисленные разделы входят в общий том {note_tom}.', s['n']),
               Paragraph('Подписи проставляются после фактического согласования документации.', s['n']),
               Paragraph('Лист согласования является неотъемлемой частью комплекта рабочей документации.', s['n'])]
     doc.build(story)

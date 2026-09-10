@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.http import HttpResponse
 
 from .models import (
     DocBuilding,
@@ -52,6 +53,28 @@ class DocRegisterEntryAdmin(admin.ModelAdmin):
                      'building__name', 'section__short', 'developer__name')
     list_select_related = ('contract', 'section', 'building', 'building_no', 'developer')
     inlines = (DocRevisionInline, DocIssueInline, DocHistoryRemarkInline)
+    actions = ('make_approval_sheet',)
+
+    @admin.action(description='Сформировать лист согласования (PDF) для выбранных')
+    def make_approval_sheet(self, request, queryset):
+        from .pdf_forms import approval_sheet_multi
+        from .services import signers_for
+
+        entries = list(queryset.select_related(
+            'building', 'building_no', 'section', 'developer').order_by('code')[:100])
+        if not entries:
+            self.message_user(request, 'Ничего не выбрано', level='error')
+            return None
+        buildings = {e.building_id for e in entries if e.building_id}
+        building = None
+        if len(buildings) == 1:
+            building = entries[0].building
+        pdf = approval_sheet_multi(entries, signers_for(building))
+        codes = '_'.join(str(e.code) for e in entries[:8])
+        resp = HttpResponse(pdf, content_type='application/pdf')
+        resp['Content-Disposition'] = (
+            f'attachment; filename="list-soglasovaniya-{codes}.pdf"')
+        return resp
 
     @admin.display(description='Наименование здания', ordering='building__name')
     def get_building(self, obj):

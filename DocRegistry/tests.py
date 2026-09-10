@@ -270,6 +270,31 @@ class DocReferenceTest(TestCase):
         e2 = DocRegisterEntry.objects.create(code=4, cipher='Y')
         self.assertEqual(ma.get_building(e2), '—')
 
+    def test_admin_action_approval_sheet(self):
+        from django.contrib.auth.models import User
+        User.objects.create_superuser('boss', 'b@b.b', 'pw')
+        self.client.force_login(User.objects.get(username='boss'))
+        e1 = DocRegisterEntry.objects.create(
+            code=11, cipher='ВВ-17-1-АР1', building=self.b, section=self.s, developer=self.d)
+        e2 = DocRegisterEntry.objects.create(
+            code=12, cipher='ВВ-17-2-АР1', building=self.b, section=self.s, developer=self.d)
+        r = self.client.post('/admin/DocRegistry/docregisterentry/', {
+            'action': 'make_approval_sheet', '_selected_action': [e1.pk, e2.pk]})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'], 'application/pdf')
+        self.assertTrue(r.content.startswith(b'%PDF'))
+
+    def test_approval_multi_uses_own_signers(self):
+        from .models import DocSigner
+        from .pdf_forms import approval_sheet_multi
+        from .services import signers_for
+        DocSigner.objects.create(building=self.b, order=1, position='Прораб', person='Иванов И.')
+        e = DocRegisterEntry.objects.create(
+            code=13, cipher='ВВ-17-3-АР1', building=self.b, section=self.s)
+        pdf = approval_sheet_multi([e], signers_for(self.b))
+        self.assertTrue(pdf.startswith(b'%PDF'))
+        self.assertGreater(len(pdf), 3000)
+
 
 class DocDriftMappingTest(TestCase):
     def test_compare_ok(self):
