@@ -202,3 +202,42 @@ class DocUiTest(TestCase):
         r = self.client.get('/docs/queue/')
         self.assertEqual(r.status_code, 302)
 
+
+class DocDriftMappingTest(TestCase):
+    def test_compare_ok(self):
+        from .services import compare_registry
+        live = [{'code': 1, 'accdb_row_hash': 'a'}, {'code': 2, 'accdb_row_hash': 'b'}]
+        rep = compare_registry(live, {1: 'a', 2: 'b'})
+        self.assertTrue(rep['ok'])
+
+    def test_compare_new_changed_missing(self):
+        from .services import compare_registry
+        live = [{'code': 1, 'accdb_row_hash': 'a!'}, {'code': 3, 'accdb_row_hash': 'c'}]
+        rep = compare_registry(live, {1: 'a', 2: 'b'})
+        self.assertFalse(rep['ok'])
+        self.assertEqual(rep['changed'], [1])
+        self.assertEqual(rep['new'], [3])
+        self.assertEqual(rep['missing'], [2])
+
+    def test_match_score(self):
+        from DocRegistry.management.commands.suggest_task_mapping import match_score
+        self.assertEqual(match_score('', 'что угодно'), 0.0)
+        s = match_score('Коровник КЖ замена светильников чертеж',
+                        'Замена светильников в коровнике №1 и №2')
+        self.assertGreaterEqual(s, 0.5)
+        self.assertLess(match_score('Телятник ЭМ розетки', 'Коровник КЖ балки'), 0.5)
+
+    def test_drift_command_ok_and_fail(self):
+        from io import StringIO
+        from unittest.mock import patch
+        from django.core.management import call_command, CommandError
+        with patch('DocRegistry.accdb.read_registry_rows',
+                   return_value=[{'code': 7, 'accdb_row_hash': 'h7'}]):
+            DocRegisterEntry.objects.create(code=7, cipher='T', accdb_row_hash='h7')
+            out = StringIO()
+            call_command('check_accdb_drift', stdout=out)
+            self.assertIn('drift OK', out.getvalue())
+            DocRegisterEntry.objects.create(code=8, cipher='U', accdb_row_hash='h8')
+            with self.assertRaises(CommandError):
+                call_command('check_accdb_drift', stdout=StringIO())
+

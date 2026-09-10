@@ -23,3 +23,18 @@ def next_code() -> int:
     """Следующий код реестра (max+1); пустой реестр → 1."""
     last = DocRegisterEntry.objects.order_by('-code').values_list('code', flat=True).first()
     return (last or 0) + 1
+
+
+def compare_registry(live_rows: list[dict], stored: dict[int, str]) -> dict:
+    """Сверка живого accdb с SQL: новые/удалённые/изменённые коды (DOC-5 drift).
+
+    live_rows — [{'code': int, 'accdb_row_hash': str, ...}], stored — {code: hash из БД}.
+    Чистая функция — тестируется без accdb и БД.
+    """
+    live = {r['code']: r.get('accdb_row_hash', '') for r in live_rows}
+    live_codes, stored_codes = set(live), set(stored)
+    changed = sorted(c for c in live_codes & stored_codes if live[c] != stored.get(c))
+    new = sorted(live_codes - stored_codes)
+    missing = sorted(stored_codes - live_codes)
+    return {'new': new, 'missing': missing, 'changed': changed,
+            'ok': not (new or missing or changed)}
