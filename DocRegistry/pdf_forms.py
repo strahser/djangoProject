@@ -155,14 +155,15 @@ def approval_sheet_bytes(iss, signers, month_ru: str | None = None) -> bytes:
         rows.append((entry.cipher or '',
                      fname[:80] or (entry.building.name if entry.building else ''),
                      f'{when.year} г.'))
-    return _approval_sheet(designer, when, month_ru, signers, rows, entry.cipher or '')
+    header = _project_header([entry.project] if entry.project else [], designer)
+    return _approval_sheet(when, month_ru, signers, rows, entry.cipher or '', header)
 
 
 def approval_sheet_multi(entries, signers, when=None, month_ru: str | None = None) -> bytes:
     """Лист согласования сразу на несколько записей реестра (§2 — по строке на запись).
 
-    Для админ-экшена: выделил записи → бланк PDF. Подписанты резолвятся вызывающим
-    (одно здание со своими → свои, иначе общие).
+    Для админ-экшена: выделил записи → бланк PDF. Шапка — из проекта записей;
+    несколько проектов — таблицей. Подписанты — единый список.
     """
     from datetime import date as _date
 
@@ -177,15 +178,57 @@ def approval_sheet_multi(entries, signers, when=None, month_ru: str | None = Non
             name = f'{name} — {e.file_name[:60]}' if name else e.file_name[:80]
         ver = e.submit_date.strftime('%d.%m.%Y') if e.submit_date else f'{when.year} г.'
         rows.append((e.cipher or '', name, ver))
-    ciphers = sorted({e.cipher for e in entries if e.cipher})
-    note_tom = ciphers[0] if len(ciphers) == 1 else ', '.join(ciphers)
-    return _approval_sheet(designer, when, month_ru, signers, rows, note_tom)
+    ciphers = [e.cipher or '' for e in entries]
+    # «общий том» — только когда у ВСЕХ строк один непустой шифр; иначе примечание не нужно
+    note_tom = ciphers[0] if ciphers and all(c and c == ciphers[0] for c in ciphers) else ''
+    seen, projects = set(), []
+    for e in entries:
+        if e.project and e.project_id not in seen:
+            seen.add(e.project_id)
+            projects.append(e.project)
+    header = _project_header(projects, designer)
+    return _approval_sheet(when, month_ru, signers, rows, note_tom, header)
 
 
-def _approval_sheet(designer, when, month_ru, signers, rows, note_tom) -> bytes:
+def _project_header(projects, designer_fallback: str = '') -> list:
+    """Шапка листа: один проект — строки заказчик/объект/проектировщик,
+    несколько — таблица (Проект | Заказчик | Объект | Проектировщик), иначе константы."""
+    s = _styles()
+    if len(projects) == 1:
+        p = projects[0]
+        designer = p.designer or designer_fallback or DESIGNER_DEFAULT
+        return [
+            Paragraph(f'<b>Заказчик:</b> {p.customer or CUSTOMER}'
+                      f'<br/><b>Объект:</b> {p.object_full or OBJECT}', s['n']),
+            Paragraph(f'<b>Проектировщик:</b> {designer}', s['n']),
+        ]
+    if len(projects) > 1:
+        data = [[Paragraph('<b>Проект</b>', s['cellc']), Paragraph('<b>Заказчик</b>', s['cellc']),
+                 Paragraph('<b>Объект</b>', s['cellc']), Paragraph('<b>Проектировщик</b>', s['cellc'])]]
+        for p in projects:
+            data.append([Paragraph(f'{p.code} — {p.name}', s['cell']),
+                         Paragraph(p.customer or CUSTOMER, s['cell']),
+                         Paragraph(p.object_full or OBJECT, s['cell']),
+                         Paragraph(p.designer or designer_fallback or DESIGNER_DEFAULT, s['cell'])])
+        t = Table(data, colWidths=[28 * mm, 45 * mm, 65 * mm, 34 * mm])
+        t.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.5, (0, 0, 0)),
+                               ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                               ('TOPPADDING', (0, 0), (-1, -1), 6),
+                               ('BOTTOMPADDING', (0, 0), (-1, -1), 10)]))
+        return [t]
+    return [
+        Paragraph(f'<b>Заказчик:</b> {CUSTOMER}<br/><b>Объект:</b> {OBJECT}', s['n']),
+        Paragraph(f'<b>Проектировщик:</b> {designer_fallback or DESIGNER_DEFAULT}', s['n']),
+    ]
+
+
+def _approval_sheet(when, month_ru, signers, rows, note_tom, header) -> bytes:
     """Ядро листа: шапка + §1 подписанты + §2 перечень (rows: cipher, name, version) + примечание."""
+    from django.utils import timezone
+
     s = _styles()
     buf, doc = _doc()
+    stamped_at = timezone.localtime(timezone.now()).strftime('%d.%m.%Y %H:%M')
     months = {'01': 'января', '02': 'февраля', '03': 'марта', '04': 'апреля',
               '05': 'мая', '06': 'июня', '07': 'июля', '08': 'августа',
               '09': 'сентября', '10': 'октября', '11': 'ноября', '12': 'декабря'}
@@ -194,8 +237,8 @@ def _approval_sheet(designer, when, month_ru, signers, rows, note_tom) -> bytes:
         Paragraph('ЛИСТ СОГЛАСОВАНИЯ ПРОЕКТНОЙ/РАБОЧЕЙ ДОКУМЕНТАЦИИ', s['h']),
         Paragraph('В ПРОИЗВОДСТВО РАБОТ', s['h']),
         Spacer(1, 3 * mm),
-        Paragraph(f'<b>Заказчик:</b> {CUSTOMER}<br/><b>Объект:</b> {OBJECT}', s['n']),
-        Paragraph(f'<b>Проектировщик:</b> {designer}<br/><b>Дата:</b> {date_ru}', s['n']),
+        *header,
+        Paragraph(f'<b>Дата:</b> {date_ru}', s['n']),
         Spacer(1, 3 * mm),
         Paragraph('<b>1. Подписи согласующих лиц</b>', s['nb']),
         Spacer(1, 2 * mm),
@@ -207,7 +250,13 @@ def _approval_sheet(designer, when, month_ru, signers, rows, note_tom) -> bytes:
         pos = sg.position.strip()
         if sg.company:
             pos += f' ({sg.company})'
-        data.append([Paragraph(pos, s['cell']), Paragraph('', s['cell']),
+        if sg.stamp:
+            # штамп как э-подпись: СОГЛАСОВАНО + ФИО + дата/время генерации
+            sign_cell = (f'<b><font color="#1a56db">СОГЛАСОВАНО</font></b><br/>'
+                         f'{sg.person}<br/>{stamped_at}')
+        else:
+            sign_cell = ''
+        data.append([Paragraph(pos, s['cell']), Paragraph(sign_cell, s['cell']),
                      Paragraph(sg.person or '', s['cell']), Paragraph(sg.mark or '', s['cell'])])
     t = Table(data, colWidths=[70 * mm, 30 * mm, 40 * mm, 32 * mm])
     t.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.5, (0, 0, 0)),
@@ -229,9 +278,10 @@ def _approval_sheet(designer, when, month_ru, signers, rows, note_tom) -> bytes:
                             ('TOPPADDING', (0, 0), (-1, -1), 6),
                             ('BOTTOMPADDING', (0, 0), (-1, -1), 12)]))
     story += [t2, Spacer(1, 4 * mm),
-              Paragraph('<b>Примечание:</b>', s['nb']),
-              Paragraph(f'Все перечисленные разделы входят в общий том {note_tom}.', s['n']),
-              Paragraph('Подписи проставляются после фактического согласования документации.', s['n']),
+              Paragraph('<b>Примечание:</b>', s['nb'])]
+    if note_tom:
+        story.append(Paragraph(f'Все перечисленные разделы входят в общий том {note_tom}.', s['n']))
+    story += [Paragraph('Подписи проставляются после фактического согласования документации.', s['n']),
               Paragraph('Лист согласования является неотъемлемой частью комплекта рабочей документации.', s['n'])]
     doc.build(story)
     return buf.getvalue()

@@ -18,6 +18,7 @@ from DocRegistry.models import (
     DocBuilding,
     DocChangeLog,
     DocDeveloper,
+    DocProject,
     DocRegisterEntry,
     DocRemark,
     DocSection,
@@ -85,10 +86,31 @@ class Command(BaseCommand):
             return
 
         # 1. Справочники (id = коды accdb)
+        m1, _ = DocProject.objects.update_or_create(
+            code='M1', defaults={
+                'name': 'Волоколамск',
+                'customer': 'ООО «ТиЭйч-РУС Милк Фуд»',
+                'object_name': '«Комплекс молочного животноводства на 6000 фуражных коров»',
+                'object_address': 'Московская область, Волоколамский район, территория ФГОУ СПО '
+                                  'Волоколамский аграрный техникум “Холмогорка”',
+                'designer': 'ИП РОДИН'})
+        DocProject.objects.update_or_create(
+            code='K1', defaults={'name': 'Калуга'})
         for r in ref['Здания']:
-            DocBuilding.objects.update_or_create(
-                code=_to_int(r.get('Код здания')), defaults={
-                    'number': r.get('№ Здания', ''), 'name': r.get('Наименование здания', '')})
+            # здания — в скоупе проекта (номера у М1/К1 разные); legacy-строки без
+            # проекта подтягиваем в М1 in place (id стабильны → FK записей целы)
+            code = _to_int(r.get('Код здания'))
+            vals = {'number': r.get('№ Здания', ''), 'name': r.get('Наименование здания', '')}
+            b = DocBuilding.objects.filter(code=code, project=m1).first()
+            if b is None:
+                b = DocBuilding.objects.filter(code=code, project__isnull=True).first()
+                if b is None:
+                    DocBuilding.objects.create(code=code, project=m1, **vals)
+                    continue
+                b.project = m1
+            for k, v in vals.items():
+                setattr(b, k, v)
+            b.save()
         for r in ref['Разделы']:
             DocSection.objects.update_or_create(
                 code=_to_int(r.get('код раздела')), defaults={
@@ -98,14 +120,17 @@ class Command(BaseCommand):
                 code=_to_int(r.get('Код')), defaults={'name': r.get('Разработчик', '')})
         if DocSigner.objects.count() == 0:
             for r in ref['Согласование']:
+                person = r.get('ФИО', '')
                 DocSigner.objects.create(
                     building=None, order=_to_int(r.get('код согласования')) or 0,
                     position=(r.get('Должность', '') or '').strip(),
-                    company=r.get('Компания', ''), person=r.get('ФИО', ''),
-                    mark=r.get('Отметка о согласовании', ''))
+                    company=r.get('Компания', ''), person=person,
+                    mark=r.get('Отметка о согласовании', ''),
+                    # штамп «Согласовано» — менеджер по проектированию (э-подпись с датой)
+                    stamp='Страхов' in person)
             self.stdout.write('Подписанты: сид из [Согласование] ({})'.format(len(ref['Согласование'])))
 
-        buildings = {b.code: b for b in DocBuilding.objects.all()}
+        buildings = {b.code: b for b in DocBuilding.objects.filter(project=m1)}
         sections = {s.code: s for s in DocSection.objects.all()}
         developers = {d.code: d for d in DocDeveloper.objects.all()}
 
@@ -127,9 +152,16 @@ class Command(BaseCommand):
             values.update(section=sec, building_no=bno, building=bld, developer=dev)
             _obj, is_new = DocRegisterEntry.objects.update_or_create(
                 code=values['code'], defaults=values)
+            if is_new and _obj.project_id is None:
+                # весь текущий accdb — М1; ручное назначение (напр. К1) реимпорт не трогает
+                _obj.project = m1
+                _obj.save(update_fields=['project'])
             created, updated = created + (1 if is_new else 0), updated + (0 if is_new else 1)
         if warns:
             self.stdout.write(self.style.WARNING(f'Неизвестные коды справочников → None: {sorted(warns)}'))
+        backfill = DocRegisterEntry.objects.filter(project__isnull=True).update(project=m1)
+        if backfill:
+            self.stdout.write(f'Проект М1 проставлен: {backfill}')
 
         # 3. История замечаний (по Код реестра)
         hist = 0

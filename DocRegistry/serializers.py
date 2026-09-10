@@ -12,7 +12,7 @@ class DocRegisterEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = DocRegisterEntry
         fields = (
-            'id', 'code', 'section', 'section_name', 'building_no', 'building_number',
+            'id', 'code', 'project', 'section', 'section_name', 'building_no', 'building_number',
             'building', 'building_name', 'cipher', 'file_name',
             'approval_status', 'approval_date', 'submitted_flag', 'change_descr',
             'submit_date', 'acts', 'developer', 'developer_name', 'contract',

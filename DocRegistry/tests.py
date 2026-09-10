@@ -251,6 +251,31 @@ class DocReferenceTest(TestCase):
         iss.refresh_from_db()
         self.assertTrue(iss.approval_pdf.name.endswith('.pdf'))
 
+    def test_stamp_in_signature_cell(self):
+        from .models import DocProject, DocSigner
+        from .pdf_forms import approval_sheet_multi
+        from .services import signers_for
+        DocSigner.objects.create(order=1, position='Менеджер по проектированию',
+                                 company='ООО «СИМРУС»', person='Страхов С.', stamp=True)
+        m1, _ = DocProject.objects.get_or_create(code='M1', defaults={'name': 'Волоколамск'})
+        e = DocRegisterEntry.objects.create(code=41, cipher='S', project=m1)
+        text = self._pdf_text(approval_sheet_multi([e], signers_for()))
+        self.assertIn('СОГЛАСОВАНО', text)
+        self.assertIn('Страхов С.', text)
+
+    def test_buildings_scoped_per_project(self):
+        from django.db import IntegrityError
+        from .models import DocBuilding, DocProject
+        m1, _ = DocProject.objects.get_or_create(code='M1', defaults={'name': 'Волоколамск'})
+        k1 = DocProject.objects.create(code='K1', name='Калуга')
+        DocBuilding.objects.create(code=4, number='1.4', name='Коровник № 4', project=m1)
+        # тот же номер у К1 — другое здание, ок (self.b из setUp без проекта не в счёт)
+        DocBuilding.objects.create(code=4, number='1.4', name='Коровник № 4', project=k1)
+        self.assertEqual(DocBuilding.objects.filter(code=4).exclude(project__isnull=True).count(), 2)
+        # дубль внутри проекта запрещён
+        with self.assertRaises(IntegrityError):
+            DocBuilding.objects.create(code=4, number='1.4-дубль', project=m1)
+
     def test_admin_display_methods(self):
         from .admin import DocRegisterEntryAdmin
         from django.contrib import admin as dj_admin
@@ -287,6 +312,72 @@ class DocReferenceTest(TestCase):
         pdf = approval_sheet_multi([e], signers_for())
         self.assertTrue(pdf.startswith(b'%PDF'))
         self.assertGreater(len(pdf), 3000)
+
+    def _pdf_text(self, pdf: bytes) -> str:
+        import pymupdf
+        doc = pymupdf.open(stream=pdf, filetype='pdf')
+        try:
+            return '\n'.join(p.get_text() for p in doc)
+        finally:
+            doc.close()
+
+    def test_approval_header_single_project(self):
+        from .models import DocProject
+        from .pdf_forms import approval_sheet_multi
+        from .services import signers_for
+        m1, _ = DocProject.objects.update_or_create(
+            code='M1', defaults={'name': 'Волоколамск',
+                                 'customer': 'ООО «ТиЭйч-РУС Милк Фуд»',
+                                 'object_name': 'Комплекс МЖК',
+                                 'object_address': 'Волоколамский район',
+                                 'designer': 'ИП РОДИН'})
+        e = DocRegisterEntry.objects.create(
+            code=21, cipher='ВВ-17-9-АР1', building=self.b, project=m1)
+        text = self._pdf_text(approval_sheet_multi([e], signers_for()))
+        self.assertIn('Волоколамский район', text)
+        self.assertIn('ИП РОДИН', text)
+
+    def test_approval_note_tom_only_single_cipher(self):
+        from .models import DocProject
+        from .pdf_forms import approval_sheet_multi
+        from .services import signers_for
+        m1, _ = DocProject.objects.get_or_create(code='M1', defaults={'name': 'Волоколамск'})
+        a = DocRegisterEntry.objects.create(code=51, cipher='ТОМ-1', project=m1)
+        b = DocRegisterEntry.objects.create(code=52, cipher='ТОМ-1', project=m1)
+        c = DocRegisterEntry.objects.create(code=53, cipher='', project=m1)
+        self.assertIn('общий том', self._pdf_text(approval_sheet_multi([a, b], signers_for())))
+        self.assertNotIn('общий том', self._pdf_text(approval_sheet_multi([a, c], signers_for())))
+
+    def test_approval_header_multi_projects_table(self):
+        from .models import DocProject
+        from .pdf_forms import approval_sheet_multi
+        from .services import signers_for
+        m1, _ = DocProject.objects.update_or_create(
+            code='M1', defaults={'name': 'Волоколамск', 'customer': 'Заказчик-М1'})
+        k1 = DocProject.objects.create(code='K1', name='Калуга', customer='Заказчик-К1')
+        e1 = DocRegisterEntry.objects.create(code=22, cipher='A', project=m1)
+        e2 = DocRegisterEntry.objects.create(code=23, cipher='B', project=k1)
+        text = self._pdf_text(approval_sheet_multi([e1, e2], signers_for()))
+        self.assertIn('Волоколамск', text)
+        self.assertIn('Калуга', text)
+        self.assertIn('Заказчик-К1', text)
+
+    def test_reimport_keeps_manual_k1(self):
+        from .models import DocProject, DocRegisterEntry
+        m1, _ = DocProject.objects.get_or_create(code='M1', defaults={'name': 'Волоколамск'})
+        k1 = DocProject.objects.create(code='K1', name='Калуга')
+        manual = DocRegisterEntry.objects.create(code=31, cipher='K', project=k1)
+        # имитация update_or_create импорта (defaults без project) + backfill
+        DocRegisterEntry.objects.update_or_create(
+            code=31, defaults={'cipher': 'K-upd'})
+        DocRegisterEntry.objects.filter(project__isnull=True).update(project=m1)
+        manual.refresh_from_db()
+        self.assertEqual(manual.project_id, 'K1')
+        self.assertEqual(manual.cipher, 'K-upd')
+        fresh = DocRegisterEntry.objects.create(code=32, cipher='N')
+        DocRegisterEntry.objects.filter(project__isnull=True).update(project=m1)
+        fresh.refresh_from_db()
+        self.assertEqual(fresh.project_id, 'M1')
 
 
 class DocDriftMappingTest(TestCase):

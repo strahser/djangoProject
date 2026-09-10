@@ -7,6 +7,7 @@ from .models import (
     DocCheck,
     DocDeveloper,
     DocIssue,
+    DocProject,
     DocRegisterEntry,
     DocRemark,
     DocRevision,
@@ -48,7 +49,7 @@ class DocRegisterEntryAdmin(admin.ModelAdmin):
 
     list_display = ('code', 'get_building', 'get_section', 'get_building_no',
                     'file_name', 'get_developer', 'approval_status', 'submit_date', 'contract')
-    list_filter = ('approval_status', 'section', 'developer')
+    list_filter = ('approval_status', 'section', 'developer', 'project')
     search_fields = ('cipher', 'file_name', 'change_descr',
                      'building__name', 'section__short', 'developer__name')
     list_select_related = ('contract', 'section', 'building', 'building_no', 'developer')
@@ -61,7 +62,7 @@ class DocRegisterEntryAdmin(admin.ModelAdmin):
         from .services import signers_for
 
         entries = list(queryset.select_related(
-            'building', 'building_no', 'section', 'developer').order_by('code')[:100])
+            'building', 'building_no', 'section', 'developer', 'project').order_by('code')[:100])
         if not entries:
             self.message_user(request, 'Ничего не выбрано', level='error')
             return None
@@ -89,9 +90,16 @@ class DocRegisterEntryAdmin(admin.ModelAdmin):
         return obj.developer.name if obj.developer else '—'
 
 
+@admin.register(DocProject)
+class DocProjectAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name', 'customer', 'designer')
+    fields = ('code', 'name', 'customer', 'object_name', 'object_address', 'designer')
+
+
 @admin.register(DocBuilding)
 class DocBuildingAdmin(admin.ModelAdmin):
-    list_display = ('code', 'number', 'name')
+    list_display = ('code', 'project', 'number', 'name')
+    list_filter = ('project',)
     search_fields = ('number', 'name')
     inlines = (DocSignerInline,)
 
@@ -110,8 +118,9 @@ class DocDeveloperAdmin(admin.ModelAdmin):
 
 @admin.register(DocSigner)
 class DocSignerAdmin(admin.ModelAdmin):
-    list_display = ('building', 'order', 'position', 'company', 'person', 'mark')
+    list_display = ('building', 'order', 'position', 'company', 'person', 'mark', 'stamp')
     list_filter = ('building',)
+    list_editable = ('stamp',)
 
 
 @admin.register(DocRevision)

@@ -1,10 +1,46 @@
 from django.db import models
 
 
-class DocBuilding(models.Model):
-    """Здание — зеркало [Здания] accdb. Код = первичный ключ (совпадает с accdb)."""
+class DocProject(models.Model):
+    """Проект: шапка листа согласования (заказчик/объект/проектировщик).
 
-    code = models.IntegerField(primary_key=True, verbose_name='Код здания')
+    М1 — Волоколамск (детальные данные), К1 — Калуга. Несколько проектов
+    в одном листе — таблицей (см. approval_sheet_multi)."""
+
+    code = models.CharField(max_length=10, primary_key=True, verbose_name='Код проекта')
+    name = models.CharField(max_length=200, blank=True, default='', verbose_name='Название')
+    customer = models.CharField(max_length=300, blank=True, default='', verbose_name='Заказчик')
+    object_name = models.CharField(max_length=500, blank=True, default='', verbose_name='Объект')
+    object_address = models.CharField(max_length=500, blank=True, default='', verbose_name='Адрес объекта')
+    designer = models.CharField(max_length=200, blank=True, default='', verbose_name='Проектировщик')
+
+    def __str__(self):
+        return f'{self.code} — {self.name}' if self.name else self.code
+
+    @property
+    def object_full(self):
+        addr = f', {self.object_address}' if self.object_address else ''
+        return f'{self.object_name}{addr}'
+
+    class Meta:
+        verbose_name = 'Проект (шапка согласования)'
+        verbose_name_plural = 'Проекты (шапка согласования)'
+        ordering = ['code']
+
+
+class DocBuilding(models.Model):
+    """Здание — зеркало [Здания] accdb.
+
+    Номера зданий разные для каждого проекта (наименования могут повторяться),
+    поэтому ключ — (project, code). id — суррогатный, код accdb — в поле code.
+    """
+
+    project = models.ForeignKey(
+        DocProject, on_delete=models.CASCADE,
+        null=True, blank=True, related_name='buildings',
+        verbose_name='Проект',
+    )
+    code = models.IntegerField(db_index=True, verbose_name='Код здания')
     number = models.CharField(max_length=20, blank=True, default='', verbose_name='№ здания')
     name = models.CharField(max_length=200, blank=True, default='', verbose_name='Наименование здания')
 
@@ -14,7 +50,10 @@ class DocBuilding(models.Model):
     class Meta:
         verbose_name = 'Здание (справочник РД)'
         verbose_name_plural = 'Здания (справочник РД)'
-        ordering = ['code']
+        ordering = ['project__code', 'code']
+        constraints = [
+            models.UniqueConstraint(fields=['project', 'code'], name='docbuilding_project_code_unique'),
+        ]
 
 
 class DocSection(models.Model):
@@ -63,6 +102,10 @@ class DocSigner(models.Model):
     company = models.CharField(max_length=200, blank=True, default='', verbose_name='Компания')
     person = models.CharField(max_length=200, blank=True, default='', verbose_name='ФИО')
     mark = models.CharField(max_length=100, blank=True, default='', verbose_name='Отметка')
+    stamp = models.BooleanField(
+        default=False, verbose_name='Штамп «Согласовано»',
+        help_text='В ячейке подписи — штамп СОГЛАСОВАНО + ФИО + дата/время (как э-подпись)',
+    )
     order = models.PositiveIntegerField(default=0, verbose_name='Порядок')
 
     def __str__(self):
@@ -83,6 +126,11 @@ class DocRegisterEntry(models.Model):
     """
 
     code = models.PositiveIntegerField(unique=True, verbose_name='Код', help_text='accdb: код')
+    project = models.ForeignKey(
+        DocProject, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='entries',
+        verbose_name='Проект', help_text='М1/К1 — шапка листа (заказчик/объект)',
+    )
     # В accdb раздел/здания/разработчик — КОДЫ справочников, не текст:
     # раздел → [Разделы].код раздела, Номер здания/Наименование здания → [Здания].Код здания,
     # разраб_нов → [Разработчик].Код. Показываем значения (admin), не коды.
