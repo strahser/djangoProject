@@ -225,19 +225,14 @@ class DocReferenceTest(TestCase):
         self.assertEqual(e.building.name, 'Коровник  № 4')
         self.assertEqual(e.developer.name, 'ДеЛаваль')
 
-    def test_signers_global_fallback(self):
-        from .services import signers_for
-        signers = signers_for(self.b)
-        self.assertEqual(len(signers), 1)
-        self.assertEqual(signers[0].person, 'Страхов С.')
-
-    def test_signers_per_building_override(self):
+    def test_signers_global_list(self):
         from .models import DocSigner
         from .services import signers_for
-        DocSigner.objects.create(building=self.b, order=1, position='Прораб', person='Иванов И.')
-        signers = signers_for(self.b)
-        self.assertEqual(len(signers), 1)
-        self.assertEqual(signers[0].person, 'Иванов И.')
+        DocSigner.objects.create(order=2, position='Прораб', person='Иванов И.')
+        signers = signers_for()
+        self.assertEqual(len(signers), 2)
+        self.assertEqual(signers[0].person, 'Страхов С.')  # order=1 первый
+        self.assertEqual(signers[1].person, 'Иванов И.')
 
     def test_approval_sheet_pdf(self):
         from django.contrib.auth.models import User
@@ -284,14 +279,12 @@ class DocReferenceTest(TestCase):
         self.assertEqual(r['Content-Type'], 'application/pdf')
         self.assertTrue(r.content.startswith(b'%PDF'))
 
-    def test_approval_multi_uses_own_signers(self):
-        from .models import DocSigner
+    def test_approval_multi_global_signers(self):
         from .pdf_forms import approval_sheet_multi
         from .services import signers_for
-        DocSigner.objects.create(building=self.b, order=1, position='Прораб', person='Иванов И.')
         e = DocRegisterEntry.objects.create(
             code=13, cipher='ВВ-17-3-АР1', building=self.b, section=self.s)
-        pdf = approval_sheet_multi([e], signers_for(self.b))
+        pdf = approval_sheet_multi([e], signers_for())
         self.assertTrue(pdf.startswith(b'%PDF'))
         self.assertGreater(len(pdf), 3000)
 

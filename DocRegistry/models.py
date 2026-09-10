@@ -49,8 +49,10 @@ class DocDeveloper(models.Model):
 
 
 class DocSigner(models.Model):
-    """Подписант листа согласования. building=null — общий (сид из [Согласование]),
-    с building — особые подписанты объекта (для каждого объекта свои)."""
+    """Подписант листа согласования — единый общий список (к зданию не привязаны).
+
+    Поле building оставлено для совместимости, в резолве не участвует:
+    signers_for() всегда отдаёт общие (building null) по order."""
 
     building = models.ForeignKey(
         DocBuilding, on_delete=models.CASCADE,

@@ -40,15 +40,12 @@ def compare_registry(live_rows: list[dict], stored: dict[int, str]) -> dict:
             'ok': not (new or missing or changed)}
 
 
-def signers_for(building=None):
-    """Подписанты листа согласования: особые здания — свои, иначе общие.
+def signers_for():
+    """Подписанты листа согласования — единый общий список (к зданию не привязаны).
 
-    building — DocBuilding или None. Возврат: list[DocSigner] по order.
+    Фамилии со временем меняются — в PDF фиксируется снимок текущего списка.
+    Возврат: list[DocSigner] по order.
     """
     from .models import DocSigner
 
-    if building is not None:
-        own = list(building.signers.all().order_by('order'))
-        if own:
-            return own
     return list(DocSigner.objects.filter(building__isnull=True).order_by('order'))

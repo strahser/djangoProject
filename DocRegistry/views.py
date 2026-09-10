@@ -80,7 +80,7 @@ def approval_pdf(request, pk):
     """Лист согласования в ПР по образцу (подписанты объекта или общие) → PDF."""
     iss = get_object_or_404(
         DocIssue.objects.select_related('entry__building', 'entry__developer'), pk=pk)
-    pdf = approval_sheet_bytes(iss, signers_for(iss.entry.building))
+    pdf = approval_sheet_bytes(iss, signers_for())
     iss.approval_pdf.save(f'list-soglasovaniya-{iss.entry.code}.pdf', io.BytesIO(pdf), save=True)
     return FileResponse(io.BytesIO(pdf), content_type='application/pdf',
                         filename=f'list-soglasovaniya-{iss.entry.code}.pdf')

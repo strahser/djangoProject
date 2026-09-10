@@ -65,11 +65,7 @@ class DocRegisterEntryAdmin(admin.ModelAdmin):
         if not entries:
             self.message_user(request, 'Ничего не выбрано', level='error')
             return None
-        buildings = {e.building_id for e in entries if e.building_id}
-        building = None
-        if len(buildings) == 1:
-            building = entries[0].building
-        pdf = approval_sheet_multi(entries, signers_for(building))
+        pdf = approval_sheet_multi(entries, signers_for())
         codes = '_'.join(str(e.code) for e in entries[:8])
         resp = HttpResponse(pdf, content_type='application/pdf')
         resp['Content-Disposition'] = (
