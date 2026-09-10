@@ -337,6 +337,19 @@ class DocReferenceTest(TestCase):
         self.assertIn('Волоколамский район', text)
         self.assertIn('ИП РОДИН', text)
 
+    def test_approval_section2_from_registry(self):
+        from .pdf_forms import approval_sheet_multi
+        from .services import signers_for
+        e = DocRegisterEntry.objects.create(
+            code=61, cipher='ВВ-17-9-ВК1', building=self.b, section=self.s,
+            file_name='ВВ-17-1.9-ВК Изм4.pdf', change_descr='Добавлена канализация')
+        text = self._pdf_text(approval_sheet_multi([e], signers_for()))
+        self.assertIn('Коровник', text)
+        self.assertIn('1.4', text)
+        self.assertIn('ВК', text)
+        self.assertIn('ВВ-17-1.9-ВК Изм4.pdf', text)
+        self.assertIn('Добавлена канализация', text)
+
     def test_approval_note_tom_only_single_cipher(self):
         from .models import DocProject
         from .pdf_forms import approval_sheet_multi

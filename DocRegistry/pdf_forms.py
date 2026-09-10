@@ -158,8 +158,26 @@ def waybill_bytes(iss) -> bytes:
 
 CUSTOMER = 'ООО «ТиЭйч-РУС Милк Фуд»'
 OBJECT = ('«Комплекс молочного животноводства на 6000 фуражных коров», расположенный по адресу: '
-          'Московская область, Волоколамский район, территория ФГОУ СПО Волоколамский аграрный техникум “Холмогорка”')
+          'Московская область, Волоколамский район, территория ФГОУ СПО '
+          'Волоколамский аграрный техникум “Холмогорка”')
 DESIGNER_DEFAULT = 'ИП РОДИН'
+
+
+def _entry_row(e) -> tuple:
+    """Строка §2 из записи реестра: здание / раздел / файл / описание изменения."""
+    if e.building and e.building.number:
+        building = f'{e.building.name} ({e.building.number})'
+    elif e.building:
+        building = e.building.name
+    else:
+        building = ''
+    if e.section and e.section.name:
+        section = f'{e.section.short} — {e.section.name}'
+    elif e.section:
+        section = e.section.short
+    else:
+        section = ''
+    return (building, section, e.file_name or '', e.change_descr or '')
 
 
 def approval_sheet_bytes(iss, signers, month_ru: str | None = None) -> bytes:
@@ -170,17 +188,7 @@ def approval_sheet_bytes(iss, signers, month_ru: str | None = None) -> bytes:
     entry = iss.entry
     when = iss.waybill_date or _date.today()
     designer = entry.developer.name if entry.developer else DESIGNER_DEFAULT
-    revs = list(entry.revisions.order_by('rev_no')) if entry else []
-    rows = []
-    if not revs:
-        rows.append((entry.cipher or '',
-                     entry.building.name if entry.building else '',
-                     f'{when.year} г.'))
-    for r in revs:
-        fname = r.attachment.filename if r.attachment else (r.file.name.split('/')[-1] if r.file else '')
-        rows.append((entry.cipher or '',
-                     fname[:80] or (entry.building.name if entry.building else ''),
-                     f'{when.year} г.'))
+    rows = [_entry_row(entry)]
     header = _project_header([entry.project] if entry.project else [], designer)
     return _approval_sheet(when, month_ru, signers, rows, entry.cipher or '', header)
 
@@ -197,13 +205,7 @@ def approval_sheet_multi(entries, signers, when=None, month_ru: str | None = Non
     designers = {(e.developer.name if e.developer else '') for e in entries}
     designers.discard('')
     designer = next(iter(designers)) if len(designers) == 1 else DESIGNER_DEFAULT
-    rows = []
-    for e in entries:
-        name = e.building.name if e.building else ''
-        if e.file_name and e.file_name != e.cipher:
-            name = f'{name} — {e.file_name[:60]}' if name else e.file_name[:80]
-        ver = e.submit_date.strftime('%d.%m.%Y') if e.submit_date else f'{when.year} г.'
-        rows.append((e.cipher or '', name, ver))
+    rows = [_entry_row(e) for e in entries]
     ciphers = [e.cipher or '' for e in entries]
     # «общий том» — только когда у ВСЕХ строк один непустой шифр; иначе примечание не нужно
     note_tom = ciphers[0] if ciphers and all(c and c == ciphers[0] for c in ciphers) else ''
@@ -291,13 +293,14 @@ def _approval_sheet(when, month_ru, signers, rows, note_tom, header) -> bytes:
     story += [t, Spacer(1, 4 * mm),
               Paragraph('<b>2. Перечень разделов, представленных на согласование</b>', s['nb']),
               Spacer(1, 2 * mm)]
-    docs = [[Paragraph('<b>№ п/п</b>', s['cellc']), Paragraph('<b>Обозначение документа</b>', s['cellc']),
-             Paragraph('<b>Наименование (кратко)</b>', s['cellc']),
-             Paragraph('<b>Версия / дата изменения</b>', s['cellc'])]]
-    for i, (cipher, name, ver) in enumerate(rows, start=1):
-        docs.append([Paragraph(str(i), s['cellc']), Paragraph(cipher, s['cell']),
-                     Paragraph(name, s['cell']), Paragraph(ver, s['cellc'])])
-    t2 = Table(docs, colWidths=[14 * mm, 58 * mm, 66 * mm, 34 * mm])
+    docs = [[Paragraph('<b>№ п/п</b>', s['cellc']), Paragraph('<b>Здание</b>', s['cellc']),
+             Paragraph('<b>Раздел</b>', s['cellc']), Paragraph('<b>Название файла</b>', s['cellc']),
+             Paragraph('<b>Описание изменения</b>', s['cellc'])]]
+    for i, (building, section, fname, descr) in enumerate(rows, start=1):
+        docs.append([Paragraph(str(i), s['cellc']), Paragraph(building, s['cell']),
+                     Paragraph(section, s['cell']), Paragraph(fname, s['cell']),
+                     Paragraph(descr, s['cell'])])
+    t2 = Table(docs, colWidths=[11 * mm, 38 * mm, 36 * mm, 44 * mm, 43 * mm])
     t2.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.5, (0, 0, 0)),
                             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                             ('TOPPADDING', (0, 0), (-1, -1), 6),
