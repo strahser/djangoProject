@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     'Emails',
     'email_ui',
     'TelegramParser',
+    'DocRegistry',
 ]
 LOGIN_URL = '/login'
 LOGIN_REDIRECT_URL = '/'

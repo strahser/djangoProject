@@ -2,7 +2,7 @@ from .thread_local import get_current_db
 
 SWITCHABLE_APPS = {
     'ProjectTDL', 'StaticData', 'ProjectContract',
-    'Emails', 'email_ui', 'TelegramParser',
+    'Emails', 'email_ui', 'TelegramParser', 'DocRegistry',
 }
 
 PERSONAL_APPS = {'PersonalData'}
