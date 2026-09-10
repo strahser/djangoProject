@@ -4,18 +4,36 @@ from .models import DocRegisterEntry, DocRevision
 
 
 class DocRegisterEntrySerializer(serializers.ModelSerializer):
+    section_name = serializers.SerializerMethodField()
+    building_name = serializers.SerializerMethodField()
+    building_number = serializers.SerializerMethodField()
+    developer_name = serializers.SerializerMethodField()
+
     class Meta:
         model = DocRegisterEntry
         fields = (
-            'id', 'code', 'section', 'building_no', 'cipher', 'file_name',
+            'id', 'code', 'section', 'section_name', 'building_no', 'building_number',
+            'building', 'building_name', 'cipher', 'file_name',
             'approval_status', 'approval_date', 'submitted_flag', 'change_descr',
-            'building_name', 'submit_date', 'acts', 'contractor_new', 'contract',
+            'submit_date', 'acts', 'developer', 'developer_name', 'contract',
         )
+
+    def get_section_name(self, obj):
+        return obj.section.short if obj.section else ''
+
+    def get_building_name(self, obj):
+        return obj.building.name if obj.building else ''
+
+    def get_building_number(self, obj):
+        return obj.building_no.number if obj.building_no else ''
+
+    def get_developer_name(self, obj):
+        return obj.developer.name if obj.developer else ''
 
 
 class DocRevisionSerializer(serializers.ModelSerializer):
-    entry_code = serializers.IntegerField(source='entry.code', read_only=True)
-    entry_cipher = serializers.CharField(source='entry.cipher', read_only=True)
+    entry_code = serializers.SerializerMethodField()
+    entry_cipher = serializers.SerializerMethodField()
 
     class Meta:
         model = DocRevision
@@ -25,3 +43,9 @@ class DocRevisionSerializer(serializers.ModelSerializer):
             'source', 'status', 'storage_path', 'archive_path',
             'submitted_folder', 'task', 'accdb_task_code',
         )
+
+    def get_entry_code(self, obj):
+        return obj.entry.code if obj.entry else None
+
+    def get_entry_cipher(self, obj):
+        return obj.entry.cipher if obj.entry else ''

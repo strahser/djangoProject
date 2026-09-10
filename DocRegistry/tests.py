@@ -14,8 +14,11 @@ from .services import accdb_row_hash, next_code
 
 class DocRegistryModelTest(TestCase):
     def test_entry_create_and_str(self):
-        e = DocRegisterEntry.objects.create(code=379, cipher='ВВ-17-5.24-КЖ1', building_name='Площадка буртования')
+        from .models import DocBuilding
+        b = DocBuilding.objects.create(code=49, number='5.24', name='Площадка буртования')
+        e = DocRegisterEntry.objects.create(code=379, cipher='ВВ-17-5.24-КЖ1', building=b)
         self.assertEqual(str(e), '379: ВВ-17-5.24-КЖ1')
+        self.assertEqual(e.building.name, 'Площадка буртования')
         self.assertEqual(DocRegisterEntry.objects.count(), 1)
 
     def test_revision_chain_ordering(self):
@@ -201,6 +204,71 @@ class DocUiTest(TestCase):
         self.client.logout()
         r = self.client.get('/docs/queue/')
         self.assertEqual(r.status_code, 302)
+
+
+class DocReferenceTest(TestCase):
+    def setUp(self):
+        from .models import DocBuilding, DocDeveloper, DocSection, DocSigner
+        self.b = DocBuilding.objects.create(code=4, number='1.4', name='Коровник  № 4')
+        self.s = DocSection.objects.create(code=21, short='ВК', name='Внутренние системы ВиК')
+        self.d = DocDeveloper.objects.create(code=1, name='ДеЛаваль')
+        DocSigner.objects.create(order=1, position='Менеджер по проектированию',
+                                 company='ООО «СИМРУС»', person='Страхов С.')
+
+    def test_entry_fk_resolution_like_accdb_row_1(self):
+        e = DocRegisterEntry.objects.create(
+            code=1, cipher='ВВ-17.К-1.1-ВК', section=self.s,
+            building_no=self.b, building=self.b, developer=self.d,
+            approval_status='согласовано')
+        self.assertEqual(e.section.short, 'ВК')
+        self.assertEqual(e.building_no.number, '1.4')
+        self.assertEqual(e.building.name, 'Коровник  № 4')
+        self.assertEqual(e.developer.name, 'ДеЛаваль')
+
+    def test_signers_global_fallback(self):
+        from .services import signers_for
+        signers = signers_for(self.b)
+        self.assertEqual(len(signers), 1)
+        self.assertEqual(signers[0].person, 'Страхов С.')
+
+    def test_signers_per_building_override(self):
+        from .models import DocSigner
+        from .services import signers_for
+        DocSigner.objects.create(building=self.b, order=1, position='Прораб', person='Иванов И.')
+        signers = signers_for(self.b)
+        self.assertEqual(len(signers), 1)
+        self.assertEqual(signers[0].person, 'Иванов И.')
+
+    def test_approval_sheet_pdf(self):
+        from django.contrib.auth.models import User
+        from .services import signers_for
+        user = User.objects.create_user('appr', 'p@p.p', 'pw')
+        self.client.force_login(user)
+        e = DocRegisterEntry.objects.create(
+            code=2, cipher='ВВ-17-1.3-АПС1', section=self.s,
+            building=self.b, building_no=self.b, developer=self.d)
+        iss = DocIssue.objects.create(entry=e, waybill_no='305')
+        r = self.client.get(f'/docs/issue/{iss.pk}/approval.pdf')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'], 'application/pdf')
+        content = b''.join(r.streaming_content)
+        self.assertTrue(content.startswith(b'%PDF'))
+        iss.refresh_from_db()
+        self.assertTrue(iss.approval_pdf.name.endswith('.pdf'))
+
+    def test_admin_display_methods(self):
+        from .admin import DocRegisterEntryAdmin
+        from django.contrib import admin as dj_admin
+        e = DocRegisterEntry.objects.create(
+            code=3, cipher='X', section=self.s,
+            building_no=self.b, building=self.b, developer=self.d)
+        ma = DocRegisterEntryAdmin(DocRegisterEntry, dj_admin.site)
+        self.assertEqual(ma.get_building(e), 'Коровник  № 4')
+        self.assertEqual(ma.get_section(e), 'ВК')
+        self.assertEqual(ma.get_building_no(e), '1.4')
+        self.assertEqual(ma.get_developer(e), 'ДеЛаваль')
+        e2 = DocRegisterEntry.objects.create(code=4, cipher='Y')
+        self.assertEqual(ma.get_building(e2), '—')
 
 
 class DocDriftMappingTest(TestCase):

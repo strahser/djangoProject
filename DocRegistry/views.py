@@ -14,7 +14,8 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, render
 
 from .models import DocIssue, DocRegisterEntry, DocRemark, DocRevision
-from .pdf_forms import remark_sheet_bytes, waybill_bytes
+from .pdf_forms import approval_sheet_bytes, remark_sheet_bytes, waybill_bytes
+from .services import signers_for
 
 QUEUE_STATUSES = (
     ('received', 'Входящие'),
@@ -72,6 +73,17 @@ def waybill_pdf(request, pk):
     iss.waybill_pdf.save(f'nakladnaya-{iss.waybill_no}.pdf', io.BytesIO(pdf), save=True)
     return FileResponse(io.BytesIO(pdf), content_type='application/pdf',
                         filename=f'nakladnaya-{iss.waybill_no}.pdf')
+
+
+@login_required
+def approval_pdf(request, pk):
+    """Лист согласования в ПР по образцу (подписанты объекта или общие) → PDF."""
+    iss = get_object_or_404(
+        DocIssue.objects.select_related('entry__building', 'entry__developer'), pk=pk)
+    pdf = approval_sheet_bytes(iss, signers_for(iss.entry.building))
+    iss.approval_pdf.save(f'list-soglasovaniya-{iss.entry.code}.pdf', io.BytesIO(pdf), save=True)
+    return FileResponse(io.BytesIO(pdf), content_type='application/pdf',
+                        filename=f'list-soglasovaniya-{iss.entry.code}.pdf')
 
 
 @login_required

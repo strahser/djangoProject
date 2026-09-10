@@ -1,6 +1,78 @@
 from django.db import models
 
 
+class DocBuilding(models.Model):
+    """Здание — зеркало [Здания] accdb. Код = первичный ключ (совпадает с accdb)."""
+
+    code = models.IntegerField(primary_key=True, verbose_name='Код здания')
+    number = models.CharField(max_length=20, blank=True, default='', verbose_name='№ здания')
+    name = models.CharField(max_length=200, blank=True, default='', verbose_name='Наименование здания')
+
+    def __str__(self):
+        return self.name or f'Здание {self.code}'
+
+    class Meta:
+        verbose_name = 'Здание (справочник РД)'
+        verbose_name_plural = 'Здания (справочник РД)'
+        ordering = ['code']
+
+
+class DocSection(models.Model):
+    """Раздел — зеркало [Разделы] accdb. Код = первичный ключ."""
+
+    code = models.IntegerField(primary_key=True, verbose_name='Код раздела')
+    short = models.CharField(max_length=20, blank=True, default='', verbose_name='Раздел (шифр)')
+    name = models.CharField(max_length=200, blank=True, default='', verbose_name='Наименование раздела')
+
+    def __str__(self):
+        return self.short or f'Раздел {self.code}'
+
+    class Meta:
+        verbose_name = 'Раздел (справочник РД)'
+        verbose_name_plural = 'Разделы (справочник РД)'
+        ordering = ['code']
+
+
+class DocDeveloper(models.Model):
+    """Разработчик — зеркало [Разработчик] accdb. Код = первичный ключ."""
+
+    code = models.IntegerField(primary_key=True, verbose_name='Код')
+    name = models.CharField(max_length=200, blank=True, default='', verbose_name='Разработчик')
+
+    def __str__(self):
+        return self.name or f'Разработчик {self.code}'
+
+    class Meta:
+        verbose_name = 'Разработчик (справочник РД)'
+        verbose_name_plural = 'Разработчики (справочник РД)'
+        ordering = ['code']
+
+
+class DocSigner(models.Model):
+    """Подписант листа согласования. building=null — общий (сид из [Согласование]),
+    с building — особые подписанты объекта (для каждого объекта свои)."""
+
+    building = models.ForeignKey(
+        DocBuilding, on_delete=models.CASCADE,
+        null=True, blank=True, related_name='signers',
+        verbose_name='Здание (пусто — общий)',
+    )
+    position = models.CharField(max_length=200, blank=True, default='', verbose_name='Должность')
+    company = models.CharField(max_length=200, blank=True, default='', verbose_name='Компания')
+    person = models.CharField(max_length=200, blank=True, default='', verbose_name='ФИО')
+    mark = models.CharField(max_length=100, blank=True, default='', verbose_name='Отметка')
+    order = models.PositiveIntegerField(default=0, verbose_name='Порядок')
+
+    def __str__(self):
+        who = f'{self.building.name}: ' if self.building_id else ''
+        return f'{who}{self.position.strip()} — {self.person}'
+
+    class Meta:
+        verbose_name = 'Подписант'
+        verbose_name_plural = 'Подписанты'
+        ordering = ['building__code', 'order']
+
+
 class DocRegisterEntry(models.Model):
     """Строка реестра РД — зеркало [01 Реестр] М1.accdb (канон §3).
 
@@ -9,18 +81,37 @@ class DocRegisterEntry(models.Model):
     """
 
     code = models.PositiveIntegerField(unique=True, verbose_name='Код', help_text='accdb: код')
-    section = models.CharField(max_length=20, blank=True, default='', verbose_name='Раздел', help_text='accdb: раздел (код из [Разделы])')
-    building_no = models.CharField(max_length=20, blank=True, default='', verbose_name='Номер здания', help_text='accdb: Номер здания')
+    # В accdb раздел/здания/разработчик — КОДЫ справочников, не текст:
+    # раздел → [Разделы].код раздела, Номер здания/Наименование здания → [Здания].Код здания,
+    # разраб_нов → [Разработчик].Код. Показываем значения (admin), не коды.
+    section = models.ForeignKey(
+        DocSection, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='entries',
+        verbose_name='Раздел', help_text='accdb: раздел (код)',
+    )
+    building_no = models.ForeignKey(
+        DocBuilding, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='entries_by_number',
+        verbose_name='Номер здания', help_text='accdb: Номер здания (код)',
+    )
     cipher = models.CharField(max_length=200, blank=True, default='', db_index=True, verbose_name='Шифр', help_text='accdb: шифр')
     file_name = models.CharField(max_length=1000, blank=True, default='', verbose_name='Имя эл. файла', help_text='accdb: Назв Эл файла (max 771 в live)')
     approval_status = models.CharField(max_length=50, blank=True, default='', verbose_name='Согласование', help_text='accdb: согласование')
     approval_date = models.DateField(null=True, blank=True, verbose_name='Дата согласования', help_text='accdb: дата согласования')
     submitted_flag = models.CharField(max_length=10, blank=True, default='', verbose_name='Подано', help_text='accdb: подано на согласование')
     change_descr = models.TextField(blank=True, default='', verbose_name='Описание изменений', help_text='accdb: Описание изм')
-    building_name = models.CharField(max_length=300, blank=True, default='', verbose_name='Здание', help_text='accdb: Наименование здания')
+    building = models.ForeignKey(
+        DocBuilding, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='entries',
+        verbose_name='Наименование здания', help_text='accdb: Наименование здания (код)',
+    )
     submit_date = models.DateField(null=True, blank=True, verbose_name='Дата подачи', help_text='accdb: Дата подачи на согласование')
     acts = models.CharField(max_length=500, blank=True, default='', verbose_name='Акты', help_text='accdb: Акты (max 289 в live)')
-    contractor_new = models.CharField(max_length=20, blank=True, default='', verbose_name='Разраб. нов.', help_text='accdb: разраб_нов')
+    developer = models.ForeignKey(
+        DocDeveloper, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='entries',
+        verbose_name='Разраб.', help_text='accdb: разраб_нов (код)',
+    )
     contract = models.ForeignKey(
         'ProjectContract.Contract', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='doc_entries',
@@ -139,13 +230,25 @@ class DocCheck(models.Model):
 
 
 class DocRemark(models.Model):
-    """Замечание + лист согласования — шаг 4а (канон §2)."""
+    """Замечание + лист согласования — шаг 4а (канон §2).
+
+    Новые замечания привязаны к revision; исторические из accdb
+    ([Замечания к чертежам] по Код реестра) — к entry напрямую.
+    """
 
     revision = models.ForeignKey(
         DocRevision, on_delete=models.CASCADE,
+        null=True, blank=True,
         related_name='remarks', verbose_name='Ревизия',
     )
+    entry = models.ForeignKey(
+        DocRegisterEntry, on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='history_remarks', verbose_name='Запись реестра (история)',
+    )
     text = models.TextField(verbose_name='Текст замечания')
+    author = models.CharField(max_length=200, blank=True, default='', verbose_name='Автор')
+    remark_date = models.DateField(null=True, blank=True, verbose_name='Дата замечания')
     sheet_pdf = models.FileField(
         upload_to='DocRegistry/remarks/%Y/%m/', null=True, blank=True,
         verbose_name='Лист согласования (PDF)',
@@ -180,6 +283,10 @@ class DocIssue(models.Model):
         verbose_name='Накладная (PDF)',
     )
     network_path = models.CharField(max_length=500, blank=True, default='', verbose_name='Папка выдачи (сеть)')
+    approval_pdf = models.FileField(
+        upload_to='DocRegistry/issues/%Y/%m/', null=True, blank=True,
+        verbose_name='Лист согласования (PDF)',
+    )
     archived_old_rev = models.BooleanField(default=False, verbose_name='Старая ревизия убрана в архив')
     issued_by = models.ForeignKey(
         'auth.User', on_delete=models.SET_NULL,

@@ -38,3 +38,17 @@ def compare_registry(live_rows: list[dict], stored: dict[int, str]) -> dict:
     missing = sorted(stored_codes - live_codes)
     return {'new': new, 'missing': missing, 'changed': changed,
             'ok': not (new or missing or changed)}
+
+
+def signers_for(building=None):
+    """Подписанты листа согласования: особые здания — свои, иначе общие.
+
+    building — DocBuilding или None. Возврат: list[DocSigner] по order.
+    """
+    from .models import DocSigner
+
+    if building is not None:
+        own = list(building.signers.all().order_by('order'))
+        if own:
+            return own
+    return list(DocSigner.objects.filter(building__isnull=True).order_by('order'))
