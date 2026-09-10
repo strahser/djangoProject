@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+  .dq-board{display:flex;gap:12px;overflow-x:auto;padding-bottom:12px;}
+  .dq-col{min-width:270px;max-width:320px;flex:1;background:var(--bg-table-header,#f4f6fa);border:1px solid var(--border,#e2e6ee);border-radius:12px;padding:10px;}
+  .dq-card{display:block;background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:10px;padding:10px 12px;margin-bottom:8px;text-decoration:none;color:inherit;}
+  .dq-card:hover{border-color:#2563eb;}
+  .st-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;}
+  .st-received{background:#eef1f6;color:#5b6472;} .st-validating{background:#fff4e0;color:#b45309;}
+  .st-checked_ok{background:#e8f3ff;color:#2563eb;} .st-has_remarks{background:#fdecec;color:#e5484d;}
+  .st-registered{background:#f3e8ff;color:#7c3aed;} .st-issued{background:#effaf3;color:#2ba55f;}
+</style>
+<div class="container-fluid py-3" style="max-width:1400px;">
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <h3 class="mb-0">Выдача РД в производство работ</h3>
+    <form method="get" class="d-flex gap-2 ms-3">
+      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Шифр…" style="width:220px;">
+      <button class="btn btn-sm btn-primary">Найти</button>
+    </form>
+    <a href="{% url 'contract_dashboard' %}" class="btn btn-sm btn-outline-secondary ms-auto">Договоры</a>
+  </div>
+  <div class="dq-board">
+    {% for col in columns %}
+    <div class="dq-col">
+      <div class="fw-bold mb-2">{{ col.title }} <span class="badge bg-secondary">{{ col.count }}</span></div>
+      {% for r in col.items %}
+      <a class="dq-card" href="{% url 'docs_revision' r.pk %}">
+        <div class="fw-semibold">{{ r.entry.cipher|default:"без записи" }}</div>
+        <div class="text-muted small">код {{ r.entry.code|default:"—" }} · rev{{ r.rev_no }} · {{ r.attachment.filename|default:"без файла"|truncatechars:40 }}</div>
+        <div class="mt-1"><span class="st-badge st-{{ r.status }}">{{ r.get_status_display }}</span></div>
+      </a>
+      {% empty %}<div class="text-muted small">— пусто —</div>{% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

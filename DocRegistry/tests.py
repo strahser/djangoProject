@@ -154,3 +154,51 @@ class DocApiFlowTest(TestCase):
         self.client.logout()
         self.assertEqual(self.client.get('/api/docs/queue/').status_code, 401)
 
+
+class DocUiTest(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.user = User.objects.create_user('uiviewer', 'u@u.u', 'pw')
+        self.client.force_login(self.user)
+        self.entry = DocRegisterEntry.objects.create(code=501, cipher='ВВ-17-1.1-АР1')
+        self.rev = DocRevision.objects.create(entry=self.entry, rev_no=1, status='has_remarks')
+        self.remark = DocRemark.objects.create(revision=self.rev, text='Стены не те')
+        self.issue = DocIssue.objects.create(entry=self.entry, waybill_no='301')
+
+    def test_queue_page(self):
+        r = self.client.get('/docs/queue/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'ВВ-17-1.1-АР1')
+        self.assertContains(r, 'Замечания')
+
+    def test_revision_page(self):
+        r = self.client.get(f'/docs/revision/{self.rev.pk}/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Стены не те')
+        self.assertContains(r, '/api/docs/')
+
+    def test_entry_page(self):
+        r = self.client.get('/docs/entry/501/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Накладная №301')
+
+    def test_remark_sheet_pdf(self):
+        r = self.client.get(f'/docs/remark/{self.remark.pk}/sheet.pdf')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'], 'application/pdf')
+        content = b''.join(r.streaming_content)
+        self.assertTrue(content.startswith(b'%PDF'))
+        self.remark.refresh_from_db()
+        self.assertTrue(self.remark.sheet_pdf.name.endswith('.pdf'))
+
+    def test_waybill_pdf(self):
+        r = self.client.get(f'/docs/issue/{self.issue.pk}/waybill.pdf')
+        self.assertEqual(r.status_code, 200)
+        content = b''.join(r.streaming_content)
+        self.assertTrue(content.startswith(b'%PDF'))
+
+    def test_queue_login_required(self):
+        self.client.logout()
+        r = self.client.get('/docs/queue/')
+        self.assertEqual(r.status_code, 302)
+

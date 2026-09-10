@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+  .st-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;}
+  .st-received{background:#eef1f6;color:#5b6472;} .st-validating{background:#fff4e0;color:#b45309;}
+  .st-checked_ok{background:#e8f3ff;color:#2563eb;} .st-has_remarks{background:#fdecec;color:#e5484d;}
+  .st-registered{background:#f3e8ff;color:#7c3aed;} .st-issued{background:#effaf3;color:#2ba55f;}
+  .dq-log{font-size:12.5px;border-left:3px solid var(--border,#e2e6ee);padding:4px 0 4px 10px;margin-bottom:6px;}
+</style>
+<div class="container py-3" style="max-width:1100px;">
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <a href="{% url 'docs_queue' %}" class="btn btn-sm btn-outline-secondary">← Очередь</a>
+    <h4 class="mb-0">{{ rev.entry.cipher|default:"Приём без записи" }}</h4>
+    <span class="st-badge st-{{ rev.status }}" id="rev-status">{{ rev.get_status_display }}</span>
+    {% if entry %}<a href="{% url 'docs_entry' entry.code %}" class="btn btn-sm btn-outline-secondary">Карточка {{ entry.code }}</a>{% endif %}
+  </div>
+  <div class="row g-3">
+    <div class="col-md-7">
+      <div class="card mb-3"><div class="card-body">
+        <div class="text-muted small">Файл: {{ rev.attachment.filename|default:"—" }} ({{ rev.size }} байт)</div>
+        <div class="text-muted small">Источник: {{ rev.get_source_display }} · {{ rev.received_at|date:"d.m.Y H:i" }}</div>
+        {% if rev.email %}<div class="text-muted small">Письмо: <a href="{% url 'email_ui:email_detail' rev.email.pk %}">{{ rev.email.subject|default:rev.email.pk }}</a></div>{% endif %}
+        {% if rev.task %}<div class="text-muted small">Задача: {{ rev.task }}</div>{% endif %}
+      </div></div>
+      <div class="card mb-3"><div class="card-body">
+        <h6>Проверка {% if check %}<span class="badge {% if check.verdict == 'PASS' %}bg-success{% else %}bg-danger{% endif %}">{{ check.verdict }}</span>{% endif %}</h6>
+        {% if check %}
+          {% if check.questions_md %}<div class="alert alert-warning py-2 small" style="white-space:pre-line;">{{ check.questions_md }}</div>{% endif %}
+          <details class="small"><summary>diff / checks (JSON)</summary><pre class="mt-2">{{ check.diff_json }}{% if check.checks_json %}\n{{ check.checks_json }}{% endif %}</pre></details>
+        {% else %}<div class="text-muted small">Не проверялась</div>{% endif %}
+      </div></div>
+      <div class="card mb-3"><div class="card-body">
+        <h6>Действия (шаги 2–5)</h6>
+        <div class="d-flex gap-2 flex-wrap mb-2">
+          <input id="f-code" class="form-control form-control-sm" style="width:120px;" placeholder="код" value="{{ entry.code|default:'' }}">
+          <button class="btn btn-sm btn-primary" onclick="dqValidate()">Проверить</button>
+          <label class="small align-self-center"><input type="checkbox" id="f-confirm"> новая запись</label>
+          <button class="btn btn-sm btn-success" onclick="dqRegister()">В реестр</button>
+        </div>
+        <div class="d-flex gap-2 flex-wrap mb-2">
+          <input id="f-remark" class="form-control form-control-sm" style="flex:1;min-width:200px;" placeholder="Текст замечания…">
+          <button class="btn btn-sm btn-warning" onclick="dqRemark()">Замечание</button>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          <input id="f-waybill" class="form-control form-control-sm" style="width:140px;" placeholder="№ накладной">
+          <input id="f-netpath" class="form-control form-control-sm" style="flex:1;min-width:200px;" placeholder="Папка выдачи (сеть)">
+          <button class="btn btn-sm btn-dark" onclick="dqIssue()">Выдать в ПР</button>
+        </div>
+        <div id="dq-msg" class="small mt-2"></div>
+      </div></div>
+    </div>
+    <div class="col-md-5">
+      <div class="card mb-3"><div class="card-body">
+        <h6>Замечания ({{ remarks|length }})</h6>
+        {% for rm in remarks %}
+        <div class="dq-log">{{ rm.text|truncatechars:200 }}
+          <a class="btn btn-sm btn-outline-secondary py-0 ms-2" href="{% url 'docs_remark_sheet' rm.pk %}" target="_blank">Лист PDF</a>
+        </div>
+        {% empty %}<div class="text-muted small">Нет</div>{% endfor %}
+      </div></div>
+      <div class="card mb-3"><div class="card-body">
+        <h6>Выдачи ({{ issues|length }})</h6>
+        {% for i in issues %}
+        <div class="dq-log">Накладная №{{ i.waybill_no }} от {{ i.waybill_date|date:"d.m.Y"|default:"—" }}
+          <a class="btn btn-sm btn-outline-secondary py-0 ms-2" href="{% url 'docs_waybill' i.pk %}" target="_blank">PDF</a>
+        </div>
+        {% empty %}<div class="text-muted small">Нет</div>{% endfor %}
+      </div></div>
+      <div class="card"><div class="card-body">
+        <h6>История</h6>
+        {% for l in logs %}
+        <div class="dq-log"><b>{{ l.field }}</b>: {{ l.old_value|truncatechars:60 }} → {{ l.new_value|truncatechars:60 }} <span class="text-muted">({{ l.source }}, {{ l.changed_at|date:"d.m.Y H:i" }})</span></div>
+        {% empty %}<div class="text-muted small">Пусто</div>{% endfor %}
+      </div></div>
+    </div>
+  </div>
+</div>
+<script>
+function dqCookie(n){var v=document.cookie.match('(^|;) ?'+n+'=([^;]*)(;|$)');return v?v[2]:null;}
+function dqPost(url,body){
+  return fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':dqCookie('csrftoken')},body:JSON.stringify(body||{})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});});
+}
+function dqMsg(t,ok){var e=document.getElementById('dq-msg');e.innerHTML='<span class="'+(ok?'text-success':'text-danger')+'">'+t+'</span>';if(ok){setTimeout(function(){location.reload();},800);}}
+var REV={{ rev.pk }};
+function dqValidate(){var c=document.getElementById('f-code').value;dqPost('/api/docs/'+REV+'/validate/',c?{code:parseInt(c)}:{}).then(function(r){dqMsg(r.ok?('Вердикт '+r.j.verdict):('Ошибка: '+JSON.stringify(r.j)),r.ok);});}
+function dqRegister(){var c=document.getElementById('f-code').value;var cf=document.getElementById('f-confirm').checked;dqPost('/api/docs/'+REV+'/register/',{code:c?parseInt(c):null,confirm:cf}).then(function(r){dqMsg(r.ok?('В реестре, код '+r.j.entry):('Ошибка: '+JSON.stringify(r.j)),r.ok);});}
+function dqRemark(){var t=document.getElementById('f-remark').value;dqPost('/api/docs/'+REV+'/remarks/',{text:t}).then(function(r){dqMsg(r.ok?'Замечание записано':('Ошибка: '+JSON.stringify(r.j)),r.ok);});}
+function dqIssue(){var w=document.getElementById('f-waybill').value;var n=document.getElementById('f-netpath').value;dqPost('/api/docs/'+REV+'/issue/',{waybill_no:w,network_path:n}).then(function(r){dqMsg(r.ok?'Выдано в ПР':('Ошибка: '+JSON.stringify(r.j)),r.ok);});}
+</script>
+{% endblock %}
