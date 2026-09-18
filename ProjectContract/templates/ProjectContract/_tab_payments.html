@@ -1,0 +1,54 @@
+{% load admin_totals %}
+<table class="table align-middle mb-0">
+  <thead><tr>
+    <th>Платёж</th><th>Тип</th><th class="text-end">Сумма</th><th>Срок</th><th>Статус</th><th class="text-end"></th>
+  </tr></thead>
+  <tbody>
+    {% for p in payments %}
+    <tr class="pay-row" id="chip-{{ p.pk }}">
+      <td class="fw-semibold">{{ p.name|default:p.get_payment_type_display }}</td>
+      <td>{{ p.get_payment_type_display }}</td>
+      <td class="text-end fw-bold">{{ p.price|floatformat:0 }} ₽</td>
+      <td>{{ p.due_date|date:"d.m.Y"|default:"без срока" }}{% if p.paid_date %}<div class="text-muted small">факт {{ p.paid_date|date:"d.m.Y" }}</div>{% endif %}</td>
+      <td><span class="st-badge st-{{ p.status }}" id="badge-{{ p.pk }}">{{ p.get_status_display }}</span></td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-secondary toggle-pay" data-id="{{ p.pk }}">
+          {% if p.made_payment %}Отметить неоплаченным{% else %}Отметить оплаченным{% endif %}
+        </button>
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="6" class="text-center text-muted py-4">Платежи не заведены</td></tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td colspan="2" class="fw-bold">Итого</td>
+      <td class="text-end fw-bold">{{ total_price|floatformat:0 }} ₽</td>
+      <td colspan="3"></td>
+    </tr>
+  </tfoot>
+</table>
+
+<script>
+(function () {
+  function csrf() {
+    var v = document.cookie.match('(^|;) ?csrftoken=([^;]*)(;|$)');
+    return v ? v[2] : null;
+  }
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.toggle-pay');
+    if (!btn) return;
+    var id = btn.dataset.id;
+    fetch('/contract/payment/' + id + '/toggle/', {
+      method: 'POST',
+      headers: {'X-CSRFToken': csrf()}
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      var row = document.getElementById('chip-' + id);
+      var badge = document.getElementById('badge-' + id);
+      row.style.background = d.made ? 'var(--bg-row-hover,#fff6d8)' : '';
+      btn.textContent = d.made ? 'Отметить неоплаченным' : 'Отметить оплаченным';
+      if (badge) badge.textContent = d.made ? 'Оплачен' : 'Запланирован';
+    });
+  });
+})();

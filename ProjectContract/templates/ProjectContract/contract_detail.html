@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Договор {{ contract.name|default:contract.number }}{% endblock %}
+{% block content %}
+<style>
+  .cd-title{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;}
+  .cd-stat{background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:12px;padding:12px 16px;}
+  .st-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;}
+  .st-active{background:#e8f3ff;color:#2563eb;}
+  .st-suspended{background:#fff4e0;color:#b45309;}
+  .st-closed{background:#effaf3;color:#2ba55f;}
+  .st-canceled{background:#fdecec;color:#e5484d;}
+  .st-draft{background:#eef1f6;color:#5b6472;}
+  .st-paid{background:#effaf3;color:#2ba55f;}
+  .st-guaranteed,.st-approved,.st-invoiced{background:#e8f3ff;color:#2563eb;}
+  .st-high_prob,.st-low_prob{background:#fff4e0;color:#b45309;}
+  .st-planned,.st-partially_paid{background:#eef1f6;color:#5b6472;}
+  .nav-tabs .nav-link{font-weight:600;color:var(--text-muted,#6c757d);}
+  .nav-tabs .nav-link.active{color:#2563eb;}
+  .pay-row{transition:background .12s;}
+  .pay-row:hover{background:var(--bg-row-hover,#fff6d8);}
+</style>
+<div class="container-fluid py-3" style="max-width:1200px;">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <a href="{% url 'contract_dashboard' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Договоры</a>
+    <h3 class="mb-0">{{ contract.name|default:"Без названия" }}</h3>
+    <span class="st-badge st-{{ contract.status }}">{{ contract.get_status_display }}</span>
+    <span class="st-badge" style="background:#eef1f6;color:#5b6472;">{{ contract.get_stage_display }}</span>
+    <a href="{% url 'admin:ProjectContract_contract_change' contract.pk %}" class="btn btn-sm btn-outline-secondary ms-auto"><i class="bi bi-pencil me-1"></i>Админка</a>
+  </div>
+
+  <div class="text-muted mb-3">
+    {{ contract.project_site.name }}{% if contract.number %} · №{{ contract.number }}{% endif %}
+    · {{ contract.contractor.name|default:"без подрядчика" }}{% if contract.client %} · зак: {{ contract.client.name }}{% endif %}
+    {% if contract.parent %} · <span class="st-badge" style="background:#eef1f6;color:#5b6472;">субподряд {{ contract.parent.name }}</span>{% endif %}
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase">Цена договора</div><div class="fw-bold fs-4">{{ contract.price|floatformat:0 }} ₽</div></div></div>
+    <div class="col-md-3"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase" style="color:#2ba55f!important;">Оплачено (факт)</div><div class="fw-bold fs-4" style="color:#2ba55f;">{{ totals.paid|floatformat:0 }} ₽</div></div></div>
+    <div class="col-md-3"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase" style="color:#2563eb!important;">Прогноз</div><div class="fw-bold fs-4" style="color:#2563eb;">{{ totals.guaranteed|add:totals.likely|floatformat:0 }} ₽</div><div class="text-muted small">гарантировано + вероятно</div></div></div>
+    <div class="col-md-3"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase">Смета</div><div class="fw-bold fs-4 {% if totals.estimate_overrun %}text-danger{% endif %}">{{ totals.estimate_total|floatformat:0 }} ₽{% if totals.estimate_overrun %} ⚠{% endif %}</div></div></div>
+  </div>
+
+  <ul class="nav nav-tabs mb-3" id="contractTabs">
+    {% for t in tabs %}
+    <li class="nav-item">
+      <button class="nav-link {% if tab == t %}active{% endif %}"
+              data-bs-toggle="tab" data-bs-target="#tab-{{ t }}"
+              data-tab="{{ t }}" role="tab"
+              {% if tab != t %}
+              hx-get="{% url 'contract_tab' contract.pk t %}"
+              hx-target="#tab-{{ t }}"
+              {% endif %}>
+        {% if t == 'payments' %}Оплаты {% elif t == 'tasks' %}Работы {% elif t == 'stages' %}Этапы {% elif t == 'history' %}История {% else %}Документы {% endif %}
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="tab-payments" role="tabpanel" style="background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:0 12px 12px 12px;padding:16px;">
+      {% include 'ProjectContract/_tab_payments.html' %}
+    </div>
+    <div class="tab-pane fade" id="tab-tasks" role="tabpanel" style="background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:0 12px 12px 12px;padding:16px;">
+      <div class="text-muted small">Загружается…</div>
+    </div>
+    <div class="tab-pane fade" id="tab-stages" role="tabpanel" style="background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:0 12px 12px 12px;padding:16px;">
+      <div class="text-muted small">Загружается…</div>
+    </div>
+    <div class="tab-pane fade" id="tab-history" role="tabpanel" style="background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:0 12px 12px 12px;padding:16px;">
+      <div class="text-muted small">Загружается…</div>
+    </div>
+    <div class="tab-pane fade" id="tab-docs" role="tabpanel" style="background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:0 12px 12px 12px;padding:16px;">
+      <div class="text-muted small">Загружается…</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

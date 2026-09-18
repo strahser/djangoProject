@@ -86,6 +86,10 @@
     </li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-emails" type="button"><i class="bi bi-envelope me-1"></i>Письма ({{ linked_emails|length }})</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-desc" type="button"><i class="bi bi-card-text me-1"></i>Описание</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-history" type="button"><i class="bi bi-clock-history me-1"></i>История ({{ change_history|length }})</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-comments" type="button"><i class="bi bi-chat-dots me-1"></i>Комментарии ({{ comments|length }})</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-reminders" type="button"><i class="bi bi-bell me-1"></i>Напоминания ({{ reminders|length }})</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-files" type="button"><i class="bi bi-paperclip me-1"></i>Файлы ({{ attachments|length }})</button></li>
   </ul>
 
   <div class="tab-content">
@@ -137,6 +141,106 @@
 
     <div class="tab-pane fade" id="tab-desc">
       <div class="td-card p-4">{{ task.description|safe|default:"<span class='text-muted'>Нет описания</span>" }}</div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-history">
+      <div class="td-card p-0 table-responsive">
+        <table class="table td-table mb-0">
+          <thead><tr><th>Когда</th><th>Действие</th><th>Подробности</th><th>Кто</th></tr></thead>
+          <tbody>
+            {% for h in change_history %}
+            <tr>
+              <td class="text-muted text-nowrap">{{ h.creation_stamp|date:"d.m.Y H:i" }}</td>
+              <td><span class="td-chip">{{ h.action }}</span></td>
+              <td>{{ h.details|default:"—"|truncatechars:200 }}</td>
+              <td>{{ h.user.username|default:"система" }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="4" class="text-center text-muted py-4">Изменений пока нет</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-comments">
+      <div class="td-card p-3 mb-3">
+        <form method="post" action="{% url 'task_comment_add' task.pk %}" class="d-flex gap-2">
+          {% csrf_token %}
+          <input type="text" name="body" class="form-control form-control-sm"
+                 placeholder="Напишите комментарий…" maxlength="2000" required>
+          <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-send me-1"></i>Отправить</button>
+        </form>
+      </div>
+      <div class="td-card p-0 table-responsive">
+        <table class="table td-table mb-0">
+          <thead><tr><th>Когда</th><th>Автор</th><th>Текст</th></tr></thead>
+          <tbody>
+            {% for c in comments %}
+            <tr>
+              <td class="text-muted text-nowrap">{{ c.creation_stamp|date:"d.m.Y H:i" }}</td>
+              <td>{{ c.author.username|default:"—" }}</td>
+              <td>{{ c.body|default:"" }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="3" class="text-center text-muted py-4">Комментариев пока нет</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-reminders">
+      <div class="td-card p-3 mb-3">
+        <form method="post" action="{% url 'task_reminder_add' task.pk %}" class="row g-2 align-items-end">
+          {% csrf_token %}
+          <div class="col-md-3"><label class="form-label small text-muted mb-0">Напомнить не позже</label><input type="date" name="due_date" class="form-control form-control-sm" value="{{ task.due_date|date:'Y-m-d' }}" required></div>
+          <div class="col-md-4"><label class="form-label small text-muted mb-0">Текст</label><input type="text" name="message" class="form-control form-control-sm" maxlength="255" placeholder="О чём напомнить"></div>
+          <div class="col-md-3"><label class="form-label small text-muted mb-0">Кому</label><select name="recipient" class="form-select form-select-sm"><option value="">—</option>{% for u in reminder_users %}<option value="{{ u.pk }}">{{ u.username }}</option>{% endfor %}</select></div>
+          <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" type="submit"><i class="bi bi-bell me-1"></i>Напомнить</button></div>
+        </form>
+      </div>
+      <div class="td-card p-0 table-responsive">
+        <table class="table td-table mb-0">
+          <thead><tr><th>Дата</th><th>Текст</th><th>Кому</th><th></th></tr></thead>
+          <tbody>
+            {% for r in reminders %}
+            <tr>
+              <td class="text-nowrap">{{ r.due_date|date:"d.m.Y" }}</td>
+              <td>{{ r.message|default:"—" }}</td>
+              <td>{{ r.recipient.username|default:"—" }}</td>
+              <td class="text-end"><form method="post" action="{% url 'reminder_toggle' r.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn btn-sm btn-outline-secondary py-0" type="submit">Закрыть</button></form></td>
+            </tr>
+            {% empty %}<tr><td colspan="4" class="text-center text-muted py-4">Открытых напоминаний нет</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-files">
+      <div class="td-card p-3 mb-3">
+        <form method="post" action="{% url 'task_attachment_add' task.pk %}" enctype="multipart/form-data" class="row g-2 align-items-end">
+          {% csrf_token %}
+          <div class="col-md-6"><label class="form-label small text-muted mb-0">Файл</label><input type="file" name="file" class="form-control form-control-sm" required></div>
+          <div class="col-md-4"><label class="form-label small text-muted mb-0">Описание</label><input type="text" name="description" class="form-control form-control-sm" maxlength="255" placeholder="Краткое описание"></div>
+          <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" type="submit"><i class="bi bi-upload me-1"></i>Загрузить</button></div>
+        </form>
+      </div>
+      <div class="td-card p-0 table-responsive">
+        <table class="table td-table mb-0">
+          <thead><tr><th>Файл</th><th>Описание</th><th>Загрузил</th><th>Дата</th></tr></thead>
+          <tbody>
+            {% for a in attachments %}
+            <tr>
+              <td><a href="{{ a.file.url }}" target="_blank" class="text-decoration-none">{{ a.file.name|truncatechars:60 }}</a></td>
+              <td>{{ a.description|default:"—" }}</td>
+              <td>{{ a.uploaded_by.username|default:"—" }}</td>
+              <td class="text-muted text-nowrap">{{ a.creation_stamp|date:"d.m.Y H:i" }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="4" class="text-center text-muted py-4">Файлов пока нет</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>

@@ -98,8 +98,11 @@ LOGIN_URL = '/login'
 LOGIN_REDIRECT_URL = '/'
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 AUTOSAVE_PERIOD =1440 #minutes (1 раз в сутки)
+
+EMAIL_FETCH_INTERVAL_MINUTES = 30  # minutes (автозагрузка почты каждые 30 минут)
 BACKUP_KEEP_VERSIONS = 2
 MEDIA_ROOT =r"e:\Проекты Симрус\Переписка"
+MEDIA_URL = '/media/'
 BACKUP_PATH = folder = os.path.join('e:\\','Проекты Симрус', 'backup')
 
 # Движок валидации РД (DesignBase FastAPI, M1 DOC-2/DOC-3)
@@ -119,6 +122,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'ProjectContract.middleware.CurrentUserMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_htmx.middleware.HtmxMiddleware',
@@ -318,8 +322,9 @@ TINYMCE_DEFAULT_CONFIG = {
     'height': 400,
     'width': '100%',
     'menubar': False,
-    'plugins': 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table code help wordcount',
-    'toolbar': 'undo redo | formatselect | bold italic backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat | code',
-    'content_css': '//www.tiny.cloud/css/codepen.min.css',
+    'plugins': 'advlist autolink lists link image charmap preview anchor searchreplace visualblocks code fullscreen insertdatetime media table help wordcount',
+    'toolbar': 'undo redo | fontselect fontsizeselect | formatselect | forecolor backcolor | bold italic underline strikethrough | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link table | removeformat | code',
+    'font_formats': 'Arial=arial,helvetica,sans-serif; Arial Black=arial black,avant garde,sans-serif; Book Antiqua=book antiqua,palatino,serif; Calibri=calibri,arial,sans-serif; Cambria=cambria,times,serif; Comic Sans MS=comic sans ms,sans-serif; Consolas=consolas,monaco,monospace; Courier New=courier new,courier,monospace; Georgia=georgia,palatino,serif; Impact=impact,chicago,sans-serif; Times New Roman=times new roman,times,serif; Trebuchet MS=trebuchet ms,geneva,sans-serif; Verdana=verdana,geneva,sans-serif',
+    'font_size_formats': '8pt 9pt 10pt 11pt 12pt 14pt 16pt 18pt 20pt 22pt 24pt 26pt 28pt 32pt 36pt 40pt 48pt 56pt 64pt',
 }
 

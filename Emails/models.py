@@ -1,8 +1,47 @@
 import os
+import re
 from django.db import models
 from django.utils.safestring import mark_safe
 from enum import Enum
 from urllib.parse import quote
+
+
+def html_body_to_text(html_content: str) -> str:
+    """Извлекает читаемый текст из HTML-тела письма для тела поиска.
+
+    Ведущая техническая прелюдия («Отправитель:… Вложения:», которую парсер
+    пишет в начало файла) вырезается — в поиск и превью идёт только тело.
+    """
+    if not html_content:
+        return ''
+    try:
+        from bs4 import BeautifulSoup
+        text = BeautifulSoup(html_content, 'html.parser').get_text(' ', strip=True)
+    except Exception:
+        text = re.sub(r'<[^>]+>', ' ', html_content)
+    text = re.sub(r'\s+', ' ', text).strip()
+    try:
+        from email_ui.utils import strip_tech_headers
+        text = strip_tech_headers(text)
+    except Exception:
+        pass
+    return text
+
+
+def read_email_html_file(html_path) -> str:
+    """Читает HTML-файл письма (utf-8/cp1251), '' если файла нет."""
+    if not html_path:
+        return ''
+    if not os.path.exists(html_path):
+        return ''
+    for enc in ('utf-8', 'cp1251'):
+        try:
+            with open(html_path, 'r', encoding=enc) as f:
+                return f.read()
+        except (UnicodeDecodeError, OSError):
+            continue
+    return ''
+
 
 class EmailType(Enum):
     IN = "Входящие"
@@ -105,6 +144,10 @@ class Email(models.Model):
     references = models.TextField(blank=True, null=True, verbose_name='References')
     thread_id = models.CharField(max_length=100, blank=True, null=True, db_index=True, verbose_name='Thread ID')
 
+    # Текст тела письма (извлекается из HTML-файла при сохранении/бэкфилле).
+    # Нужен для быстрого поиска «по теме + по телу» без чтения файлов на диске.
+    body_text = models.TextField(blank=True, default='', verbose_name='Текст тела')
+
     # Статус отправки
     sent_status = models.CharField(
         max_length=20,
@@ -157,7 +200,21 @@ class Email(models.Model):
         for fname in os.listdir(self.link):
             if fname.endswith('.html'):
                 return os.path.join(self.link, fname)
-        return None
+
+    def extract_body_text(self) -> str:
+        """Читает HTML-файл письма и возвращает текст тела для поиска ('' если нет файла).
+
+        Чистится от технической прелюды, имён вложений, дубля темы
+        и заголовков цитат — в поиске и превью только собственно тело.
+        """
+        from email_ui.utils import strip_tech_headers
+        try:
+            attachment_names = [a.filename for a in self.attachments.all()]
+        except Exception:
+            attachment_names = []
+        return strip_tech_headers(
+            html_body_to_text(read_email_html_file(self.get_html_file_path())),
+            self.subject, attachment_names)
 
     def __str__(self):
         return f"Ссылка {self.name}"

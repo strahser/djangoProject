@@ -1,0 +1,9 @@
+{% extends "admin/change_form.html" %}
+{% block submit_buttons_bottom %}
+{{ block.super }}
+{% if request.GET.next %}
+<div class="submit-row">
+    <a href="{{ request.GET.next }}" class="closelink">Вернуться без сохранения</a>
+</div>
+{% endif %}
+{% endblock %}

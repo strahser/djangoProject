@@ -1,4 +1,4 @@
-{% load l10n %}<form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
+{% load l10n %}<form hx-post="{% if mode == 'compose' %}{% url 'email_ui:send_email' %}{% elif mode == 'edit_draft' %}{% url 'email_ui:draft_send' draft_email.pk %}{% else %}{% url 'email_ui:reply_send' email.id %}{% endif %}"
       hx-target="#emailModalContent" hx-swap="innerHTML"
       enctype="multipart/form-data" id="compose-form">
     {% csrf_token %}
@@ -11,6 +11,7 @@
             {% if mode == 'reply' %}Ответить
             {% elif mode == 'reply_all' %}Ответить всем
             {% elif mode == 'forward' %}Переслать
+            {% elif mode == 'edit_draft' %}Редактирование черновика
             {% else %}Новое письмо{% endif %}
         </h5>
         <div class="ms-auto d-flex align-items-center gap-2">
@@ -41,6 +42,14 @@
                     onclick="saveDraft()">
                 <i class="bi bi-save"></i>
             </button>
+            <a class="btn btn-sm btn-outline-secondary" title="Группы адресатов (откроется в новой вкладке)"
+               href="{% url 'email_ui:group_list' %}" target="_blank" rel="noopener">
+                <i class="bi bi-people"></i>
+            </a>
+            <a class="btn btn-sm btn-outline-secondary" title="Контакты (откроется в новой вкладке)"
+               href="{% url 'email_ui:contact_list' %}" target="_blank" rel="noopener">
+                <i class="bi bi-person-lines-fill"></i>
+            </a>
             <button type="button" class="btn btn-sm btn-outline-secondary" title="Закрыть"
                     onclick="EmailApp.checkDirtyThen(function(){ EmailApp.clearDirty(); EmailApp.closeModal(); })">
                 <i class="bi bi-x-lg"></i>
@@ -91,39 +100,49 @@
         <div id="excluded-attachments-container"></div>
         {% endif %}
 
+        {% if mode == 'edit_draft' and draft_attachments %}
+        <div class="px-3 pt-2">
+            <div class="collapsible-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span><i class="bi bi-paperclip"></i> Вложения черновика ({{ draft_attachments|length }})</span>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+                <div class="section-body show">
+                    <ul class="list-unstyled mb-2" id="draft-attachments-list">
+                        {% for att in draft_attachments %}
+                        <li class="d-flex justify-content-between align-items-center py-1 attachment-item" data-att-id="{{ att.pk|unlocalize }}">
+                            <div>
+                                <i class="bi {{ att.icon_class }} me-1"></i>
+                                <span>{{ att.filename }}</span>
+                                <small class="text-muted">({{ att.size|filesizeformat }})</small>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeDraftAttachment(this, {{ att.pk|unlocalize }})" title="Убрать из вложений">
+                                <i class="bi bi-trash"></i> Удалить
+                            </button>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div id="draft-excluded-container"></div>
+        {% endif %}
+
         <div class="compose-fields" style="max-width:700px;">
             <div class="mb-2">
                 <label class="form-label small text-muted mb-1">Кому <span class="text-danger">*</span></label>
-                <div class="d-flex gap-1">
-                    <textarea name="to" class="form-control form-control-sm" rows="1"
-                              placeholder="email1@example.com, email2@example.com"
-                              oninput="autoResize(this);EmailApp.markDirty()"
-                              style="resize:none;">{{ to|default:'' }}</textarea>
-                    {% include 'email_ui/partials/contact_picker.html' with field='to' %}
-                </div>
+                {% include 'email_ui/partials/contact_picker.html' with picker='contacts-to' input_id='compose-to' input_name='to' placeholder='email1@example.com, email2@example.com' value=to %}
             </div>
-            <div class="row mb-2">
-                <div class="col">
-                    <label class="form-label small text-muted mb-1">Копия</label>
-                    <div class="d-flex gap-1">
-                        <textarea name="cc" class="form-control form-control-sm" rows="1"
-                                  placeholder="email@example.com"
-                                  oninput="autoResize(this);EmailApp.markDirty()"
-                                  style="resize:none;">{{ cc|default:'' }}</textarea>
-                        {% include 'email_ui/partials/contact_picker.html' with field='cc' %}
-                    </div>
-                </div>
-                <div class="col">
-                    <label class="form-label small text-muted mb-1">Скрытая копия</label>
-                    <div class="d-flex gap-1">
-                        <textarea name="bcc" class="form-control form-control-sm" rows="1"
-                                  placeholder="email@example.com"
-                                  oninput="autoResize(this);EmailApp.markDirty()"
-                                  style="resize:none;"></textarea>
-                        {% include 'email_ui/partials/contact_picker.html' with field='bcc' %}
-                    </div>
-                </div>
+            <div class="mb-2">
+                <label class="form-label small text-muted mb-1">Копия</label>
+                {% include 'email_ui/partials/contact_picker.html' with picker='contacts-cc' input_id='compose-cc' input_name='cc' placeholder='email@example.com' value=cc %}
             </div>
+            <div class="mb-2">
+                <label class="form-label small text-muted mb-1">Скрытая копия</label>
+                {% include 'email_ui/partials/contact_picker.html' with picker='contacts-bcc' input_id='compose-bcc' input_name='bcc' placeholder='email@example.com' %}
+            </div>
+            {{ contacts_json|json_script:"contacts-data" }}
+            {{ groups_json|json_script:"groups-data" }}
             <div class="mb-0">
                 <label class="form-label small text-muted mb-1">Тема</label>
                 <input type="text" name="subject" class="form-control form-control-sm" value="{{ subject|default:'' }}"
@@ -168,35 +187,9 @@ document.body.addEventListener('htmx:configRequest', function(evt) {
     }
 });
 
-function filterContacts(query, field) {
-    var q = query.toLowerCase().trim();
-    var list = document.getElementById('contacts-list-' + (field || 'to'));
-    if (!list) return;
-    list.querySelectorAll('.dropdown-item').forEach(function(item) {
-        var searchData = item.getAttribute('data-search') || '';
-        item.style.display = (!q || searchData.indexOf(q) !== -1) ? '' : 'none';
-    });
-}
-
 function autoResize(el) {
     el.style.height = 'auto';
     el.style.height = el.scrollHeight + 'px';
-}
-
-function addContactTo(anchor) {
-    var email = anchor.getAttribute('data-email');
-    var fieldName = anchor.getAttribute('data-field') || 'to';
-    if (!email) return;
-    var input = document.querySelector('textarea[name="' + fieldName + '"]');
-    if (!input) return;
-    if (input.value && input.value.trim()) {
-        input.value += ', ' + email;
-    } else {
-        input.value = email;
-    }
-    autoResize(input);
-    input.dispatchEvent(new Event('input'));
-    if (window.EmailApp) EmailApp.markDirty();
 }
 
 function updateFileList(input) {
@@ -249,7 +242,10 @@ function saveDraft() {
     });
     var nextInput = form.querySelector('input[name="next"]');
     var nextUrl = (nextInput && nextInput.value) || '{% url "email_ui:inbox_default" %}';
-    fetch('{% url "email_ui:save_draft" %}', {
+    // В режиме edit_draft — обновляем существующий черновик, а не создаём новый
+    var isEditDraft = form.getAttribute('hx-post') && form.getAttribute('hx-post').indexOf('draft-send') !== -1;
+    var draftUrl = isEditDraft ? form.getAttribute('hx-post').replace('draft-send', 'draft-update') : '{% url "email_ui:save_draft" %}';
+    fetch(draftUrl, {
         method: 'POST',
         headers: {'X-CSRFToken': '{{ csrf_token }}'},
         body: params
@@ -282,6 +278,33 @@ function removeForwardAttachment(btn, attId) {
         var count = list.querySelectorAll('li').length;
         var header = list.closest('.collapsible-section').querySelector('.section-header span');
         if (header) header.innerHTML = '<i class="bi bi-paperclip"></i> Вложения (' + count + ')';
+        if (count === 0) {
+            var section = list.closest('.collapsible-section');
+            if (section) section.style.display = 'none';
+        }
+    }
+}
+
+function removeDraftAttachment(btn, attId) {
+    var li = btn.closest('li');
+    if (li) li.remove();
+    var container = document.getElementById('draft-excluded-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'draft-excluded-container';
+        var form = document.getElementById('compose-form');
+        if (form) form.appendChild(container);
+    }
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'exclude_attachments';
+    hidden.value = attId;
+    container.appendChild(hidden);
+    var list = document.getElementById('draft-attachments-list');
+    if (list) {
+        var count = list.querySelectorAll('li').length;
+        var header = list.closest('.collapsible-section').querySelector('.section-header span');
+        if (header) header.innerHTML = '<i class="bi bi-paperclip"></i> Вложения черновика (' + count + ')';
         if (count === 0) {
             var section = list.closest('.collapsible-section');
             if (section) section.style.display = 'none';

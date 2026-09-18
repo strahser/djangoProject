@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="container py-3" style="max-width:1000px;">
-  <a href="{% url 'docs_queue' %}" class="btn btn-sm btn-outline-secondary mb-3">← Очередь</a>
+  <a href="{% url 'docs_queue' project %}" class="btn btn-sm btn-outline-secondary mb-3">← Очередь</a>
   <h4>Запись {{ entry.code }}: {{ entry.cipher }}</h4>
   <div class="card mb-3"><div class="card-body small">
     <div><b>Здание:</b> {{ entry.building.name|default:"—" }}{% if entry.building_no %} (№ {{ entry.building_no.number }}){% endif %} · <b>Раздел:</b> {{ entry.section.short|default:"—" }} · <b>Файл:</b> {{ entry.file_name|default:"—" }}</div>
@@ -12,15 +12,15 @@
   <h6>Ревизии</h6>
   <div class="list-group mb-3">
     {% for r in revisions %}
-    <a class="list-group-item list-group-item-action" href="{% url 'docs_revision' r.pk %}">rev{{ r.rev_no }} · {{ r.get_status_display }} · {{ r.attachment.filename|default:"без файла"|truncatechars:60 }}</a>
+    <a class="list-group-item list-group-item-action" href="{% url 'docs_revision' project r.pk %}">rev{{ r.rev_no }} · {{ r.get_status_display }} · {{ r.attachment.filename|default:"без файла"|truncatechars:60 }}</a>
     {% empty %}<div class="text-muted">Нет ревизий</div>{% endfor %}
   </div>
   <h6>Выдачи</h6>
   <div class="list-group mb-3">
     {% for i in issues %}
     <div class="list-group-item">Накладная №{{ i.waybill_no }} от {{ i.waybill_date|date:"d.m.Y"|default:"—" }} · {{ i.network_path|default:"" }}
-      <a class="btn btn-sm btn-outline-secondary py-0 ms-2" href="{% url 'docs_waybill' i.pk %}" target="_blank">PDF</a>
-      <a class="btn btn-sm btn-outline-primary py-0 ms-1" href="{% url 'docs_approval' i.pk %}" target="_blank">Согласование</a></div>
+      <a class="btn btn-sm btn-outline-secondary py-0 ms-2" href="{% url 'docs_waybill' project i.pk %}" target="_blank">PDF</a>
+      <a class="btn btn-sm btn-outline-primary py-0 ms-1" href="{% url 'docs_approval' project i.pk %}" target="_blank">Согласование</a></div>
     {% empty %}<div class="text-muted">Нет</div>{% endfor %}
   </div>
   <h6>История</h6>

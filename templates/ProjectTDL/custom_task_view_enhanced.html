@@ -45,23 +45,32 @@
     border-color: var(--border-color, #4a4f5e);
   }
   body.dark-mode .table { --bs-table-hover-bg: rgba(255,255,255,0.03); }
-  /* Таблица на всю ширину контейнера (не сжимать после редиректа) */
+  /* Единая таблица без клона шапки (DataTables scrollX ВЫКЛЮЧЕН):
+     шапка и тело — одна таблица, рассинхрон границ невозможен */
   #table-wrapper, #table-wrapper .dataTables_wrapper { width: 100% !important; }
-  /* Ширину и layout #TaskTable задаёт ТОЛЬКО JS инлайном с !important
-     (CSS width:100% здесь ломает выравнивание шапки/тела) */
-  /* Родной CSS DT центрирует таблицы (margin:0 auto) — на широких экранах
-     тело уезжает вправо относительно шапки */
+  #table-wrapper { overflow-x: auto; }
   #table-wrapper table.dataTable { margin-left: 0 !important; margin-right: 0 !important; }
-  #TaskTable td, #TaskTable th { white-space: nowrap; }
+  #TaskTable { table-layout: auto; width: max-content; min-width: 100%; }
+  #TaskTable thead th {
+    position: sticky; top: 0; z-index: 3;
+    background: var(--bg-table-header, #f8f9fa);
+  }
+  body.dark-mode #TaskTable thead th { background: var(--bg-table-header, #363b48) !important; }
+  #TaskTable td, #TaskTable th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* Колонка «Наименование»: длинный текст переносится, строка растёт в высоту */
   #TaskTable td.col-name, #TaskTable th.col-name {
     white-space: normal;
+    /* Длинное слитное наименование (без пробелов) не должно раздувать ширину колонки:
+       разрываем внутри слова + принудительный перенос переполнения */
+    overflow-wrap: anywhere;
+    word-break: break-word;
     vertical-align: middle;
     min-width: 180px;
+    max-width: 600px;
     line-height: 1.4;
   }
-  /* Ручка изменения ширины колонки (видимый заголовок в .dt-scroll-head) */
-  #TaskTable thead th, .dt-scroll-head table thead th { position: relative; }
+  /* Ручка изменения ширины колонки (единый thead, без .dt-scroll-head) */
+  #TaskTable thead th { position: sticky; }
   .th-resizer {
     position: absolute; top: 0; right: 0; bottom: 0; width: 8px;
     cursor: pointer; z-index: 5;
@@ -342,7 +351,6 @@
   }
   body.dark-mode .settings-fields-table .col-drag-handle { color: #a0a0a0; }
   body.dark-mode .settings-fields-table { --bs-table-color: var(--text-color, #e0e0e0); --bs-table-bg: transparent; }
-  .dtcr-cloned { z-index: 2000; opacity: 0.9; }
 </style>
 {% endblock %}
 
@@ -682,13 +690,13 @@
 </div>
 
 <div class="modal fade" id="settingsModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable" style="max-height:92vh;">
+    <div class="modal-content" style="max-height:92vh;display:flex;flex-direction:column;">
+      <div class="modal-header" style="flex-shrink:0;">
         <h5 class="modal-title">Настройки</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body" style="overflow-y:auto;flex:1 1 auto;min-height:0;">
         <div class="form-check form-switch mb-3">
           <input class="form-check-input" type="checkbox" id="settingInheritProps">
           <label class="form-check-label" for="settingInheritProps">Наследовать свойства от родительской задачи</label>
@@ -704,11 +712,12 @@
         <label class="form-label fw-semibold">Отображение</label>
         <div class="text-muted small mb-2" style="font-size:12px;">Перетаскивайте строки для порядка колонок в списке задач</div>
         <table class="table table-sm align-middle settings-fields-table">
-          <thead>
+          <thead class="sticky-top bg-body" style="top:0;z-index:2;">
             <tr>
-              <th style="width:60%">Поле</th>
+              <th style="width:40%">Поле</th>
               <th class="text-center">Задачи</th>
               <th class="text-center">Контекст задачи</th>
+              <th class="text-center" style="width:110px;" title="Фиксированная ширина колонки в списке задач (px). Пусто — авто.">Ширина, px</th>
             </tr>
           </thead>
           <tbody id="settings-fields-body"></tbody>
@@ -805,7 +814,7 @@ $(document).ready(function() {
     if (userSettingsEl) {
         try { serverSettings = JSON.parse(userSettingsEl.textContent); } catch (e) {}
     }
-    let dt = initDataTable();
+    let dt = null; // инициализация ниже, после объявления PANEL_FIELDS/SETTINGS_FIELDS
     function applyColumnVisibility(dt) {
         const colVis = (serverSettings && serverSettings.column_visibility) || {};
         dt.columns().every(function() {
@@ -858,44 +867,53 @@ $(document).ready(function() {
     ];
 
     function buildSettingsTable() {
-        const t = $('#TaskTable').DataTable();
+        // widths/visibility/order — по именам колонок единого thead
         const container = $('#settings-fields-body').empty();
         const colVis = (serverSettings && serverSettings.column_visibility) || {};
         const pf = (serverSettings && serverSettings.panel_fields) || {};
+        const widths = (serverSettings && serverSettings.column_widths) || {};
         const byCol = {};
         SETTINGS_FIELDS.forEach(function(f) { byCol[f.col] = f; });
-        // Порядок строк — текущий порядок колонок таблицы
+        // Порядок строк — текущий порядок колонок таблицы (единый thead)
         const ordered = [];
         const seen = {};
-        if (t) {
-            t.columns().every(function() {
-                const h = $(this.header()).text().trim();
-                if (!h) return;
-                const f = byCol[h];
-                if (f && !seen[h]) { ordered.push(f); seen[h] = true; }
-            });
-        }
+        _tableHeaders().forEach(function(th) {
+            const h = th.textContent.trim();
+            if (!h) return;
+            const f = byCol[h];
+            if (f && !seen[h]) { ordered.push(f); seen[h] = true; }
+        });
         SETTINGS_FIELDS.forEach(function(f) {
             if (!seen[f.col]) { ordered.push(f); seen[f.col] = true; }
         });
         ordered.forEach(function(f) {
-            const tr = $('<tr class="settings-field-row" draggable="true" data-col="' + f.col.replace(/"/g, '&quot;') + '">');
+            const esc = f.col.replace(/"/g, '&quot;');
+            const tr = $('<tr class="settings-field-row" draggable="true" data-col="' + esc + '">');
             tr.append('<td><span class="col-drag-handle" title="Перетащить">⋮⋮</span> ' + f.label + '</td>');
             const colVisible = Object.prototype.hasOwnProperty.call(colVis, f.col) ? colVis[f.col] : true;
-            tr.append('<td class="text-center"><input class="form-check-input settings-col-toggle" type="checkbox" data-col="' + f.col.replace(/"/g, '&quot;') + '" ' + (colVisible ? 'checked' : '') + '></td>');
+            tr.append('<td class="text-center"><input class="form-check-input settings-col-toggle" type="checkbox" data-col="' + esc + '" ' + (colVisible ? 'checked' : '') + '></td>');
             if (f.panel) {
                 const pVisible = Object.prototype.hasOwnProperty.call(pf, f.panel) ? pf[f.panel] : true;
                 tr.append('<td class="text-center"><input class="form-check-input settings-panel-toggle" type="checkbox" data-panel="' + f.panel + '" ' + (pVisible ? 'checked' : '') + '></td>');
             } else {
                 tr.append('<td class="text-center text-muted">—</td>');
             }
+            // Фиксированная ширина колонки (px): правит ту же именную модель,
+            // что и ресайзер в шапке; HTML таблицы не трогаем — только colgroup.
+            tr.append('<td class="text-center"><input type="number" min="40" max="3000" step="10" style="width:84px;" '
+                + 'class="form-control form-control-sm d-inline-block settings-width-input" data-col="' + esc + '" '
+                + 'value="' + (widths[f.col] || '') + '" placeholder="авто" title="Фиксированная ширина колонки, px"></td>');
             container.append(tr);
         });
         $('.settings-col-toggle').off('change').on('change', function() {
             const colName = $(this).attr('data-col');
-            const colIdx = _headerToIndex(t, colName);
-            if (colIdx < 0) return;
-            t.column(colIdx).visible($(this).is(':checked'));
+            const colIdx = _headerToIndex(colName);
+            if (window.__taskDt && colIdx >= 0) {
+                try { window.__taskDt.column(colIdx).visible($(this).is(':checked')); } catch (e) {}
+            } else {
+                // fallback без DT API: скрыть колонку в DOM напрямую
+                _setDomColumnVisible(colName, $(this).is(':checked'));
+            }
             colVis[colName] = $(this).is(':checked');
             serverSettings.column_visibility = colVis;
             $.post(SAVE_SETTINGS_URL, {
@@ -913,7 +931,33 @@ $(document).ready(function() {
                 csrfmiddlewaretoken: CSRF_TOKEN
             });
         });
+        $('.settings-width-input').off('change').on('change', function() {
+            const colName = $(this).attr('data-col');
+            const w = parseInt($(this).val(), 10);
+            if (!window.__baseByName) window.__baseByName = {};
+            if (!isNaN(w) && w >= 40) window.__baseByName[colName] = w;
+            else delete window.__baseByName[colName];
+            _renderWidths();
+        });
     }
+    // Скрытие колонки напрямую в DOM (fallback, если DT API недоступен)
+    function _setDomColumnVisible(colName, visible) {
+        const table = document.querySelector('#TaskTable');
+        if (!table) return;
+        const ths = Array.from(table.querySelectorAll('thead th'));
+        const idx = ths.findIndex(function(th) { return th.textContent.trim() === colName; });
+        if (idx < 0) return;
+        ths[idx].style.display = visible ? '' : 'none';
+        table.querySelectorAll('tbody tr').forEach(function(tr) {
+            const c = tr.children[idx];
+            if (c) c.style.display = visible ? '' : 'none';
+        });
+        const cg = table.querySelector('colgroup');
+        if (cg && cg.children[idx]) cg.children[idx].style.display = visible ? '' : 'none';
+    }
+    // Таблица инициализируется ЗДЕСЬ — после объявления всех констант/функций выше
+    // (раньше вызов стоял до const PANEL_FIELDS и падал с TDZ ReferenceError).
+    dt = initDataTable();
     let selectedTasks = new Set();
     let lastClickedId = null;
     let activeProjectSite = String(serverSettings.active_project_id || '');
@@ -926,6 +970,10 @@ $(document).ready(function() {
         if ($.fn.DataTable.isDataTable('#TaskTable')) {
             $('#TaskTable').DataTable().destroy();
         }
+        // scrollX ВЫКЛЮЧЕН намеренно: при scrollX:true DataTables разрезает
+        // таблицу на две (клонированная шапка .dt-scroll-head + тело),
+        // из-за чего границы колонок шапки и тела расходятся.
+        // Единая таблица = рассинхрон невозможен геометрически.
         const dt = new DataTable('#TaskTable', {
             language: { url: "{% static 'DataTables/ru.json' %}" },
             columnDefs: [
@@ -933,56 +981,63 @@ $(document).ready(function() {
             ],
             colReorder: true,
             layout: { topStart: 'info' },
-            lengthMenu: [[10, 15, 20, 50, -1], [10, 15, 20, 50, '']],
+            lengthMenu: [[10, 15, 20, 50, -1], [10, 15, 20, 50, 'Все']],
             autoWidth: false,
-            scrollX: true,
+            scrollX: false,
+            ordering: true,
         });
         if (dt.colReorder) {
             // Чекбокс (колонка 0) закрепляем — его нельзя перетаскивать
-            const cr = dt.settings()[0]._colReorder;
-            if (cr) cr.c.columns = Array.from({ length: dt.columns().count() }, (_, i) => i).slice(1);
+            try {
+                const cr = dt.settings()[0]._colReorder;
+                if (cr) cr.c.columns = Array.from({ length: dt.columns().count() }, (_, i) => i).slice(1);
+            } catch (e) {}
         }
-        dt.on('init.dt', function() {
-            window.__widthGuardSuspended = true;
-            applyColumnVisibility(dt);
-            syncPanelWithSettings();
-            applyColumnOrder(dt);
-            applyColumnWidths(dt);
-            addColumnResizers();
-            initSelectAllCheckbox();
-            // Дерево: показываем все строки без пагинации
-            dt.page.len(-1).draw(false);
-            // После перерисовки ещё раз фиксируем ширины и геометрию таблиц
-            applyColumnWidths(dt);
-            initTreeView();
-            // Поздние пересчёты лейаута (скроллбар, клон шапки) могут затирать стили
-            setTimeout(function() { applyColumnWidths(dt); }, 150);
-            setTimeout(function() { applyColumnWidths(dt); window.__widthGuardSuspended = false; }, 800);
-        });
-        dt.on('draw.dt', function() { markNameColumn(); });
-        // Гарантия: после ЛЮБОЙ перерисовки/пересчёта колонок ширины из настроек восстанавливаются
-        dt.on('draw.dt column-sizing.dt', function() { applyColumnWidths(dt); });
         window.__taskDt = dt;
-        _installTableWidthGuard();
-        // После resize окна DataTables (throttle 200мс) перезаписывает ширины —
-        // восстанавливаем наши значения поверх его пересчёта
-        $(window).off('resize.__wEnforce').on('resize.__wEnforce', function() {
-            clearTimeout(window.__wEnforceT);
-            window.__wEnforceT = setTimeout(function() { _healAlignment(true); }, 320);
+        // Порядок применения важен: сначала порядок, затем видимость и ширины
+        // (ширины и видимость keyed by NAME — устойчивы к перестановке).
+        try { applyColumnOrder(dt); } catch (e) { console.error('[taskTable] order:', e); }
+        try { applyColumnVisibility(dt); } catch (e) { console.error('[taskTable] vis:', e); }
+        try { syncPanelWithSettings(); } catch (e) { console.error('[taskTable] panel:', e); }
+        try { ensureColgroup(); } catch (e) {}
+        try { applyColumnWidths(dt); } catch (e) { console.error('[taskTable] widths:', e); }
+        try { addColumnResizers(); } catch (e) {}
+        try { initSelectAllCheckbox(); } catch (e) {}
+        try { initTreeView(); } catch (e) {}
+        try { markNameColumn(); } catch (e) {}
+        dt.on('draw.dt', function() {
+            // DataTables redraw пересоздаёт строки — восстанавливаем именные ширины
+            // (единая таблица: th правим напрямую, клона шапки нет — рассинхрон невозможен)
+            try { ensureColgroup(); } catch (e) {}
+            try { applyColumnWidths(dt); } catch (e) {}
+            try { markNameColumn(); } catch (e) {}
+            try { initTreeView(); } catch (e) {}
         });
         dt.on('columns-reordered', function() {
             saveColumnOrder();
-            applyColumnWidths(dt);
+            try { ensureColgroup(); } catch (e) {}
+            applyColumnWidths(window.__taskDt);
             markNameColumn();
             if ($('#settingsModal').hasClass('show')) buildSettingsTable();
         });
         return dt;
     }
 
-    function _columnNames(dt) {
-        const names = [];
-        dt.columns().every(function() { names.push($(this.header()).text().trim()); });
-        return names;
+    function _tableHeaders() {
+        return Array.from(document.querySelectorAll('#TaskTable thead th'));
+    }
+
+    function _columnNames() {
+        // Имена в ТЕКУЩЕМ порядке (через DT API — корректно при colReorder)
+        const dt = window.__taskDt;
+        if (dt && $.fn.DataTable.isDataTable('#TaskTable')) {
+            const names = [];
+            try {
+                dt.columns().every(function() { names.push($(this.header()).text().trim()); });
+                if (names.length) return names;
+            } catch (e) {}
+        }
+        return _tableHeaders().map(function(th) { return th.textContent.trim(); });
     }
 
     function applyColumnOrder(dt) {
@@ -991,16 +1046,30 @@ $(document).ready(function() {
         if (!dt.colReorder) return;
         const idxByName = {};
         dt.columns().every(function() { idxByName[$(this.header()).text().trim()] = this.index(); });
-        const idxs = order.map(function(name) { return idxByName[name]; }).filter(function(i) { return typeof i === 'number'; });
-        if (idxs.length === order.length) {
+        // Чекбокс (колонка 0, пустой заголовок) всегда первая.
+        const idxs = [0];
+        const seen = { 0: true };
+        order.forEach(function(name) {
+            if (!name) return;
+            const i = idxByName[name];
+            if (typeof i === 'number' && !seen[i]) { idxs.push(i); seen[i] = true; }
+        });
+        dt.columns().every(function() {
+            const i = this.index();
+            if (!seen[i]) { idxs.push(i); seen[i] = true; }
+        });
+        if (idxs.length === dt.columns().count()) {
             dt.colReorder.order(idxs, false);
         }
     }
 
     function saveColumnOrder() {
-        const dt = $('#TaskTable').DataTable();
-        if (!dt) return;
-        const names = _columnNames(dt);
+        const names = _columnNames();
+        const cb = names.indexOf('');
+        if (cb > 0) {
+            names.splice(cb, 1);
+            names.unshift('');
+        }
         serverSettings.column_order = names;
         $.post(SAVE_SETTINGS_URL, {
             column_order: JSON.stringify(names),
@@ -1009,250 +1078,153 @@ $(document).ready(function() {
     }
 
     function markNameColumn() {
-        const wrapper = document.querySelector('#table-wrapper');
-        if (!wrapper) return;
-        wrapper.querySelectorAll('.dt-scroll-head table thead th, #TaskTable thead th').forEach(function(th) {
+        const table = document.querySelector('#TaskTable');
+        if (!table) return;
+        const ths = Array.from(table.querySelectorAll('thead th'));
+        ths.forEach(function(th) {
             th.classList.toggle('col-name', th.textContent.trim() === 'Наименование');
         });
-        const nameIdx = Array.from(wrapper.querySelectorAll('.dt-scroll-head table thead th')).findIndex(function(th) {
-            return th.textContent.trim() === 'Наименование';
-        });
+        const nameIdx = ths.findIndex(function(th) { return th.textContent.trim() === 'Наименование'; });
         if (nameIdx < 0) return;
-        wrapper.querySelectorAll('#TaskTable tbody tr').forEach(function(tr) {
-            const cell = tr.children[nameIdx];
-            if (cell) {
-                if (!cell.classList.contains('col-name')) cell.classList.add('col-name');
-            }
-        });
-        // Убрать col-name у всех прочих ячеек
-        wrapper.querySelectorAll('#TaskTable tbody td.col-name').forEach(function(td) {
-            if (Array.prototype.indexOf.call(td.parentElement.children, td) !== nameIdx) td.classList.remove('col-name');
+        table.querySelectorAll('tbody tr').forEach(function(tr) {
+            Array.from(tr.children).forEach(function(cell, i) {
+                cell.classList.toggle('col-name', i === nameIdx);
+            });
         });
     }
 
+    // === Ширины колонок: единая таблица, colgroup, ключ — ИМЯ колонки ===
+    // Шапка и тело — одна таблица, поэтому th и td всегда совпадают.
+    // HTML таблицы не трогаем: colgroup создаётся скриптом при инициализации.
+    function _colKey(idx, th) {
+        if (idx === 0) return '__check__';
+        return (th ? th.textContent : '').trim() || ('__col' + idx);
+    }
+    function ensureColgroup() {
+        const table = document.querySelector('#TaskTable');
+        if (!table) return;
+        const n = table.querySelectorAll('thead th').length;
+        // colReorder сам переставляет <col> вместе с th — только синхронизируем количество
+        let cg = table.querySelector('colgroup');
+        if (!cg) {
+            cg = document.createElement('colgroup');
+            for (let i = 0; i < n; i++) cg.appendChild(document.createElement('col'));
+            table.insertBefore(cg, table.firstChild);
+        } else {
+            while (cg.children.length < n) cg.appendChild(document.createElement('col'));
+            while (cg.children.length > n) cg.removeChild(cg.lastChild);
+        }
+    }
     function _setColumnWidth(idx, w) {
-        // Ширина задаётся как есть (1:1), без пересчётов. Ключ — ИМЯ колонки:
-        // colReorder может переставить th в любой момент.
-        const wrapper = document.querySelector('#table-wrapper');
-        if (!wrapper) return;
-        const headTable = wrapper.querySelector('.dt-scroll-head table');
-        const th = headTable ? headTable.querySelectorAll('thead th')[idx] : null;
+        const table = document.querySelector('#TaskTable');
+        if (!table) return;
+        const th = table.querySelectorAll('thead th')[idx];
         if (!th) return;
-        const nm = idx === 0 ? '__check__' : th.textContent.trim();
+        const nm = _colKey(idx, th);
         if (!window.__baseByName) window.__baseByName = {};
         window.__baseByName[nm] = Math.max(20, Math.round(w));
-        _syncTablesTotalWidth(wrapper);
+        _renderWidths();
     }
-
-    // Общая ширина каждой таблицы = сумма СВОИХ колонок, иначе шапка разъезжается с телом
-    function _colsSum(table) {
-        let s = 0;
-        table.querySelectorAll('col').forEach(function(c) { s += parseFloat(c.style.width) || 0; });
-        return s;
-    }
-    // Рендер: базовые ширины (__baseByName, ключ — имя колонки) применяются
-    // КАК ЗАДАНО, без масштабирования под контейнер (пользователь подбирает
-    // ширины сам, один раз). Контейнер уже суммы — горизонтальный скролл.
-    function _syncTablesTotalWidth(wrapper) {
-        const headTable = wrapper.querySelector('.dt-scroll-head table');
-        if (!headTable) return;
+    function _renderWidths() {
+        const table = document.querySelector('#TaskTable');
+        if (!table) return;
+        ensureColgroup();
         const base = window.__baseByName || {};
-        const ths = headTable.querySelectorAll('thead th');
-        const colsHead = wrapper.querySelectorAll('.dt-scroll-head table col');
-        const colsBody = wrapper.querySelectorAll('#TaskTable col');
-        let total = 0, i = 0;
-        ths.forEach(function(th) {
-            const nm = i === 0 ? '__check__' : th.textContent.trim();
-            const b = base[nm];
-            total += b || 0;
-            [colsHead[i], colsBody[i]].forEach(function(c) {
-                if (c && b) c.style.setProperty('width', b + 'px', 'important');
-            });
-            i++;
-        });
-        wrapper.querySelectorAll('table').forEach(function(t) {
-            t.style.setProperty('table-layout', 'fixed', 'important');
-            if (total) t.style.setProperty('width', total + 'px', 'important');
-        });
-    }
-
-    // Проверка фактического совпадения геометрии шапки и тела (пиксели на экране)
-    function _checkRectAlignment() {
-        const wrapper = document.querySelector('#table-wrapper');
-        if (!wrapper) return true;
-        const head = wrapper.querySelector('.dt-scroll-head table');
-        const body = document.querySelector('#TaskTable');
-        if (!head || !body || !body.offsetParent) return true;
-        const hs = head.querySelectorAll('thead th');
-        const firstRow = body.querySelector('tbody tr');
-        if (!hs.length || !firstRow) return true;
-        const bs = firstRow.children;
-        const n = Math.min(hs.length, bs.length);
-        for (let i = 0; i < n; i++) {
-            const hr = hs[i].getBoundingClientRect();
-            const br = bs[i].getBoundingClientRect();
-            if (Math.abs(hr.width - br.width) > 1 || Math.abs(hr.left - br.left) > 1) return false;
-        }
-        const sh = wrapper.querySelector('.dt-scroll-head');
-        const sb = wrapper.querySelector('.dt-scroll-body');
-        if (sh && sb && Math.abs(sh.scrollLeft - sb.scrollLeft) > 2) return false;
-        return true;
-    }
-
-    // Лечение: heavy=true — штатный пересчёт геометрии DataTables (как при resize окна,
-    // это чинит компенсацию скроллбара в шапке). ПОРЯДОК КРИТИЧЕН: сначала наши ширины,
-    // затем columns.adjust() (без draw — он клонирует colgroup тела и фиксирует мусор),
-    // затем снова наши ширины поверх внутреннего пересчёта DT.
-    function _healAlignment(heavy) {
-        if (window.__widthGuardSuspended || !window.__taskDt) return;
-        const dt = window.__taskDt;
-        if (heavy) {
-            applyColumnWidths(dt);
-            try { dt.columns.adjust(); } catch (e) {}
-        }
-        applyColumnWidths(dt);
-        const sh = document.querySelector('#table-wrapper .dt-scroll-head');
-        const sb = document.querySelector('#table-wrapper .dt-scroll-body');
-        if (sh && sb && Math.abs(sh.scrollLeft - sb.scrollLeft) > 2) sh.scrollLeft = sb.scrollLeft;
-        requestAnimationFrame(function() {
-            if (!window.__widthGuardSuspended && !_checkRectAlignment() && window.__taskDt) {
-                applyColumnWidths(window.__taskDt);
-                requestAnimationFrame(function() {
-                    if (!_checkRectAlignment() && window.__taskDt && !window.__widthGuardSuspended) {
-                        try { window.__taskDt.columns.adjust(); } catch (e) {}
-                        applyColumnWidths(window.__taskDt);
-                    }
-                });
+        const ths = table.querySelectorAll('thead th');
+        const cols = table.querySelectorAll('colgroup col');
+        let total = 0, fixed = 0;
+        ths.forEach(function(th, i) {
+            const b = base[_colKey(i, th)] || 0;
+            if (b) { total += b; fixed++; }
+            if (cols[i]) {
+                if (b) cols[i].style.setProperty('width', b + 'px', 'important');
+                else cols[i].style.removeProperty('width');
             }
+            if (b) th.style.setProperty('width', b + 'px', 'important');
+            else th.style.removeProperty('width');
         });
-    }
-
-    // Самовосстанавливающийся guard: DataTables при resize окна (_fnAdjustColumnSizing)
-    // перезаписывает table.style.width контентной суммой — из-за этого тело «растягивается»
-    // относительно шапки. Guard откатывает любые посторонние записи к сохранённым ширинам.
-    // ВАЖНО: applyFilters() заменяет #table-wrapper целиком — guard обязан переустанавливаться
-    // при каждой реинициализации таблицы и при подмене узлов.
-    function _installTableWidthGuard() {
-        const wrapper = document.querySelector('#table-wrapper');
-        if (!wrapper || !window.MutationObserver) return;
-        if (window.__widthGuardMo) { try { window.__widthGuardMo.disconnect(); } catch (e) {} }
-        let scheduled = false;
-        const enforce = function() {
-            const log = (window.__guardLog = window.__guardLog || []);
-            log.push({t: Date.now(), susp: !!window.__widthGuardSuspended});
-            if (log.length > 20) log.splice(0, log.length - 20);
-            if (scheduled || window.__widthGuardSuspended || !window.__taskDt) return;
-            scheduled = true;
-            requestAnimationFrame(function() {
-                scheduled = false;
-                if (window.__widthGuardSuspended || !window.__taskDt) return;
-                _installTableWidthGuard(); // узлы могли быть подменены — следим за новыми
-                applyColumnWidths(window.__taskDt);
-            });
-        };
-        const mo = new MutationObserver(enforce);
-        wrapper.querySelectorAll('table').forEach(function(t) {
-            mo.observe(t, { attributes: true, attributeFilter: ['style'] });
-        });
-        mo.observe(wrapper, { childList: true });
-        window.__widthGuardMo = mo;
-        // Страховочный таймер: раз в 1.5с проверяем фактическое выравнивание
-        // (ловит любые причины: zoom, DPI, transient-состояния DataTables)
-        if (!window.__alignTimer) {
-            window.__alignTimer = setInterval(function() {
-                if (document.hidden || window.__widthGuardSuspended || !window.__taskDt) return;
-                if (!_checkRectAlignment()) _healAlignment(true);
-            }, 1500);
+        if (fixed) {
+            // Есть сохранённые ширины — фиксируем таблицу суммой, остальное скроллится
+            table.style.setProperty('table-layout', 'fixed', 'important');
+            if (total) table.style.setProperty('width', total + 'px', 'important');
+        } else {
+            // Сохранённых ширин нет — естественная раскладка по контенту, без заморозки
+            table.style.setProperty('table-layout', 'auto', 'important');
+            table.style.removeProperty('width');
         }
     }
-
-    // Применить ширины по имени заголовка (устойчиво к перемещению колонок)
     function _applyWidthsByName(widths) {
-        if (!widths || !Object.keys(widths).length) return;
-        const wrapper = document.querySelector('#table-wrapper');
-        const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
-        if (!headTable) return;
-        // Базовые (логические) ширины — источник истины. Ключ — ИМЯ колонки:
-        // позиция ненадёжна, colReorder переставляет th в любой момент.
         if (!window.__baseByName) window.__baseByName = {};
-        headTable.querySelectorAll('thead th').forEach(function(th, i) {
-            const nm = i === 0 ? '__check__' : th.textContent.trim();
-            if (window.__baseByName[nm] > 20) return;
-            let b = parseInt(widths[nm], 10) || 0;
-            if (!b || b < 20) {
-                const c = headTable.querySelectorAll('col')[i];
-                b = parseFloat(c ? c.style.width : 0) || 0;
-            }
-            if (!b || b < 20) b = Math.round(th.getBoundingClientRect().width) || 120;
-            window.__baseByName[nm] = b;
+        const hasSaved = widths && Object.keys(widths).length;
+        if (!hasSaved) { _renderWidths(); return; } // нечего применять — не морозить текущие
+        const table = document.querySelector('#TaskTable');
+        if (!table) return;
+        table.querySelectorAll('thead th').forEach(function(th, i) {
+            const nm = _colKey(i, th);
+            if (window.__baseByName[nm] > 20) return; // ручная ширина уже задана — не затирать
+            const b = parseInt(widths[nm], 10) || 0;
+            if (b >= 20) window.__baseByName[nm] = b;
         });
-        _syncTablesTotalWidth(wrapper);
+        _renderWidths();
     }
-
-    // Записать текущие DOM-ширины во внутреннее состояние DataTables (sWidth),
-    // чтобы redraw / columns.adjust() / resize окна их не сбрасывали
-    function _pushWidthsIntoDt(dt) {
-        if (!dt) return;
-        const wrapper = document.querySelector('#table-wrapper');
-        const headTable = wrapper ? wrapper.querySelector('.dt-scroll-head table') : null;
-        if (!headTable) return;
-        const st = dt.settings()[0];
-        const idxByName = {};
-        dt.columns().every(function() { idxByName[$(this.header()).text().trim()] = this.index(); });
-        const cols = headTable.querySelectorAll('col');
-        headTable.querySelectorAll('thead th').forEach(function(th, i) {
-            const w = parseFloat(cols[i] ? cols[i].style.width : 0);
-            const di = idxByName[th.textContent.trim()];
-            if (w && typeof di === 'number' && st.aoColumns[di]) st.aoColumns[di].sWidth = w + 'px';
-        });
-        // Колонка чекбоксов без имени — синхронизируем по позиции 0
-        const c0 = cols[0];
-        const w0 = parseFloat(c0 ? c0.style.width : 0);
-        if (w0 && st.aoColumns[0]) st.aoColumns[0].sWidth = w0 + 'px';
-    }
-
-    // Фиксируем текущие ширины ВСЕХ колонок — при изменении одной остальные не сдвигаются.
-    // В именованной модели база уже «заморожена», достаточно перерендерить.
-    function _pinAllColumnWidths() {
-        const wrapper = document.querySelector('#table-wrapper');
-        if (!wrapper) return;
-        _syncTablesTotalWidth(wrapper);
-    }
-
     function _getColWidths() {
-        const wrapper = document.querySelector('#table-wrapper');
-        if (!wrapper) return {};
-        const headTable = wrapper.querySelector('.dt-scroll-head table');
-        if (!headTable) return {};
+        const table = document.querySelector('#TaskTable');
+        if (!table) return {};
         const widths = {};
-        // Итерация по фактическим th: имя → базовая ширина. Порядок не важен.
-        headTable.querySelectorAll('thead th').forEach(function(th, i) {
-            const nm = i === 0 ? '__check__' : th.textContent.trim();
-            if (!nm) return;
+        table.querySelectorAll('thead th').forEach(function(th, i) {
+            const nm = _colKey(i, th);
             const b = window.__baseByName ? window.__baseByName[nm] : 0;
             if (b && b > 20) widths[nm] = b;
         });
         return widths;
     }
-
     function applyColumnWidths(dt) {
-        // По имени заголовка — устойчиво к перемещению/скрытию колонок
         _applyWidthsByName(serverSettings.column_widths || {});
-        _pushWidthsIntoDt(dt);
     }
-
     function addColumnResizers() {
-        // Видимый заголовок — в .dt-scroll-head (в #TaskTable заголовок служебный, высота 1px)
-        const wrapper = document.querySelector('#table-wrapper');
-        const headerThs = wrapper ? wrapper.querySelectorAll('.dt-scroll-head table thead th') : [];
-        if (!headerThs.length) return;
-        headerThs.forEach(function(th) {
-            if ($(th).find('.th-resizer').length) return;
-            const handle = $('<span class="th-resizer" title="Задать ширину колонки"></span>');
-            $(th).append(handle);
+        document.querySelectorAll('#TaskTable thead th').forEach(function(th) {
+            if (th.querySelector(':scope > .th-resizer')) return;
+            const handle = document.createElement('span');
+            handle.className = 'th-resizer';
+            handle.title = 'Задать ширину колонки';
+            th.appendChild(handle);
+            // Drag влево/вправо — живое изменение ширины единой таблицы
+            handle.addEventListener('mousedown', function(e) {
+                e.preventDefault(); e.stopPropagation();
+                handle.classList.add('active');
+                const idx = Array.prototype.indexOf.call(th.parentElement.children, th);
+                const startX = e.pageX;
+                const startW = th.getBoundingClientRect().width;
+                _pinWidthsSnapshot();
+                function onMove(ev) {
+                    const w = Math.max(40, Math.round(startW + ev.pageX - startX));
+                    _setColumnWidth(idx, w);
+                }
+                function onUp() {
+                    handle.classList.remove('active');
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    saveColumnWidths();
+                }
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            });
         });
     }
-
+    // Заморозить текущие ширины как базу перед drag (остальные колонки не едут)
+    function _pinWidthsSnapshot() {
+        const table = document.querySelector('#TaskTable');
+        if (!table) return;
+        if (!window.__baseByName) window.__baseByName = {};
+        table.querySelectorAll('thead th').forEach(function(th, i) {
+            const nm = _colKey(i, th);
+            if (!window.__baseByName[nm] || window.__baseByName[nm] < 20) {
+                const w = Math.round(th.getBoundingClientRect().width);
+                if (w >= 20) window.__baseByName[nm] = w;
+            }
+        });
+    }
+    function _pinAllColumnWidths() { _pinWidthsSnapshot(); _renderWidths(); }
     function saveColumnWidths() {
         const widths = _getColWidths();
         serverSettings.column_widths = widths;
@@ -1263,28 +1235,27 @@ $(document).ready(function() {
     }
 
     // Клик по ручке — выпадающее окно с точной шириной колонки
-    $(document).on('click', '.dt-scroll-head .th-resizer', function(e) {
+    $(document).on('click', '#TaskTable .th-resizer', function(e) {
+        // mousedown-drag уже обработан; клик без движения — показать popup
+        if (e.originalEvent && e.originalEvent.detail === 0) return;
         e.preventDefault();
         e.stopPropagation();
         const th = $(this).closest('th');
         showColWidthPopup(th, th.index());
     });
 
-    // Выпадающее окно ширины колонки
+    // Выпадающее окно ширины колонки (единая таблица — правим colgroup по имени)
     let cwpCtx = null;
     function hideColWidthPopup(revert) {
         const popup = $('#colWidthPopup');
         if (popup.hasClass('d-none')) return;
         if (revert && cwpCtx) {
-            $(cwpCtx.th).css('width', cwpCtx.origW + 'px');
             _setColumnWidth(cwpCtx.colIdx, cwpCtx.origW);
         }
         popup.addClass('d-none');
         cwpCtx = null;
-        window.__widthGuardSuspended = false;
     }
     function showColWidthPopup(th, colIdx) {
-        window.__widthGuardSuspended = true;
         _pinAllColumnWidths();
         const curW = Math.round(th.outerWidth());
         cwpCtx = { th: th[0], colIdx: colIdx, origW: curW };
@@ -1306,8 +1277,7 @@ $(document).ready(function() {
     $(document).on('input', '#colWidthPopup .cwp-input', function() {
         if (!cwpCtx) return;
         const w = parseInt(this.value, 10);
-        if (!isNaN(w) && w >= 60) {
-            $(cwpCtx.th).css('width', w + 'px');
+        if (!isNaN(w) && w >= 40) {
             _setColumnWidth(cwpCtx.colIdx, w);
         }
     });
@@ -1317,19 +1287,14 @@ $(document).ready(function() {
     $(document).on('click', '#colWidthPopup .cwp-apply', function() {
         if (cwpCtx) {
             const w = parseInt($('#colWidthPopup .cwp-input').val(), 10);
-            if (!isNaN(w) && w >= 60) {
-                $(cwpCtx.th).css('width', w + 'px');
+            if (!isNaN(w) && w >= 40) {
                 _setColumnWidth(cwpCtx.colIdx, w);
                 cwpCtx = null;
-                // Синхронизировать внутренние ширины DataTables — иначе при redraw/resize
-                // шапка перестанет соответствовать телу таблицы
-                _pushWidthsIntoDt($('#TaskTable').DataTable());
                 saveColumnWidths();
             }
         }
         $('#colWidthPopup').addClass('d-none');
         cwpCtx = null;
-        window.__widthGuardSuspended = false;
     });
     $(document).on('click', '#colWidthPopup .cwp-cancel', function() { hideColWidthPopup(true); });
 
@@ -1434,9 +1399,7 @@ $(document).ready(function() {
     }
 
     function initSelectAllCheckbox() {
-        const wrapper = document.querySelector('#table-wrapper');
-        if (!wrapper) return;
-        wrapper.querySelectorAll('.dt-scroll-head table thead th:first-child input[type="checkbox"], #TaskTable thead th:first-child input[type="checkbox"]').forEach(function(cb) {
+        document.querySelectorAll('#TaskTable thead th:first-child input[type="checkbox"]').forEach(function(cb) {
             cb.classList.add('header-select-all');
         });
     }
@@ -1868,27 +1831,43 @@ $(document).ready(function() {
         });
     });
 
-    function _headerToIndex(dt, name) {
-        let found = -1;
-        dt.columns().every(function() { if ($(this.header()).text().trim() === name) found = this.index(); });
-        return found;
+    function _headerToIndex(name) {
+        // Индекс ВНУТРИ DataTables (корректен при colReorder) — для dt.column()
+        const dt = window.__taskDt;
+        if (dt && $.fn.DataTable.isDataTable('#TaskTable')) {
+            let found = -1;
+            try {
+                dt.columns().every(function() {
+                    if ($(this.header()).text().trim() === name) found = this.index();
+                });
+            } catch (e) {}
+            if (found >= 0) return found;
+        }
+        const ths = _tableHeaders();
+        for (let i = 0; i < ths.length; i++) {
+            if (ths[i].textContent.trim() === name) return i;
+        }
+        return -1;
     }
 
     function applySettingsColumnOrder() {
-        const t = $('#TaskTable').DataTable();
-        if (!t || !t.colReorder) return;
+        // Порядок берут из строк модалки настроек; двигаем через colReorder API,
+        // чтобы tbody при redraw оставался согласован с thead.
+        const dt = window.__taskDt;
+        if (!dt || !dt.colReorder) return;
         const idxByName = {};
-        t.columns().every(function() { idxByName[$(this.header()).text().trim()] = this.index(); });
+        try {
+            dt.columns().every(function() { idxByName[$(this.header()).text().trim()] = this.index(); });
+        } catch (e) { return; }
         const order = [];
         $('#settings-fields-body .settings-field-row').each(function() {
             const colName = $(this).attr('data-col');
             if (Object.prototype.hasOwnProperty.call(idxByName, colName)) order.push(idxByName[colName]);
         });
-        // Чекбокс (колонка 0) всегда первый
         const i0 = order.indexOf(0);
         if (i0 > 0) order.splice(i0, 1);
         if (order[0] !== 0) order.unshift(0);
-        t.colReorder.order(order, false);
+        dt.colReorder.order(order, false);
         saveColumnOrder();
     }
 
@@ -1935,13 +1914,25 @@ $(document).ready(function() {
             colVis[$(this).attr('data-col')] = $(this).is(':checked');
         });
         serverSettings.column_visibility = colVis;
-        const curOrder = _columnNames(dt);
+        const curOrder = _columnNames();
         serverSettings.column_order = curOrder;
         const panelFields = {};
         $('.settings-panel-toggle').each(function() {
             panelFields[$(this).attr('data-panel')] = $(this).is(':checked');
         });
         serverSettings.panel_fields = panelFields;
+        // Фиксированные ширины из модалки (пусто = авто)
+        const colWidths = {};
+        $('.settings-width-input').each(function() {
+            const w = parseInt($(this).val(), 10);
+            if (!isNaN(w) && w >= 40) colWidths[$(this).attr('data-col')] = w;
+        });
+        // Чекбокс-колонка: сохранить, если была задана ранее
+        if (window.__baseByName && window.__baseByName.__check__) colWidths.__check__ = window.__baseByName.__check__;
+        serverSettings.column_widths = colWidths;
+        if (!window.__baseByName) window.__baseByName = {};
+        Object.keys(colWidths).forEach(function(k) { window.__baseByName[k] = colWidths[k]; });
+        _renderWidths();
         $.post(SAVE_SETTINGS_URL, {
             inherit_props: serverSettings.inherit_props,
             new_task_position: serverSettings.new_task_position,
@@ -1954,6 +1945,7 @@ $(document).ready(function() {
             column_visibility: JSON.stringify(colVis),
             column_order: JSON.stringify(curOrder),
             panel_fields: JSON.stringify(panelFields),
+            column_widths: JSON.stringify(colWidths),
             csrfmiddlewaretoken: CSRF_TOKEN,
         });
         $('#settingsModal').modal('hide');

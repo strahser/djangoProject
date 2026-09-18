@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import io
+import os
 from datetime import date
 
 try:
@@ -15,7 +16,7 @@ try:
     from reportlab.lib.units import mm
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     _HAS_RL = True
 except ImportError:
     _HAS_RL = False
@@ -47,6 +48,27 @@ def _styles():
 
 
 STAMP_FILL = '#2f9e63'  # зелёная плашка как э-подпись на скриншоте
+
+# Автограф менеджера по проектированию — PNG из templates/Подписи (подпись Страхова).
+SIGNATURE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'Подписи')
+SIGNATURE_PNG = os.path.join(SIGNATURE_DIR, 'podpis-rovnaya.png')
+DESIGN_MANAGER_POSITION = 'менеджер по проектированию'
+
+
+def _signature_image(s: dict):
+    """Изображение автографа для ячейки «Подпись»; None, если файл недоступен."""
+    _need_rl()
+    if not os.path.isfile(SIGNATURE_PNG):
+        return None
+    img = Image(SIGNATURE_PNG)
+    img._restrictSize(28 * mm, 14 * mm)
+    img.hAlign = 'CENTER'
+    return img
+
+
+def _is_design_manager(sg) -> bool:
+    """Менеджер по проектированию — подставляем автограф из templates/Подписи."""
+    return DESIGN_MANAGER_POSITION in (sg.position or '').lower()
 
 
 def _stamp_table(person: str, stamped_at: str, s: dict) -> Table:
@@ -283,6 +305,10 @@ def _approval_sheet(when, month_ru, signers, rows, note_tom, header) -> bytes:
             sign_cell = _stamp_table(sg.person or '', stamped_at, s)
         else:
             sign_cell = Paragraph('', s['cell'])
+        if _is_design_manager(sg):
+            # в ячейку подписи менеджера по проектированию встраиваем автограф
+            autograph = _signature_image(s)
+            sign_cell = [autograph, sign_cell] if autograph is not None else sign_cell
         data.append([Paragraph(pos, s['cell']), sign_cell,
                      Paragraph(sg.person or '', s['cell']), Paragraph(sg.mark or '', s['cell'])])
     t = Table(data, colWidths=[70 * mm, 30 * mm, 40 * mm, 32 * mm])

@@ -7,7 +7,7 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.3/tinymce.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tinymce@7.9.3/tinymce.min.js"></script>
 <meta name="csrf-token" content="{{ csrf_token }}">
 <style>
 :root {
@@ -52,8 +52,18 @@ body.dark-mode .collapsible-section .section-body { background: var(--bg-card); 
 body.dark-mode .table-email td { border: none; border-bottom: 1px solid var(--border-color); }
 body.dark-mode .table-email thead th { border: none; border-bottom: 2px solid var(--border-color); }
 body.dark-mode .table-email a.text-dark { color: var(--text-color) !important; }
-body.dark-mode #sender-dropdown .list-group-item { background: #2d323e; color: #e0e0e0; border-color: #4a4f5e; }
-body.dark-mode #sender-dropdown .list-group-item:hover { background: #3a4050; }
+body.dark-mode #sender-dropdown .list-group-item, body.dark-mode #receiver-dropdown .list-group-item, body.dark-mode #cc-dropdown .list-group-item { background: #2d323e; color: #e0e0e0; border-color: #4a4f5e; }
+body.dark-mode #sender-dropdown .list-group-item:hover, body.dark-mode #receiver-dropdown .list-group-item:hover, body.dark-mode #cc-dropdown .list-group-item:hover { background: #3a4050; }
+.email-picker { position: relative; }
+.email-picker-chips:empty { display: none !important; margin: 0 !important; }
+.email-picker-panel { position: absolute; top: 100%; left: 0; right: 0; z-index: 1050; height: 250px; flex-direction: column; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); margin-top: 4px; overflow: hidden; }
+.email-picker-panel .email-picker-search { border: none; border-bottom: 1px solid var(--border-color); border-radius: 6px 6px 0 0; }
+.email-picker-panel .email-picker-search:focus { box-shadow: none; }
+.email-picker-list { flex: 1; overflow-y: auto; }
+.email-picker-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--border-color); background: var(--bg-table-header); }
+body.dark-mode .email-picker-panel .list-group-item { background: #2d323e; color: #e0e0e0; border-color: #4a4f5e; }
+body.dark-mode .email-picker-panel .list-group-item:hover { background: #3a4050; }
+body.dark-mode .email-picker-panel .list-group-item.active { background: #1c3d2e; border-color: #4a4f5e; }
 body.dark-mode #contacts-dropdown .dropdown-menu { background: #2d323e; border-color: #4a4f5e; }
 body.dark-mode #contacts-dropdown .dropdown-item { color: #e0e0e0; }
 body.dark-mode #contacts-dropdown .dropdown-item:hover { background: #3a4050; }
@@ -88,6 +98,21 @@ body.dark-mode .sidebar .badge { background: #6ea8fe; color: #1a1d23; }
 .email-row:hover { background-color: var(--bg-table-row-hover); cursor: pointer; }
 .email-row.unread { font-weight: 600; background: var(--bg-table-row-unread); }
 .email-row.unread td:first-child { box-shadow: inset 3px 0 0 0 #0d6efd; }
+
+/* Превью содержания письма под темой (настройка «Настройки почты» → «Тема письма») */
+.email-subject-preview {
+    font-size: 12px;
+    font-weight: 400;
+    color: #6c757d;
+    margin-top: 2px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.35;
+}
+body.dark-mode .email-subject-preview { color: #9aa0ae; }
 
 .email-avatar {
     width: 34px; height: 34px;
@@ -135,6 +160,18 @@ body.dark-mode .att-chip {
 .att-chip .att-name { overflow: hidden; text-overflow: ellipsis; }
 .att-chip-more { background: #f1f3f5; color: #868e96; border-color: #dee2e6; cursor: default; }
 body.dark-mode .att-chip-more { background: #363b48; color: #a0a0a0; border-color: #4a4f5e; }
+body.dark-mode .accordion-item { background: var(--bg-card); color: var(--text-color); border-color: var(--border-color); }
+body.dark-mode .accordion-button { background: var(--bg-table-header); color: var(--text-color); }
+body.dark-mode .accordion-button:not(.collapsed) { background: #3a4050; color: #fff; box-shadow: inset 0 -1px 0 var(--border-color); }
+body.dark-mode .accordion-button::after { filter: invert(1) grayscale(1); }
+body.dark-mode .accordion-button:focus { border-color: var(--border-color); box-shadow: 0 0 0 2px rgba(13,110,253,.35); }
+body.dark-mode .accordion-body .table { color: var(--text-color); }
+body.dark-mode .accordion-body a.text-dark { color: var(--text-color) !important; }
+body.dark-mode .page-link { background: var(--bg-card); border-color: var(--border-color); color: var(--text-color); }
+body.dark-mode .page-link:hover { background: var(--bg-table-row-hover); color: #fff; }
+body.dark-mode .page-item.disabled .page-link { background: var(--bg-table-header); color: var(--text-muted); }
+body.dark-mode .thread-message .card-header,
+body.dark-mode .thread-message .card-footer { background: var(--bg-table-header); border-color: var(--border-color); }
 body.dark-mode h1, body.dark-mode h2, body.dark-mode h3,
 body.dark-mode h4, body.dark-mode h5, body.dark-mode h6 { color: #e0e0e0; }
 
@@ -180,20 +217,95 @@ body.dark-mode h4, body.dark-mode h5, body.dark-mode h6 { color: #e0e0e0; }
 .font-size-control input[type="range"] { width: 60px; height: 4px; }
 
 .letter-frame { border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; }
-.letter-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: var(--bg-table-header); border-bottom: 1px solid var(--border-color); }
+.letter-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 14px; background: var(--bg-table-header); border-bottom: 1px solid var(--border-color); }
 .letter-toolbar-label { font-size: 13px; color: var(--text-muted); }
+.letter-toolbar-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.letter-fontscale { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); margin: 0; white-space: nowrap; }
+.letter-fontscale input[type="range"] { width: 110px; height: 4px; cursor: pointer; }
+.letter-fontscale span { min-width: 20px; text-align: right; font-variant-numeric: tabular-nums; }
 .letter-mode-switch { display: flex; gap: 2px; }
 .letter-mode-switch button { padding: 3px 12px; font-size: 12px; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-color); cursor: pointer; }
 .letter-mode-switch button:first-child { border-radius: 4px 0 0 4px; }
 .letter-mode-switch button:last-child { border-radius: 0 4px 4px 0; }
 .letter-mode-switch button.active { background: var(--ya-yellow); color: #1c2027; border-color: var(--ya-yellow); }
-.letter-content { padding: 20px; min-height: 200px; }
+.letter-content { padding: 22px 24px; min-height: 200px; font-size: var(--letter-font-size, 16px); line-height: 1.65; overflow-wrap: break-word; }
 .letter-frame.letter-paper .letter-content { background: #fdfdfd; color: #222; }
-.letter-frame.letter-dark .letter-content { background: #171b22; color: #cfcfcf; }
+.letter-frame.letter-dark .letter-content { background: #171b22; color: #e8ebf0; }
 .letter-frame.letter-auto .letter-content { background: transparent; color: inherit; }
-body.dark-mode .letter-frame.letter-paper .letter-content { background: #2a2f3a; color: #e0e0e0; }
-body.dark-mode .letter-frame.letter-dark .letter-content { background: #0d0f14; color: #b0b0b0; }
+body.dark-mode .letter-frame.letter-paper .letter-content { background: #2a2f3a; color: #eceff4; }
+body.dark-mode .letter-frame.letter-dark .letter-content { background: #0d0f14; color: #e8ebf0; }
 .letter-content img { max-width: 100%; height: auto; border-radius: 6px; }
+.letter-section { border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+.letter-section:last-child { margin-bottom: 0; }
+.letter-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); padding: 6px 14px; background: var(--bg-table-header); border-bottom: 1px solid var(--border-color); }
+summary.letter-section-title { cursor: pointer; }
+details.letter-section[open] > summary.letter-section-title { border-bottom: 1px solid var(--border-color); }
+details.letter-section:not([open]) > summary.letter-section-title { border-bottom: none; }
+.letter-section-body { padding: 14px 16px; font-size: 1em; line-height: 1.65; overflow-wrap: break-word; }
+.letter-body .letter-section-body { font-size: 1em; }
+.letter-header .letter-section-body, .letter-footer .letter-section-body { font-size: 0.875em; line-height: 1.6; }
+.letter-footer .letter-section-body { color: var(--text-muted); }
+.letter-footer blockquote { border-left: 3px solid var(--border-color); margin: 8px 0; padding: 6px 12px; }
+.letter-signature { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-color); font-size: 0.85em; opacity: .95; }
+/* Тёмная тема: гасим белые подложки из Outlook (background-color:white) и читаем чёрный инлайн-текст.
+   Белые пятна и font/color-атрибуты исходного HTML перекрываются, ссылки остаются синими. */
+body.dark-mode .letter-content *:not(img):not(video):not(canvas),
+.letter-frame.letter-dark .letter-content *:not(img):not(video):not(canvas) {
+  background-color: transparent !important;
+  background-image: none !important;
+  text-shadow: none !important;
+}
+body.dark-mode .letter-content,
+body.dark-mode .letter-content div,
+body.dark-mode .letter-content p,
+body.dark-mode .letter-content span,
+body.dark-mode .letter-content td,
+body.dark-mode .letter-content th,
+body.dark-mode .letter-content li,
+body.dark-mode .letter-content font,
+body.dark-mode .letter-content h1,
+body.dark-mode .letter-content h2,
+body.dark-mode .letter-content h3,
+body.dark-mode .letter-content h4,
+.letter-frame.letter-dark .letter-content,
+.letter-frame.letter-dark .letter-content div,
+.letter-frame.letter-dark .letter-content p,
+.letter-frame.letter-dark .letter-content span,
+.letter-frame.letter-dark .letter-content td,
+.letter-frame.letter-dark .letter-content th,
+.letter-frame.letter-dark .letter-content li,
+.letter-frame.letter-dark .letter-content font,
+.letter-frame.letter-dark .letter-content h1,
+.letter-frame.letter-dark .letter-content h2,
+.letter-frame.letter-dark .letter-content h3,
+.letter-frame.letter-dark .letter-content h4 {
+  color: #e8ebf0 !important;
+}
+/* Служебные поля и подпись в тёмной теме — ярко, почти белым */
+body.dark-mode .letter-header .letter-section-body,
+body.dark-mode .letter-footer .letter-section-body,
+body.dark-mode .letter-signature,
+.letter-frame.letter-dark .letter-header .letter-section-body,
+.letter-frame.letter-dark .letter-footer .letter-section-body,
+.letter-frame.letter-dark .letter-signature {
+  color: #f4f6fa !important;
+}
+body.dark-mode .letter-content a,
+body.dark-mode .letter-content a span,
+body.dark-mode .letter-content a u,
+.letter-frame.letter-dark .letter-content a,
+.letter-frame.letter-dark .letter-content a span,
+.letter-frame.letter-dark .letter-content a u {
+  color: #8ab4ff !important;
+}
+body.dark-mode .letter-content table,
+body.dark-mode .letter-content td,
+body.dark-mode .letter-content th,
+.letter-frame.letter-dark .letter-content table,
+.letter-frame.letter-dark .letter-content td,
+.letter-frame.letter-dark .letter-content th {
+  border-color: #4a4f5e !important;
+}
 
 .app-toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
 .app-toast { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 10px; background: #323846; color: #fff; font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); animation: toast-in 0.3s ease; }
@@ -281,8 +393,8 @@ body.dark-mode ::-moz-selection { background: #0d6efd; color: #fff; }
         <button class="btn btn-sm nav-btn-custom" onclick="toggleNightMode()" title="Тема">
             <i class="bi bi-moon-stars"></i>
         </button>
-        <button class="btn btn-sm nav-btn-custom" onclick="updateSidebarCounters()" title="Обновить">
-            <i class="bi bi-arrow-clockwise"></i>
+        <button class="btn btn-sm nav-btn-custom" onclick="fetchEmails(this)" title="Получить почту">
+            <i class="bi bi-arrow-down-circle"></i>
         </button>
         <a href="/admin/" class="btn btn-sm nav-btn-custom" title="Админ-панель"><i class="bi bi-gear"></i></a>
     </div>
@@ -370,7 +482,7 @@ function updateSidebarCounters() {
     fetch('{% url "email_ui:unread_count" %}')
         .then(r => r.json())
         .then(data => {
-            ['inbox','important','attachments','unread'].forEach(key => {
+            ['inbox','important','attachments','unread','drafts','sent'].forEach(key => {
                 const el = document.getElementById('count-' + key);
                 if (el) {
                     el.textContent = data[key] || 0;
@@ -381,6 +493,28 @@ function updateSidebarCounters() {
         }).catch(() => {});
 }
 updateSidebarCounters();
+function fetchEmails(btn) {
+    if (!btn || btn.disabled) return;
+    var original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    var body = new URLSearchParams();
+    body.append('mail_count', '10');
+    body.append('next', window.location.pathname + window.location.search);
+    fetch('{% url "email_ui:fetch_emails" %}', {
+        method: 'POST',
+        headers: {'X-CSRFToken': '{{ csrf_token }}'},
+        body: body
+    }).then(function(resp) {
+        // fetch_emails редиректит обратно (с messages) — переходим туда же:
+        // страница перезагрузится, покажет новые письма и обновит счётчики.
+        window.location.href = resp.url;
+    }).catch(function() {
+        btn.disabled = false;
+        btn.innerHTML = original;
+        showToast('Не удалось получить почту', 'error');
+    });
+}
 
 document.body.addEventListener('htmx:configRequest', evt => {
     evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
@@ -496,10 +630,13 @@ window.initTinyMCE = function() {
         selector: '#compose-editor',
         height: 500,
         menubar: false,
+        plugins: 'lists advlist link table charmap code fullscreen',
+        toolbar: 'undo redo | fontname fontsize | blocks | forecolor backcolor | bold italic underline strikethrough | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link table | removeformat | fullscreen code',
+        font_formats: 'Arial=arial,helvetica,sans-serif; Arial Black=arial black,avant garde,sans-serif; Book Antiqua=book antiqua,palatino,serif; Calibri=calibri,arial,sans-serif; Cambria=cambria,times,serif; Comic Sans MS=comic sans ms,sans-serif; Consolas=consolas,monaco,monospace; Courier New=courier new,courier,monospace; Georgia=georgia,palatino,serif; Impact=impact,chicago,sans-serif; Times New Roman=times new roman,times,serif; Trebuchet MS=trebuchet ms,geneva,sans-serif; Verdana=verdana,geneva,sans-serif',
+        font_size_formats: '8pt 9pt 10pt 11pt 12pt 14pt 16pt 18pt 20pt 22pt 24pt 26pt 28pt 32pt 36pt 40pt 48pt 56pt 64pt',
         content_style: isDark
             ? "body{background:#1e1e3a;color:#d0d0e0;font-size:14px;font-family:-apple-system,sans-serif;}"
             : "body{background:#fff;color:#333;font-size:14px;font-family:-apple-system,sans-serif;}",
-        toolbar: 'undo redo | formatselect | bold italic | alignleft aligncenter alignright | bullist numlist | removeformat | code',
         setup(editor) {
             editor.on('change', () => { editor.save(); if (window.EmailApp) EmailApp.markDirty(); });
         }
@@ -563,11 +700,248 @@ function setLetterMode(pk, mode, btn) {
     var frame = document.getElementById('letter-frame-' + pk);
     if (!frame) return;
     frame.className = 'letter-frame ' + mode;
-    var parent = btn.parentElement;
-    if (parent) parent.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
+    try { localStorage.setItem('email-letter-mode', mode); } catch (e) {}
+    var scope = btn ? (btn.parentElement || document) : document;
+    scope.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
 }
+function setLetterFontSize(pk, size, slider) {
+    size = Math.max(12, Math.min(24, parseInt(size, 10) || 16));
+    var frame = document.getElementById('letter-frame-' + pk);
+    if (frame) {
+        var content = frame.querySelector('.letter-content');
+        if (content) {
+            // zoom масштабирует и инлайн-стили Outlook (11pt), и обычный текст
+            if ('zoom' in content.style) { content.style.zoom = (size / 16); }
+            else { content.style.fontSize = size + 'px'; }
+        }
+    }
+    var label = document.getElementById('letter-fontval-' + pk);
+    if (label) label.textContent = size;
+    if (slider && slider.value != String(size)) slider.value = size;
+    try { localStorage.setItem('email-letter-font-size', String(size)); } catch (e) {}
+}
+function initLetterFrames(scope) {
+    var mode = null, fontSize = null;
+    try {
+        mode = localStorage.getItem('email-letter-mode');
+        fontSize = localStorage.getItem('email-letter-font-size');
+    } catch (e) {}
+    (scope || document).querySelectorAll('.letter-frame[id^="letter-frame-"]').forEach(function(frame) {
+        var pk = frame.id.replace('letter-frame-', '');
+        if (fontSize) {
+            var sz = Math.max(12, Math.min(24, parseInt(fontSize, 10) || 16));
+            var content = frame.querySelector('.letter-content');
+            if (content) {
+                if ('zoom' in content.style) { content.style.zoom = (sz / 16); }
+                else { content.style.fontSize = sz + 'px'; }
+            }
+            var label = document.getElementById('letter-fontval-' + pk);
+            if (label) label.textContent = sz;
+            var slider = frame.querySelector('.letter-fontscale input[type="range"]');
+            if (slider) slider.value = sz;
+        }
+        if (mode === 'letter-paper' || mode === 'letter-dark' || mode === 'letter-auto') {
+            frame.classList.remove('letter-paper', 'letter-dark', 'letter-auto');
+            frame.classList.add(mode);
+            frame.querySelectorAll('.letter-mode-switch button').forEach(function(b) {
+                b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+            });
+        }
+    });
+}
+document.addEventListener('DOMContentLoaded', function() { initLetterFrames(document); });
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail && evt.detail.target) initLetterFrames(evt.detail.target);
+});
 </script>
 <div id="app-toast-container" class="app-toast-container"></div>
+<script>
+/* ЕДИНЫЙ пикер почты (фильтры + окно письма): одна разметка, одно поведение.
+   Конфиг с data-атрибутов корня .email-picker:
+     data-input-id — id текстового поля/textarea (токены через запятую),
+     data-datalist — id <datalist> с bare-адресами (фильтры),
+      data-json — id <script type="application/json"> [{n: имя, e: email}] (письмо),
+      data-groups — id <script type="application/json"> [{n: группа, e: [emails]}] (письмо),
+     data-chips — "0" скрыть чипы (письмо: адреса видны в поле), иначе чипы.
+   Поведение: панель фиксированная, свой поиск, мульти-добавление,
+   выбор панель НЕ закрывает, закрытие — «Готово»/Esc/клик мимо. */
+window.initEmailPickers = function(scope) {
+    function closeAllPanels(except) {
+        document.querySelectorAll('.email-picker-panel').forEach(function(p) {
+            if (p !== except) p.style.display = 'none';
+        });
+    }
+    function parseTokens(input) {
+        return (input.value || '').split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+    }
+    (scope || document).querySelectorAll('.email-picker[data-input-id]').forEach(function(root) {
+        if (root.dataset.epInit) return;
+        root.dataset.epInit = '1';
+        var input = document.getElementById(root.dataset.inputId);
+        var btn = root.querySelector('.email-picker-btn');
+        var panel = root.querySelector('.email-picker-panel');
+        var search = root.querySelector('.email-picker-search');
+        var list = root.querySelector('.email-picker-list');
+        var chipsBox = root.querySelector('.email-picker-chips');
+        var count = root.querySelector('.email-picker-count');
+        var closeBtn = root.querySelector('.email-picker-close');
+        if (!input || !btn || !panel || !search || !list) return;
+        var showChips = root.dataset.chips !== '0';
+        if (chipsBox && !showChips) chipsBox.style.display = 'none';
+        var allItems = [];  // {label, email, hay} или {label, group:[emails], hay}
+        if (root.dataset.datalist) {
+            var dl = document.getElementById(root.dataset.datalist);
+            if (dl) Array.from(dl.options).forEach(function(opt) {
+                allItems.push({label: opt.value, email: opt.value, hay: opt.value.toLowerCase()});
+            });
+        }
+        if (root.dataset.groups) {
+            var gel = document.getElementById(root.dataset.groups);
+            if (gel) {
+                try {
+                    JSON.parse(gel.textContent).forEach(function(g) {
+                        if (g && g.n && g.e && g.e.length) allItems.push({
+                            label: g.n,
+                            group: g.e.slice(),
+                            hay: (g.n + ' ' + g.e.join(' ')).toLowerCase()
+                        });
+                    });
+                } catch (e) {}
+            }
+        }
+        if (root.dataset.json) {
+            var jel = document.getElementById(root.dataset.json);
+            if (jel) {
+                try {
+                    JSON.parse(jel.textContent).forEach(function(c) {
+                        if (c && c.e) allItems.push({
+                            label: (c.n ? c.n + ' — ' : '') + c.e,
+                            email: c.e,
+                            hay: ((c.n || '') + ' ' + c.e).toLowerCase()
+                        });
+                    });
+                } catch (e) {}
+            }
+        }
+        function renderChips() {
+            if (!chipsBox || !showChips) return;
+            var tokens = parseTokens(input);
+            chipsBox.innerHTML = '';
+            tokens.forEach(function(tok) {
+                var chip = document.createElement('span');
+                chip.className = 'badge bg-primary d-inline-flex align-items-center gap-1';
+                chip.style.fontWeight = '400';
+                var label = document.createElement('span');
+                label.textContent = tok.length > 32 ? tok.slice(0, 32) + '…' : tok;
+                label.title = tok;
+                var x = document.createElement('button');
+                x.type = 'button'; x.className = 'btn-close btn-close-white';
+                x.style.fontSize = '9px'; x.title = 'Убрать';
+                x.setAttribute('aria-label', 'Убрать');
+                x.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var rest = parseTokens(input).filter(function(t) { return t.toLowerCase() !== tok.toLowerCase(); });
+                    input.value = rest.join(', ');
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                    renderChips(); renderList(search.value);
+                });
+                chip.appendChild(label); chip.appendChild(x);
+                chipsBox.appendChild(chip);
+            });
+        }
+        function renderList(q) {
+            q = (q || '').toLowerCase();
+            var picked = parseTokens(input).map(function(t) { return t.toLowerCase(); });
+            var items = q ? allItems.filter(function(it) { return it.hay.indexOf(q) !== -1; }) : allItems;
+            var shown = items.slice(0, 100);
+            list.innerHTML = '';
+            shown.forEach(function(it) {
+                var el = document.createElement('button');
+                el.type = 'button';
+                el.className = 'list-group-item list-group-item-action py-1 small d-flex justify-content-between align-items-center gap-2';
+                var tx = document.createElement('span');
+                tx.className = 'text-truncate d-flex align-items-center gap-1';
+                if (it.group) {
+                    var gi = document.createElement('i');
+                    gi.className = 'bi bi-people text-primary';
+                    tx.appendChild(gi);
+                }
+                var tl = document.createElement('span');
+                tl.className = 'text-truncate'; tl.textContent = it.label; tl.title = it.label;
+                tx.appendChild(tl);
+                if (it.group) {
+                    var badge = document.createElement('span');
+                    badge.className = 'badge bg-secondary rounded-pill';
+                    badge.textContent = it.group.length;
+                    badge.title = it.group.join(', ');
+                    tx.appendChild(badge);
+                }
+                el.appendChild(tx);
+                var isPicked = it.group
+                    ? it.group.every(function(a) { return picked.indexOf(a.toLowerCase()) !== -1; })
+                    : picked.indexOf(it.email.toLowerCase()) !== -1;
+                if (isPicked) {
+                    var mark = document.createElement('i');
+                    mark.className = 'bi bi-check-lg text-success';
+                    el.appendChild(mark);
+                    el.classList.add('active');
+                }
+                el.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();  // цель открепится при перестроении — не давать document нас закрыть
+                    var cur = parseTokens(input);
+                    var low = cur.map(function(t) { return t.toLowerCase(); });
+                    if (it.group) {
+                        var missing = it.group.filter(function(a) { return low.indexOf(a.toLowerCase()) === -1; });
+                        if (!missing.length) {
+                            cur = cur.filter(function(t) {
+                                return it.group.map(function(a) { return a.toLowerCase(); }).indexOf(t.toLowerCase()) === -1;
+                            });
+                        } else {
+                            missing.forEach(function(a) { cur.push(a); });
+                        }
+                    } else {
+                        var idx = low.indexOf(it.email.toLowerCase());
+                        if (idx === -1) cur.push(it.email); else cur.splice(idx, 1);
+                    }
+                    input.value = cur.join(', ');
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                    search.value = '';  // самоочищение после выбора
+                    renderChips(); renderList('');
+                    search.focus();
+                    closeAllPanels(panel);
+                });
+                list.appendChild(el);
+            });
+            if (count) count.textContent = 'Выбрано: ' + picked.length + ' · Показано: ' + shown.length + ' из ' + items.length;
+            if (!shown.length) {
+                var empty = document.createElement('div');
+                empty.className = 'text-muted small p-2';
+                empty.textContent = 'Ничего не найдено — можно вписать вручную.';
+                list.appendChild(empty);
+            }
+        }
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var willOpen = panel.style.display === 'none';
+            closeAllPanels(panel);
+            panel.style.display = willOpen ? 'flex' : 'none';
+            if (willOpen) { search.value = ''; renderList(''); search.focus(); }
+        });
+        if (closeBtn) closeBtn.addEventListener('click', function() { panel.style.display = 'none'; input.focus(); });
+        search.addEventListener('input', function() { renderList(this.value); });
+        search.addEventListener('keydown', function(e) { if (e.key === 'Escape') { panel.style.display = 'none'; input.focus(); } });
+        input.addEventListener('input', renderChips);
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.isConnected === false) return;
+            if (!root.contains(e.target)) panel.style.display = 'none';
+        });
+        renderChips();
+    });
+};
+document.addEventListener('DOMContentLoaded', function() { window.initEmailPickers(document); });
+document.body.addEventListener('htmx:afterSwap', function(evt) { window.initEmailPickers(evt.detail.target); });
+</script>
 </body>
 </html>

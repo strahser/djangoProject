@@ -57,6 +57,154 @@ class ReportGenerator:
     """Генератор отчетов по задачам"""
 
     @staticmethod
+    def _task_info(task):
+        """Основная информация о задаче — единый словарь для всех форматов."""
+        status_class = 'active'
+        if task.status and ('выполнена' in task.status.name.lower() or 'завершена' in task.status.name.lower()):
+            status_class = 'completed'
+        elif task.status and 'просроч' in task.status.name.lower():
+            status_class = 'overdue'
+        return {
+            'id': task.id,
+            'name': task.name,
+            'project': task.project_site.name if task.project_site else '-',
+            'building': f"{task.building_number.name.name} ({task.building_number.building_number})"
+            if task.building_number and task.building_number.name else '-',
+            'design_chapter': task.design_chapter.name if task.design_chapter else '-',
+            'contractor': task.contractor.name if task.contractor else '-',
+            'status': task.status.name if task.status else '-',
+            'status_class': status_class,
+            'category': task.category.name if task.category else '-',
+            'price': float(task.price) if task.price else 0.0,
+            'price_display': format_currency(task.price, 2) if task.price else '0,00',
+            'due_date': task.due_date.strftime('%d.%m.%Y') if task.due_date else '-',
+            'description': mark_safe(task.description) if task.description else mark_safe(
+                '<span class="no-data">Нет описания</span>'),
+            'description_text': html_convert(task.description or ''),
+            'created': task.creation_stamp.strftime('%d.%m.%Y %H:%M'),
+            'updated': task.update_stamp.strftime('%d.%m.%Y %H:%M'),
+        }
+
+    @staticmethod
+    def _email_excerpt(email, limit: int = 800) -> str:
+        """Короткий текст письма: body_text из БД, иначе из HTML-файла на диске."""
+        import re
+        text = (getattr(email, 'body_text', '') or '').strip()
+        if not text:
+            try:
+                text = (email.extract_body_text() or '').strip()
+            except Exception:
+                text = ''
+        text = re.sub(r'\s+', ' ', text)
+        return (text[:limit] + '…') if len(text) > limit else text
+
+    @staticmethod
+    def _protocol_item(task, selected_ids: set, meeting_day=None):
+        """Одна строка протокола: задача + дерево + письма + переносы сроков."""
+        from datetime import date as _date
+        info = ReportGenerator._task_info(task)
+        ancestors = list(task.get_ancestors())
+        path = [a.name for a in ancestors]
+        depth = sum(1 for a in ancestors if a.pk in selected_ids)
+        due_raw = task.due_date
+        is_closed = info['status_class'] == 'completed'
+        is_overdue = bool(due_raw and meeting_day and due_raw < meeting_day and not is_closed)
+        info['due_iso'] = due_raw.isoformat() if due_raw else ''
+        # Подзадачи (дети первого уровня)
+        children = task.get_children().filter(node_type='subtask').order_by('id') \
+            if hasattr(task, 'get_children') else []
+        subtasks = [{
+            'name': st.name,
+            'due_date': st.due_date.strftime('%d.%m.%Y') if st.due_date else '-',
+            'status': st.status.name if st.status else '-',
+            'is_closed': bool(st.status and (
+                'выполнена' in st.status.name.lower() or 'завершена' in st.status.name.lower())),
+        } for st in children]
+        # Прикреплённые письма
+        emails = []
+        try:
+            linked = task.emails.all().order_by('-email_stamp')[:5]
+        except Exception:
+            linked = []
+        for em in linked:
+            emails.append({
+                'subject': em.subject or '(без темы)',
+                'sender': em.sender or '—',
+                'receiver': em.receiver or '—',
+                'date': em.email_stamp.strftime('%d.%m.%Y %H:%M') if em.email_stamp else '—',
+                'excerpt': ReportGenerator._email_excerpt(em),
+            })
+        # История переносов сроков
+        history = list(task.due_date_history.all())
+        moves = [{
+            'old_date': r.old_due_date.strftime('%d.%m.%Y') if r.old_due_date else '—',
+            'new_date': r.new_due_date.strftime('%d.%m.%Y') if r.new_due_date else '—',
+            'change_date': r.change_date.strftime('%d.%m.%Y %H:%M'),
+            'changed_by': r.changed_by.username if r.changed_by else '—',
+        } for r in history]
+        last = moves[0] if moves else None
+        return {
+            'task': info,
+            'depth': depth,
+            'path': path,
+            'is_overdue': is_overdue,
+            'is_closed': is_closed,
+            'has_decision': bool(info.get('description_text')),
+            'subtasks': subtasks,
+            'emails': emails,
+            'email_count': len(emails),
+            'moves': moves,
+            'moves_count': len(moves),
+            'last_move': last,
+        }
+
+    @staticmethod
+    def generate_protocol_report(tasks_queryset, request=None, admin_url=None, meeting_date=None):
+        """Протокол совещания по выбранным задачам: повестка + решения + переносы.
+
+        Задачи упорядочены деревом (родитель → дети), у каждой — описание-решение,
+        прикреплённые письма (тексты) и история переносов сроков.
+        """
+        from datetime import date as _date
+        if isinstance(meeting_date, _date):
+            meeting_day = meeting_date
+        else:
+            meeting_day = _date.today()
+        try:
+            if not isinstance(meeting_date, _date) and meeting_date:
+                meeting_day = _date.fromisoformat(str(meeting_date))
+        except ValueError:
+            pass
+        items = []
+        selected_ids = set(tasks_queryset.values_list('id', flat=True))
+        ordered = tasks_queryset.order_by('tree_id', 'lft')
+        for task in ordered:
+            items.append(ReportGenerator._protocol_item(task, selected_ids, meeting_day))
+        projects = sorted({it['task']['project'] for it in items if it['task']['project'] != '-'})
+        chapters = sorted({it['task']['design_chapter'] for it in items
+                           if it['task']['design_chapter'] != '-'})
+        decisions = sum(1 for it in items if it['has_decision'])
+        context = {
+            'current_date': timezone.now().strftime('%d.%m.%Y %H:%M'),
+            'meeting_date': meeting_day.strftime('%d.%m.%Y'),
+            'meeting_date_iso': meeting_day.isoformat(),
+            'projects': projects,
+            'chapters': chapters,
+            'items': items,
+            'task_count': len(items),
+            'with_emails': sum(1 for it in items if it['email_count']),
+            'rescheduled': sum(1 for it in items if it['moves_count']),
+            'total_moves': sum(it['moves_count'] for it in items),
+            'overdue_count': sum(1 for it in items if it['is_overdue']),
+            'closed_count': sum(1 for it in items if it['is_closed']),
+            'decisions_count': decisions,
+            'decision_percent': round(100 * decisions / len(items)) if items else 0,
+            'download_timestamp': timezone.now().strftime('%Y%m%d_%H%M'),
+            'admin_url': admin_url,
+        }
+        return render_to_string('ProjectTDL/protocol_report.html', context)
+
+    @staticmethod
     def generate_html_report(tasks_queryset, request=None, admin_url=None):
         """Генерация HTML отчета по выбранным задачам
 
@@ -83,41 +231,15 @@ class ReportGenerator:
         selected_task_ids = list(tasks_queryset.values_list('id', flat=True))
 
         for task in tasks_queryset:
-            # Определяем класс статуса для CSS
-            status_class = 'active'
-            if task.status and ('выполнена' in task.status.name.lower() or 'завершена' in task.status.name.lower()):
-                status_class = 'completed'
-            elif task.status and 'просроч' in task.status.name.lower():
-                status_class = 'overdue'
+            task_info = ReportGenerator._task_info(task)
 
             # Обновляем счетчики статусов
-            if status_class == 'active':
+            if task_info['status_class'] == 'active':
                 status_counts['active'] += 1
-            elif status_class == 'completed':
+            elif task_info['status_class'] == 'completed':
                 status_counts['completed'] += 1
-            elif status_class == 'overdue':
+            elif task_info['status_class'] == 'overdue':
                 status_counts['overdue'] += 1
-
-            # Основная информация о задаче
-            task_info = {
-                'id': task.id,
-                'name': task.name,
-                'project': task.project_site.name if task.project_site else '-',
-                'building': f"{task.building_number.name.name} ({task.building_number.building_number})"
-                if task.building_number and task.building_number.name else '-',
-                'design_chapter': task.design_chapter.name if task.design_chapter else '-',
-                'contractor': task.contractor.name if task.contractor else '-',
-                'status': task.status.name if task.status else '-',
-                'status_class': status_class,
-                'category': task.category.name if task.category else '-',
-                'price': float(task.price) if task.price else 0.0,
-                'price_display': format_currency(task.price, 2) if task.price else '0,00',
-                'due_date': task.due_date.strftime('%d.%m.%Y') if task.due_date else '-',
-                'description': mark_safe(task.description) if task.description else mark_safe(
-                    '<span class="no-data">Нет описания</span>'),
-                'created': task.creation_stamp.strftime('%d.%m.%Y %H:%M'),
-                'updated': task.update_stamp.strftime('%d.%m.%Y %H:%M'),
-            }
 
             # Подзадачи (TaskNode children)
             subtasks = getattr(task, 'get_children', lambda: [])()

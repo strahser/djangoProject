@@ -1,5 +1,14 @@
-{% load email_filters %}
-<div class="table-responsive" data-total-count="{{ page_obj.paginator.count }}">
+{% load email_filters l10n %}
+{% if oob_sync %}
+{# Синхронизация форм после htmx-переключения папки: шапка/сайдбар меняют
+   только #email-list-container, а скрытые folder/filter_params в формах
+   фильтра и массовых действий иначе остаются от прошлой папки — и поиск /
+   «выбрать всё» работают не в той папке. OOB-подмена по id. #}
+<input type="hidden" id="filter-folder-input" name="folder" value="{{ folder }}" hx-swap-oob="true">
+<input type="hidden" id="bulk-folder-input" name="folder" value="{{ folder }}" hx-swap-oob="true">
+<input type="hidden" id="bulk-filter-params-input" name="filter_params" value="{{ clean_params }}" hx-swap-oob="true">
+{% endif %}
+<div class="table-responsive" data-total-count="{{ page_obj.paginator.count|unlocalize }}">
 <table class="table table-email table-hover mb-0">
     <thead>
     <tr>
@@ -44,27 +53,27 @@
     <tbody>
     {% for email in page_obj %}
     <tr class="email-row{% if not email.is_read %} unread{% endif %}"
-        onclick="location.href='{% url 'email_ui:email_detail' email.pk %}?next={{ email_list_back_url|default:"/"|urlencode }}'; return false;">
+        onclick="location.href='{% if folder == 'drafts' %}{% url 'email_ui:draft_edit' email.pk %}?next={{ email_list_back_url|default:"/"|urlencode }}{% else %}{% url 'email_ui:email_detail' email.pk %}?next={{ email_list_back_url|default:"/"|urlencode }}{% endif %}'; return false;">
         <td onclick="event.stopPropagation()">
-            <input type="checkbox" name="selected_emails" value="{{ email.pk }}" form="bulk-form"
+            <input type="checkbox" name="selected_emails" value="{{ email.pk|unlocalize }}" form="bulk-form"
                    onchange="if(window.toggleBulkActionBar) toggleBulkActionBar()">
         </td>
         <td onclick="event.stopPropagation()">
             {% if folder == 'sent' or folder == 'drafts' %}
-                {% with who=email.receiver|recipient_name|default:"?" %}
+                {% with who=email.receiver|canon_emails|default:"?" %}
                 <span class="email-avatar" style="background-color:{{ who|avatar_color }};">{{ who|avatar_initials }}</span>
                 {% endwith %}
             {% else %}
-                {% with who=email.sender_name|default:email.sender|default:"?" %}
+                {% with who=email.sender|canon_email|default:"?" %}
                 <span class="email-avatar" style="background-color:{{ who|avatar_color }};">{{ who|avatar_initials }}</span>
                 {% endwith %}
             {% endif %}
         </td>
         <td>
             {% if folder == 'sent' or folder == 'drafts' %}
-                {{ email.receiver|recipient_name|default:"—" }}
+                {{ email.receiver|canon_emails|default:"—"|truncatechars:28 }}
             {% else %}
-                {{ email.sender_name|default:email.sender|truncatechars:28|default:"Неизвестно" }}
+                {{ email.sender|canon_email|truncatechars:28|default:"Неизвестно" }}
             {% endif %}
         </td>
         <td>
@@ -73,6 +82,9 @@
                    class="text-decoration-none text-dark">{{ email.subject|truncatechars:70|default:"Без темы" }}</a>
                 {% if email.is_important %}<i class="bi bi-star-fill text-warning ms-1" style="font-size:12px;"></i>{% endif %}
             </div>
+            {% if email_view_settings.show_body_preview and email.body_text %}
+            <div class="email-subject-preview">{{ email|email_preview:email_view_settings.preview_length }}</div>
+            {% endif %}
             {% with atts=email.attachments.all %}
             {% if atts %}
             <div class="att-chips">

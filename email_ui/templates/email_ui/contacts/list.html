@@ -6,6 +6,10 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4>Контакты</h4>
         <div>
+            <a class="btn btn-outline-secondary btn-sm" title="Создать в админке (возврат — сюда)"
+               href="/admin/email_ui/contact/add/?next={{ request.path|urlencode }}">
+                <i class="bi bi-gear"></i>
+            </a>
             <button class="btn btn-primary btn-sm" hx-get="{% url 'email_ui:contact_create_modal' %}" hx-target="#modal-container">
                 <i class="bi bi-person-plus"></i> Добавить
             </button>

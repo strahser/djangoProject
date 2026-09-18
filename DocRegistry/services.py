@@ -1,9 +1,8 @@
-"""Сервисы реестра РД: хеш строки accdb, следующий код (канон §3–§4)."""
+"""Сервисы реестра РД: хеш строки accdb, следующий код, типы зданий (канон §3–§4)."""
 from __future__ import annotations
 
 import hashlib
-
-from .models import DocRegisterEntry
+import re
 
 #: Порядок полей для accdb_row_hash — обязан совпадать с import_accdb_registry.
 HASH_FIELDS = (
@@ -19,9 +18,12 @@ def accdb_row_hash(values: dict) -> str:
     return hashlib.sha1(joined.encode('utf-8')).hexdigest()
 
 
-def next_code() -> int:
-    """Следующий код реестра (max+1); пустой реестр → 1."""
-    last = DocRegisterEntry.objects.order_by('-code').values_list('code', flat=True).first()
+def next_code(EntryModel) -> int:
+    """Следующий код реестра в таблице объекта (max+1); пустая таблица → 1.
+
+    EntryModel — M1Entry/K1Entry: нумерация у каждого объекта своя, таблицы разные.
+    """
+    last = (EntryModel.objects.order_by('-code').values_list('code', flat=True).first())
     return (last or 0) + 1
 
 
@@ -41,11 +43,34 @@ def compare_registry(live_rows: list[dict], stored: dict[int, str]) -> dict:
 
 
 def signers_for():
-    """Подписанты листа согласования — единый общий список (к зданию не привязаны).
+    """Подписанты листа согласования — единый общий список по order.
 
     Фамилии со временем меняются — в PDF фиксируется снимок текущего списка.
     Возврат: list[DocSigner] по order.
     """
     from .models import DocSigner
 
-    return list(DocSigner.objects.filter(building__isnull=True).order_by('order'))
+    return list(DocSigner.objects.order_by('order'))
+
+
+def building_type_name(building_name: str) -> str:
+    """Тип здания из наименования: часть до «№» («Коровник № 4» → «Коровник»).
+
+    Тип общий для всех объектов; номер здания — свой у каждого проекта.
+    Пустое наименование → '' (тип не линкуем).
+    """
+    name = (building_name or '').strip()
+    if not name:
+        return ''
+    return re.sub(r'\s*№.*$', '', name).strip() or name
+
+
+def get_building_type(building_name: str):
+    """Resolve-or-create типа в общем справочнике StaticData по наименованию; '' → None."""
+    from StaticData.models import BuildingType
+
+    tname = building_type_name(building_name)
+    if not tname:
+        return None
+    obj, _ = BuildingType.objects.get_or_create(name=tname)
+    return obj

@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load admin_totals %}
+{% block content %}
+<style>
+  .cf-scale .btn{margin-right:4px;}
+  .cf-bucket-fact{color:#2ba55f;font-weight:700;}
+  .cf-bucket-guaranteed{color:#2563eb;}
+  .cf-bucket-likely{color:#b45309;}
+  .cf-bucket-planned{color:#6c757d;}
+  .cf-table td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .cf-table tfoot td{font-weight:700;border-top:2px solid var(--border,#dee2e6);}
+</style>
+<div class="container-fluid py-3" style="max-width:1400px;">
+  <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+    <h3 class="mb-0">ДДС — факт и прогноз</h3>
+    <div class="cf-scale ms-2">
+      <a class="btn btn-sm {% if scale == 'day' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?scale=day">День</a>
+      <a class="btn btn-sm {% if scale == 'week' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?scale=week">Неделя</a>
+      <a class="btn btn-sm {% if scale == 'month' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?scale=month">Месяц</a>
+      <a class="btn btn-sm {% if scale == 'quarter' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?scale=quarter">Квартал</a>
+    </div>
+    <a href="{% url 'contract_dashboard' %}" class="btn btn-sm btn-outline-secondary ms-auto"><i class="bi bi-arrow-left me-1"></i>Договоры</a>
+  </div>
+
+  <div class="mb-3 d-flex align-items-center gap-3 flex-wrap">
+    <div class="d-flex align-items-center gap-2">
+      <label class="small text-muted mb-0">Договор:</label>
+      <select id="cfContractSelect" class="form-select form-select-sm" style="max-width:320px;">
+        <option value="__all__">Все договоры</option>
+        {% for row in rows %}<option value="{{ row.id }}">{{ row.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="small text-muted ms-auto">Строки пересчитываются автоматически при сохранении/удалении платежа; ручной пересчёт — <code>python manage.py rebuild_cashflow</code>.</div>
+  </div>
+
+  <div style="background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:12px;padding:16px;">
+    <canvas id="cfChart" height="120"></canvas>
+  </div>
+
+  <div class="table-responsive mt-3" style="background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:12px;">
+    <table class="table align-middle mb-0 cf-table">
+      <thead><tr>
+        <th>Договор</th><th>Корзина</th>
+        {% for p in periods %}<th class="text-end">{{ p.label }}</th>{% endfor %}
+        <th class="text-end">Итого</th>
+      </tr></thead>
+      <tbody>
+        {% for row in rows %}
+          {% for bcode, bname in buckets %}
+            {% if bcode in row.cells %}
+            <tr>
+              {% if forloop.first %}<td rowspan="{{ row.cells|length }}" class="fw-bold">{{ row.name }}</td>{% endif %}
+              <td class="cf-bucket-{{ bcode }}">{{ bname }}</td>
+              {% for p in periods %}<td class="num">{{ row.cells|get_item:bcode|get_item:p.key|default:""|floatformat:0 }}</td>{% endfor %}
+              <td class="num fw-bold">{{ row.cells|get_item:bcode|dictsum|floatformat:0 }}</td>
+            </tr>
+            {% endif %}
+          {% endfor %}
+        {% empty %}
+        <tr><td colspan="30" class="text-center text-muted py-5">Нет строк ДДС — запустите <code>rebuild_cashflow</code></td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        {% for bcode, bname in buckets %}
+        <tr>
+          {% if forloop.first %}<td rowspan="{{ buckets|length }}">Итого</td>{% endif %}
+          <td class="cf-bucket-{{ bcode }}">{{ bname }}</td>
+          {% for p in periods %}<td class="num">{{ totals|get_item:bcode|get_item:p.key|floatformat:0 }}</td>{% endfor %}
+          <td class="num">{{ totals|get_item:bcode|dictsum|floatformat:0 }}</td>
+        </tr>
+        {% endfor %}
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block custom-js %}
+<script src="{% static 'js/chart.umd.min.js' %}"></script>
+<script>
+(function () {
+  var DATA = {{ chart_data|safe }};
+  var canvas = document.getElementById('cfChart');
+  if (!canvas || typeof Chart === 'undefined' || !DATA.labels.length) return;
+
+  var chart = null;
+  function makeDatasets(contractKey) {
+    var buckets = DATA.buckets;
+    var src = contractKey === '__all__' ? null : (DATA.contracts[contractKey] || null);
+    return buckets.map(function (b) {
+      var values = src ? src.buckets[b.code] : b.values;
+      return {
+        label: b.name,
+        data: values,
+        backgroundColor: b.color,
+        borderColor: b.color,
+        borderWidth: 1,
+        stack: 'bar'
+      };
+    });
+  }
+  function forecast(contractKey) {
+    if (contractKey !== '__all__') {
+      var src = DATA.contracts[contractKey];
+      if (src) {
+        var g = src.buckets['guaranteed'] || []; var l = src.buckets['likely'] || [];
+        return g.map(function (v, i) { return +(v + (l[i] || 0)).toFixed(2); });
+      }
+    }
+    return DATA.forecast;
+  }
+  function render() {
+    var contractKey = document.getElementById('cfContractSelect').value;
+    var ds = makeDatasets(contractKey);
+    ds.push({
+      label: 'Прогноз (гар. + вер.)',
+      data: forecast(contractKey),
+      type: 'line',
+      borderColor: '#dc2626',
+      backgroundColor: 'rgba(220,38,38,.08)',
+      borderDash: [6, 4],
+      pointRadius: 2,
+      tension: .25,
+      fill: true,
+      order: 0
+    });
+    if (chart) {
+      chart.data.datasets = ds;
+      chart.update();
+      return;
+    }
+    chart = new Chart(canvas, {
+      type: 'bar',
+      data: { labels: DATA.labels, datasets: ds },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: { callbacks: {
+            label: function (c) { return c.dataset.label + ': ' + Math.round(c.parsed.y).toLocaleString('ru-RU') + ' ₽'; }
+          } }
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          y: { stacked: true, ticks: { callback: function (v) { return Math.round(v).toLocaleString('ru-RU'); } } }
+        }
+      }
+    });
+  }
+  document.getElementById('cfContractSelect').addEventListener('change', render);
+  render();
+})();
+</script>
+{% endblock %}

@@ -9,3 +9,22 @@ def admin_sum(queryset, field_name):
       return sum(getattr(obj, 'price', 0) for obj in queryset)
     total = queryset.aggregate(total=Coalesce(Sum(field_name), Value(0), output_field=DecimalField()))['total']
     return total or 0
+
+
+@register.filter
+def get_item(mapping, key):
+    """Безопасное взятие элемента словаря (для матриц ДДС)."""
+    if not mapping:
+        return None
+    try:
+        return mapping.get(key)
+    except AttributeError:
+        return None
+
+
+@register.filter
+def dictsum(mapping):
+    """Сумма значений словаря (итого по строке ДДС)."""
+    if not mapping:
+        return 0
+    return sum((v or 0) for v in mapping.values())

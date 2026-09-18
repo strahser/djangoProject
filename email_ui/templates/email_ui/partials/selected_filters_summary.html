@@ -1,5 +1,10 @@
 {% load email_filters %}
 <div class="selected-filters">
+    {% if filter_form.search.value %}<span class="badge bg-info text-dark me-1">Поиск: {{ filter_form.search.value }}</span>{% endif %}
+    {% if filter_form.sender.value %}<span class="badge bg-info text-dark me-1">От кого: {{ filter_form.sender.value }}</span>{% endif %}
+    {% if filter_form.receiver.value %}<span class="badge bg-info text-dark me-1">Кому: {{ filter_form.receiver.value }}</span>{% endif %}
+    {% if filter_form.cc.value %}<span class="badge bg-info text-dark me-1">Копия: {{ filter_form.cc.value }}</span>{% endif %}
+    {% if filter_form.date_from.value or filter_form.date_to.value %}<span class="badge bg-info text-dark me-1">Даты: {{ filter_form.date_from.value|default:"…" }} — {{ filter_form.date_to.value|default:"…" }}</span>{% endif %}
     {% if selected_project_sites %}
         <span class="badge bg-secondary me-1">Проекты:
             {% for site_id in selected_project_sites %}

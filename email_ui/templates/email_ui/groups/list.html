@@ -1,0 +1,42 @@
+{% extends 'email_ui/base.html' %}
+{% load static %}
+{% block title %}Группы адресатов{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4>Группы адресатов</h4>
+        <div>
+            <a class="btn btn-outline-secondary btn-sm" title="Создать в админке (возврат — сюда)"
+               href="/admin/email_ui/contactgroup/add/?next={{ request.path|urlencode }}">
+                <i class="bi bi-gear"></i>
+            </a>
+            <button class="btn btn-primary btn-sm" hx-get="{% url 'email_ui:group_create_modal' %}" hx-target="#modal-container">
+                <i class="bi bi-people"></i> Добавить группу
+            </button>
+        </div>
+    </div>
+
+    <form class="mb-3" method="get">
+        <div class="input-group">
+            <input type="text" name="q" class="form-control" placeholder="Поиск по названию, контакту или email..." value="{{ query }}">
+            <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-search"></i></button>
+        </div>
+    </form>
+
+    <div class="list-group">
+        {% for group in groups %}
+        <a href="{% url 'email_ui:group_detail' group.id %}" class="list-group-item list-group-item-action">
+            <div class="d-flex w-100 justify-content-between">
+                <h6 class="mb-1"><i class="bi bi-people me-1"></i>{{ group.name }}</h6>
+                <small class="text-muted">
+                    {{ group.contacts.count }} конт. · {{ group.subgroups.count }} гр. · {{ group.all_emails|length }} адр.
+                </small>
+            </div>
+            <small class="text-muted">{{ group.description|default:'' }}</small>
+        </a>
+        {% empty %}
+        <div class="text-muted text-center py-4">Нет групп</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

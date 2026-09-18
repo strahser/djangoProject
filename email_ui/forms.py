@@ -3,31 +3,53 @@ from django import forms
 from Emails.models import Email, InfoChoices
 from ProjectContract.models import Contractor
 from StaticData.models import ProjectSite, Category, BuildingType
-from .models import Contact, ContactEmail, EmailTag, EmailTemplate, EmailRule, SMTPAccount, SavedFilter
+from .models import Contact, ContactEmail, ContactGroup, EmailTag, EmailTemplate, EmailRule, SMTPAccount, SavedFilter
 
 
 class EmailFilterForm(forms.Form):
     search = forms.CharField(
         required=False,
-        label='Поиск',
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Поиск...'})
+        label='Общий поиск',
+        help_text='Ищет везде: тема, отправитель, получатель, копия (в т.ч. скрытая)',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Тема, отправитель, получатель, копия...'})
+    )
+    search_scope = forms.ChoiceField(
+        choices=[
+            ('', 'Везде (тема, адреса)'),
+            ('subject', 'Только тема'),
+            ('subject_body', 'Тема + тело письма'),
+        ],
+        required=False,
+        label='Область поиска',
+        widget=forms.Select(attrs={'class': 'form-select'})
     )
     sender = forms.CharField(
         required=False,
         label='От кого',
+        help_text='Строго в поле «Отправитель», можно несколько через запятую',
         widget=forms.TextInput(attrs={
             'class': 'form-control',
-            'placeholder': 'Отправитель...',
-            'list': 'sender-datalist',
+            'placeholder': 'Почты через запятую...',
             'autocomplete': 'off',
         })
     )
     receiver = forms.CharField(
         required=False,
         label='Кому',
+        help_text='Строго в поле «Получатель», можно несколько через запятую',
         widget=forms.TextInput(attrs={
             'class': 'form-control',
-            'placeholder': 'Получатель...',
+            'placeholder': 'Почты через запятую...',
+            'autocomplete': 'off',
+        })
+    )
+    cc = forms.CharField(
+        required=False,
+        label='Копия',
+        help_text='Строго в поле «Копия», можно несколько через запятую',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Почты через запятую...',
             'autocomplete': 'off',
         })
     )
@@ -111,11 +133,27 @@ class EmailFilterForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.data:
-            selected_projects = self.data.getlist('project_site')
+            if hasattr(self.data, 'getlist'):
+                selected_projects = self.data.getlist('project_site')
+            else:
+                _v = self.data.get('project_site')
+                selected_projects = _v if isinstance(_v, list) else ([_v] if _v else [])
             if selected_projects:
                 self.fields['contractor'].queryset = Contractor.objects.filter(
                     email__project_site__in=selected_projects
                 ).distinct()
+
+    def clean_search(self):
+        return (self.cleaned_data.get('search') or '').strip()
+
+    def clean_sender(self):
+        return (self.cleaned_data.get('sender') or '').strip()
+
+    def clean_receiver(self):
+        return (self.cleaned_data.get('receiver') or '').strip()
+
+    def clean_cc(self):
+        return (self.cleaned_data.get('cc') or '').strip()
 
 
 class EmailMetadataForm(forms.ModelForm):
@@ -185,6 +223,30 @@ class ComposeEmailForm(forms.Form):
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
     )
 
+    def _clean_addresses(self, field_name):
+        # Унификация ввода: твёрдые почты lower, дедуп, через запятую
+        from .utils import extract_all_email_addresses
+        raw = self.cleaned_data.get(field_name) or ''
+        addrs = extract_all_email_addresses(raw)
+        seen, out = set(), []
+        for a in addrs:
+            low = a.strip().rstrip('.').lower()
+            if low and low not in seen:
+                seen.add(low)
+                out.append(low)
+        if raw.strip() and not out:
+            raise forms.ValidationError('Нет ни одного корректного email-адреса')
+        return ', '.join(out)
+
+    def clean_to(self):
+        return self._clean_addresses('to')
+
+    def clean_cc(self):
+        return self._clean_addresses('cc')
+
+    def clean_bcc(self):
+        return self._clean_addresses('bcc')
+
 
 class ComposeReplyForm(ComposeEmailForm):
     include_attachments = forms.BooleanField(
@@ -214,6 +276,20 @@ class ContactForm(forms.ModelForm):
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
+
+
+class ContactGroupForm(forms.ModelForm):
+    class Meta:
+        model = ContactGroup
+        fields = ['name', 'description', 'is_active']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
+            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+    def clean_name(self):
+        return (self.cleaned_data.get('name') or '').strip()
 
 
 class ContactEmailForm(forms.ModelForm):

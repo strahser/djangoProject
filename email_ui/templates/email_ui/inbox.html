@@ -1,4 +1,5 @@
 {% extends "email_ui/base.html" %}
+{% load l10n %}
 {% block content %}
 <div class="p-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -13,14 +14,10 @@
             <span class="badge bg-secondary ms-1">Всего: {{ total_count }}</span>
         </h5>
         <div>
-            <form method="post" action="{% url 'email_ui:fetch_emails' %}" class="d-inline">
-                {% csrf_token %}
-                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                <input type="hidden" name="mail_count" value="10">
-                <button type="submit" class="btn btn-success btn-sm me-1" title="Получить почту">
-                    <i class="bi bi-arrow-down-circle"></i> Загрузить
-                </button>
-            </form>
+            <button class="btn btn-outline-secondary btn-sm me-1" title="Настройки почты"
+                    onclick="EmailApp.openModal('{% url 'email_ui:email_settings_modal' %}'); return false;">
+                <i class="bi bi-gear"></i> Настройки
+            </button>
             <button class="btn btn-primary btn-sm" title="Написать"
                     onclick="EmailApp.openModal('{% url 'email_ui:compose_modal' %}'); return false;">
                 <i class="bi bi-pencil-square"></i> Написать
@@ -49,8 +46,8 @@
               hx-swap="innerHTML"
               hx-push-url="false">
             {% csrf_token %}
-            <input type="hidden" name="folder" value="{{ folder }}">
-            <input type="hidden" name="filter_params" value="{{ request.GET.urlencode }}">
+            <input type="hidden" id="bulk-folder-input" name="folder" value="{{ folder }}">
+            <input type="hidden" id="bulk-filter-params-input" name="filter_params" value="{{ request.GET.urlencode }}">
             <div class="d-flex align-items-center gap-2">
                 <button type="submit" name="action" value="mark_read" class="btn btn-outline-secondary btn-sm" disabled><i class="bi bi-envelope-open"></i> Прочитано</button>
                 <button type="submit" name="action" value="mark_unread" class="btn btn-outline-secondary btn-sm" disabled><i class="bi bi-envelope"></i> Не прочитано</button>
@@ -69,6 +66,12 @@
                         <li><a class="dropdown-item" href="#" onclick="moveToFolder('spam'); return false;">Спам</a></li>
                     </ul>
                 </div>
+                <button type="button" class="btn btn-outline-primary btn-sm" disabled
+                        title="Показать цепочки выбранных писем (входящие + исходящие по теме)"
+                        hx-post="{% url 'email_ui:selection_threads' %}"
+                        hx-target="#email-list-container" hx-swap="innerHTML" hx-push-url="false">
+                    <i class="bi bi-chat-left-text"></i> Цепочка
+                </button>
                 <input type="hidden" name="move_to" id="move-to-input" value="">
             </div>
         </form>
@@ -83,7 +86,7 @@
 
 {{ filter_data|json_script:"filter-data" }}
 <script>
-window.allFilteredCount = {{ page_obj.paginator.count|default:0 }};
+window.allFilteredCount = {{ page_obj.paginator.count|unlocalize }};
 window.toggleBulkActionBar = function() {
     var checked = document.querySelectorAll('input[name="selected_emails"]:checked');
     var count = checked.length;

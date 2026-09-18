@@ -1,0 +1,10 @@
+{% comment %}Единое тело пикера почты: чипы + выпадающая панель (фильтры + окно письма).{% endcomment %}
+<div class="email-picker-chips mt-1 d-flex flex-wrap gap-1"></div>
+<div class="email-picker-panel" style="display:none;">
+    <input type="text" class="form-control form-control-sm email-picker-search" placeholder="Найти адрес..." autocomplete="off">
+    <div class="list-group list-group-flush email-picker-list"></div>
+    <div class="email-picker-footer">
+        <span class="small text-muted email-picker-count"></span>
+        <button type="button" class="btn btn-sm btn-outline-secondary email-picker-close">Готово</button>
+    </div>
+</div>

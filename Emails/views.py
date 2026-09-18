@@ -90,12 +90,18 @@ class SelectEmailView(View):
             if senders:
                 emails = emails.filter(sender__in=senders)
             if search_query:
-                emails = emails.filter(
-                    Q(name__icontains=search_query) |
-                    Q(subject__icontains=search_query) |
-                    Q(sender__icontains=search_query) |
-                    Q(receiver__icontains=search_query)
-                )
+                try:
+                    from email_ui.views import _q_token_anywhere
+                    _tokens = [t for t in str(search_query).replace(',', ' ').replace(';', ' ').split() if t]
+                    for _tok in _tokens:
+                        emails = emails.filter(_q_token_anywhere(_tok))
+                except Exception:
+                    emails = emails.filter(
+                        Q(name__icontains=search_query) |
+                        Q(subject__icontains=search_query) |
+                        Q(sender__icontains=search_query) |
+                        Q(receiver__icontains=search_query)
+                    )
 
         return render(request, 'Emails/select_email.html', {
             'form': form,

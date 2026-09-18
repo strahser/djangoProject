@@ -9,6 +9,7 @@ from django.contrib.admin.utils import flatten
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.db.models.functions import Coalesce, TruncDate
 from django.http import (
     FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse,
 )
@@ -27,26 +28,204 @@ from StaticData.models import BuildingType, Category, ProjectSite, Status
 
 from .forms import (
     ComposeEmailForm, ComposeReplyForm, ContactEmailForm, ContactForm,
-    EmailFilterForm, EmailMetadataForm, EmailRuleForm, EmailTagForm,
+    ContactGroupForm, EmailFilterForm, EmailMetadataForm, EmailRuleForm, EmailTagForm,
     ExportForm, SavedFilterForm, TaskSearchForm,
 )
 from .models import (
-    Contact, ContactEmail, EmailAutomationLog, EmailEmailTag, EmailRule,
-    EmailTag, EmailTaskLink, EmailTemplate, SavedFilter, SMTPAccount,
+    Contact, ContactEmail, ContactGroup, EmailAutomationLog, EmailEmailTag, EmailRule,
+    EmailTag, EmailTaskLink, EmailTemplate, EmailViewSettings, SavedFilter, SMTPAccount,
 )
 from .services.email_sender import EmailSenderService
 from .utils import (
     clean_email_html, extract_email_address, extract_all_email_addresses, resolve_sender_to_email,
-    resolve_inline_image_urls, sanitize_id, sanitize_id_list, highlight_email_body,
+    resolve_inline_image_urls, sanitize_id, sanitize_id_list, segment_letter_html,
 )
 PER_PAGE = 50
+THREADS_PER_PAGE = 20
 ALLOWED_SORT_FIELDS = ['sender', 'receiver', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
+
+
+def _contacts_picker_json(contacts):
+    """Единый источник данных пикера контактов: список [{n: имя, e: email}].
+
+    Возвращает Python-список — сериализует шаблонный фильтр json_script.
+    """
+    from .utils import canonical_email
+    out, seen = [], set()
+    for c in contacts:
+        try:
+            primary = c.primary_email
+            raw = (primary.email if primary else '').strip()
+        except Exception:
+            raw = ''
+        addr = canonical_email(raw) or raw
+        if addr and addr.lower() not in seen:
+            seen.add(addr.lower())
+            out.append({'n': c.name or '', 'e': addr})
+    return out
+
+
+def _attach_thread_context(emails, head_cache=None, with_head=True):
+    """Досчитывает поля для режима цепочек: direction in/out, body_head.
+
+    Мутирует объекты (атрибуты, не колонки БД). head_cache — dict на запрос,
+    чтобы не читать один HTML-файл дважды. with_head=False — только direction
+    (дешёво, без чтения файлов: для подсчёта Вх./Исх. до пагинации).
+    """
+    from .utils import email_body_head
+    if head_cache is None:
+        head_cache = {}
+    for email in emails:
+        email.direction = (
+            'out' if (email.email_type or '').upper() == 'OUT' else 'in'
+        )
+        email.direction_label = 'Исходящее' if email.direction == 'out' else 'Входящее'
+        if with_head and not getattr(email, 'body_head', ''):
+            try:
+                email.body_head = email_body_head(email, 220, head_cache)
+            except Exception:
+                email.body_head = ''
+        elif not hasattr(email, 'body_head'):
+            email.body_head = ''
+
+
+def _build_thread_list(emails):
+    """Группирует письма в цепочки по теме (ThreadService), сортирует по свежим.
+
+    Возвращает список dict: key/subject/emails/count/in_count/out_count/earliest/latest.
+    Письма внутри — хронологически (старые сверху, как чтение переписки).
+    """
+    from .services.thread_service import ThreadService
+    threads = ThreadService.build_threads(emails)
+    out = []
+    for key, msgs in threads.items():
+        # Только direction (без чтения файлов) — головы дочитаем после пагинации.
+        _attach_thread_context(msgs, with_head=False)
+        latest = max(
+            (m.email_stamp or m.creation_stamp for m in msgs if m.email_stamp or m.creation_stamp),
+            default=None,
+        )
+        earliest = min(
+            (m.email_stamp or m.creation_stamp for m in msgs if m.email_stamp or m.creation_stamp),
+            default=None,
+        )
+        # Тема для заголовка — из самого свежего письма (сохраняет Re:/Fwd:).
+        subj_src = max(msgs, key=lambda m: (m.email_stamp or m.creation_stamp or m.id))
+        out.append({
+            'key': key,
+            'subject': (subj_src.subject or '').strip() or 'Без темы',
+            'emails': msgs,
+            'count': len(msgs),
+            'in_count': sum(1 for m in msgs if m.direction == 'in'),
+            'out_count': sum(1 for m in msgs if m.direction == 'out'),
+            'earliest': earliest,
+            'latest': latest,
+        })
+    def _thread_ts(t):
+        dt = t['latest']
+        try:
+            return dt.timestamp() if dt else float('-inf')
+        except Exception:
+            return float('-inf')
+    out.sort(key=_thread_ts, reverse=True)
+    return out
+
+
+def _attach_thread_page_heads(thread_page):
+    """Дочитывает body_head только для писем текущей страницы цепочек."""
+    head_cache = {}
+    for t in thread_page:
+        _attach_thread_context(t['emails'], head_cache, with_head=True)
+
+
+def _build_selection_threads(selected_ids):
+    """Цепочки для выбранных писем: сами письма + связанные из inbox+sent.
+
+    Связь — общий thread_id или одинаковая нормализованная тема
+    (ThreadService.normalize_subject: режутся Re:/Fwd: и т.п.).
+    Выбранные включаются всегда, даже из других папок.
+    """
+    from .services.thread_service import ThreadService
+    sel = list(Email.objects.filter(pk__in=selected_ids))
+    if not sel:
+        return []
+    norms, tids = set(), set()
+    for e in sel:
+        n = ThreadService.normalize_subject(e.subject or '')
+        if n:
+            norms.add(n)
+        tid = (e.thread_id or '').strip()
+        if tid:
+            tids.add(tid)
+    matched = {e.pk for e in sel}
+    if norms or tids:
+        rows = Email.objects.filter(folder__in=('inbox', 'sent')).values(
+            'id', 'subject', 'thread_id')
+        for r in rows:
+            rtid = (r['thread_id'] or '').strip()
+            if rtid and rtid in tids:
+                matched.add(r['id'])
+                continue
+            if norms and ThreadService.normalize_subject(r['subject'] or '') in norms:
+                matched.add(r['id'])
+    emails = list(
+        Email.objects.filter(pk__in=matched).select_related(
+            'project_site', 'contractor', 'category', 'building_type',
+        ).prefetch_related('attachments'))
+    thread_list = _build_thread_list(emails)
+    _attach_thread_page_heads(thread_list)
+    return thread_list
+
+
+@login_required
+@require_http_methods(['POST'])
+def selection_threads(request):
+    """Цепочки выбранных писем (контекстный фильтр bulk-панели).
+
+    Принимает те же поля, что bulk_action: selected_emails / select_all +
+    filter_params + folder. Рендерит цепочки в #email-list-container;
+    обратно — кнопка «К списку» (back_url из исходных параметров фильтра).
+    """
+    folder = request.POST.get('folder', 'inbox')
+    filter_params = request.POST.get('filter_params', '')
+    if request.POST.get('select_all') == '1':
+        emails = Email.objects.filter(folder=folder)
+        if filter_params:
+            from django.http import QueryDict
+            filter_form = EmailFilterForm(QueryDict(filter_params))
+            if filter_form.is_valid():
+                emails = filter_emails(emails, filter_form.cleaned_data)
+        selected_ids = list(emails.values_list('id', flat=True))
+    else:
+        selected_ids = sanitize_id_list(request.POST.getlist('selected_emails'))
+    if not selected_ids:
+        return HttpResponseBadRequest('Нет выбранных писем')
+    thread_list = _build_selection_threads(selected_ids)
+    # Одна страница (контекстный просмотр целиком), пейджер скрыт.
+    thread_page = Paginator(thread_list, max(len(thread_list), 1)).get_page(1)
+
+    from django.http import QueryDict
+    back_qd = QueryDict(filter_params, mutable=True)
+    back_qd['folder'] = folder
+    back_url = reverse('email_ui:email_list_partial') + '?' + back_qd.urlencode()
+    context = {
+        'selection_mode': True,
+        'selected_count': len(selected_ids),
+        'thread_page': thread_page,
+        'thread_total': len(thread_list),
+        'email_list_back_url': back_url,
+        'back_url': back_url,
+    }
+    return render(request, 'email_ui/partials/email_threads.html', context)
 
 
 def _sanitize_next_url(next_url):
     """Ensure 'next' always points to a full page, not a partial/ URL."""
     from django.http import QueryDict
     if not next_url:
+        return reverse('email_ui:inbox_default')
+    # Защита от open-redirect: разрешаем только локальные пути.
+    if not next_url.startswith('/'):
         return reverse('email_ui:inbox_default')
     if '/partial/' in next_url:
         try:
@@ -57,13 +236,12 @@ def _sanitize_next_url(next_url):
                 qd = QueryDict(qs)
                 folder = qd.get('folder', 'inbox')
             url = reverse('email_ui:inbox', args=[folder])
-            params = []
-            for key in ('has_attachments', 'is_important', 'is_unread', 'search'):
-                val = qd.get(key)
-                if val:
-                    params.append(f'{key}={val}')
-            if params:
-                url += '?' + '&'.join(params)
+            qd_copy = qd.copy()
+            for key in ('sort', 'order', 'folder'):
+                qd_copy.pop(key, None)
+            qs2 = qd_copy.urlencode()
+            if qs2:
+                url += '?' + qs2
             return url
         except Exception:
             return reverse('email_ui:inbox_default')
@@ -82,7 +260,7 @@ def _clean_query_string(request, remove_params=None):
 
 def _build_back_url(request, folder='inbox'):
     """Build a full-page back URL for email list, avoiding /partial/ paths."""
-    qs = _clean_query_string(request)
+    qs = _clean_query_string(request, remove_params=['sort', 'order', 'folder'])
     url = reverse('email_ui:inbox', args=[folder])
     if qs:
         url += '?' + qs
@@ -102,12 +280,77 @@ def apply_sorting(queryset, request):
     return queryset.order_by(sort_field), sort_field.lstrip('-'), sort_order
 
 
+def _split_tokens(raw):
+    """Делит мульти-ввод почты на токены (запятая/точка с запятой)."""
+    if not raw:
+        return []
+    return [t.strip() for t in str(raw).replace(';', ',').split(',') if t.strip()]
+
+
+# Поля общего поиска («везде»): тема + все адресные поля + наименование.
+SEARCH_ANYWHERE_FIELDS = (
+    'subject', 'sender', 'sender_name', 'receiver', 'cc', 'bcc', 'name',
+)
+
+
+def _ci_variants(token):
+    """Варианты регистра для токена.
+
+    SQLite LIKE (а значит и Django __icontains) регистронезависим только
+    для ASCII. Для кириллицы 'совещание' не найдёт 'Совещание' и наоборот.
+    Поэтому ищем сразу по нескольким вариантам через ИЛИ.
+    """
+    t = (token or '').strip()
+    if not t:
+        return []
+    variants = {t, t.lower(), t.upper(), t.capitalize(), t.title()}
+    return [v for v in variants if v]
+
+
+def _q_field_variants(field, token):
+    """Q(field__icontains=вариант) объединённые через ИЛИ."""
+    q = Q()
+    for v in _ci_variants(token):
+        q |= Q(**{f'{field}__icontains': v})
+    return q
+
+
+def _q_token_anywhere(token, include_body=False):
+    """Один токен общего поиска: любое поле из SEARCH_ANYWHERE_FIELDS (ИЛИ).
+
+    include_body=True — дополнительно ищем в теле письма (body_text),
+    т.е. режим «Тема + тело письма».
+    """
+    q = Q()
+    for field in SEARCH_ANYWHERE_FIELDS:
+        q |= _q_field_variants(field, token)
+    if include_body:
+        q |= _q_field_variants('body_text', token)
+    return q
+
+
 def filter_emails(queryset, cleaned_data):
+    # Строгий поиск: каждое поле ищет ТОЛЬКО в своём поле письма.
+    # Мульти-ввод: токены через запятую объединяются через ИЛИ внутри поля.
+    # Разные поля комбинируются через И (цепочка .filter()).
     if cleaned_data.get('sender'):
-        s = cleaned_data['sender']
-        queryset = queryset.filter(Q(sender__icontains=s) | Q(sender_name__icontains=s))
+        q = Q()
+        for t in _split_tokens(cleaned_data['sender']):
+            q |= _q_field_variants('sender', t) | _q_field_variants('sender_name', t)
+        if q:
+            queryset = queryset.filter(q)
     if cleaned_data.get('receiver'):
-        queryset = queryset.filter(receiver__icontains=cleaned_data['receiver'])
+        q = Q()
+        for t in _split_tokens(cleaned_data['receiver']):
+            q |= _q_field_variants('receiver', t)
+        if q:
+            queryset = queryset.filter(q)
+    if cleaned_data.get('cc'):
+        q = Q()
+        for t in _split_tokens(cleaned_data['cc']):
+            q |= _q_field_variants('cc', t)
+        if q:
+            queryset = queryset.filter(q)
     if cleaned_data.get('project_site'):
         queryset = queryset.filter(project_site__in=cleaned_data['project_site'])
     if cleaned_data.get('contractor'):
@@ -126,24 +369,125 @@ def filter_emails(queryset, cleaned_data):
         queryset = queryset.filter(is_important=True)
     if cleaned_data.get('is_unread'):
         queryset = queryset.filter(is_read=False)
-    if cleaned_data.get('date_from'):
-        queryset = queryset.filter(email_stamp__date__gte=cleaned_data['date_from'])
-    if cleaned_data.get('date_to'):
-        queryset = queryset.filter(email_stamp__date__lte=cleaned_data['date_to'])
+    if cleaned_data.get('date_from') or cleaned_data.get('date_to'):
+        # Дата письма: email_stamp, а для отправленных из приложения
+        # (там штамп пуст) — sent_at/creation_stamp, иначе их не найти.
+        queryset = queryset.annotate(
+            _eff_date=Coalesce(TruncDate('email_stamp'), TruncDate('sent_at'),
+                               TruncDate('creation_stamp')),
+        )
+        if cleaned_data.get('date_from'):
+            queryset = queryset.filter(_eff_date__gte=cleaned_data['date_from'])
+        if cleaned_data.get('date_to'):
+            queryset = queryset.filter(_eff_date__lte=cleaned_data['date_to'])
     if cleaned_data.get('folder'):
         queryset = queryset.filter(folder=cleaned_data['folder'])
     if cleaned_data.get('sent_status'):
         queryset = queryset.filter(sent_status=cleaned_data['sent_status'])
     if cleaned_data.get('search'):
-        query = cleaned_data['search']
-        queryset = queryset.filter(
-            Q(subject__icontains=query) |
-            Q(sender__icontains=query) |
-            Q(sender_name__icontains=query) |
-            Q(receiver__icontains=query) |
-            Q(name__icontains=query)
-        )
+        query = (cleaned_data['search'] or '').strip()
+        # Общий поиск — везде (ИЛИ по полям). Слова через пробел/запятую —
+        # каждое должно найтись где-то (И): «совещание К-1» найдёт
+        # «Совещание 10.09.25 на К-1» независимо от регистра.
+        # search_scope: '' (везде без тела) / subject (только тема) /
+        # subject_body (везде + тело письма).
+        scope = cleaned_data.get('search_scope') or ''
+        tokens = [t for t in query.replace(',', ' ').replace(';', ' ').split() if t]
+        if scope == 'subject':
+            for tok in tokens:
+                queryset = queryset.filter(_q_field_variants('subject', tok))
+        else:
+            include_body = scope == 'subject_body'
+            for tok in tokens:
+                queryset = queryset.filter(_q_token_anywhere(tok, include_body=include_body))
     return queryset
+
+
+def _canonical_top_addresses(field, limit=200):
+    """SRP: топ канонических bare-адресов поля (единый путь для всех подсказок пикера).
+
+    Сырые алиасы без @ (обрезки 'Name <localpart', имена) сюда не попадают.
+    """
+    from collections import Counter
+    from .utils import canonical_address_list
+    counter = Counter()
+    rows = (
+        Email.objects.exclude(**{f'{field}__isnull': True}).exclude(**{field: ''})
+        .values_list(field, flat=True)[:10000]
+    )
+    for raw in rows:
+        if not raw or '@' not in raw:
+            continue
+        canon = canonical_address_list(raw)
+        if not canon:
+            continue
+        for addr in canon.split(','):
+            addr = addr.strip()
+            if addr:
+                counter[addr] += 1
+    return sorted(addr for addr, _ in counter.most_common(limit))
+
+
+def _get_email_field_suggestions(limit=200):
+    """Подсказки для полей почты: ТОЛЬКО твёрдые bare-адреса, один путь для всех полей."""
+    return {
+        'all_senders': _canonical_top_addresses('sender', 300),
+        'all_receivers': _canonical_top_addresses('receiver', limit),
+        'all_cc_addresses': _canonical_top_addresses('cc', limit),
+    }
+
+
+def _get_email_view_settings(request):
+    """Настройки отображения списка писем текущего пользователя.
+
+    Возвращает dict для шаблонов: show_body_preview, preview_length.
+    Незалогиненным (на всякий случай) — дефолты без записи в БД.
+    """
+    defaults = {
+        'show_body_preview': True,
+        'preview_length': EmailViewSettings.DEFAULT_PREVIEW_LENGTH,
+    }
+    user = getattr(request, 'user', None)
+    if not user or not getattr(user, 'is_authenticated', False):
+        return defaults
+    obj, _ = EmailViewSettings.objects.get_or_create(user=user)
+    return {
+        'show_body_preview': obj.show_body_preview,
+        'preview_length': obj.preview_length or EmailViewSettings.DEFAULT_PREVIEW_LENGTH,
+    }
+
+
+@login_required
+def email_settings_modal(request):
+    """Модалка «Настройки почты»: раздел «Тема письма»."""
+    obj, _ = EmailViewSettings.objects.get_or_create(user=request.user)
+    return render(request, 'email_ui/partials/email_settings_modal.html', {
+        'view_settings': obj,
+        'min_len': EmailViewSettings.MIN_PREVIEW_LENGTH,
+        'max_len': EmailViewSettings.MAX_PREVIEW_LENGTH,
+    })
+
+
+@login_required
+@require_http_methods(['POST'])
+def save_email_settings(request):
+    """Сохранение настроек отображения списка писем.
+
+    Значения всегда клэмпятся к допустимым, поэтому ответ — всегда успех:
+    htmx по HX-Refresh перезагружает страницу и список перерисовывается.
+    """
+    obj, _ = EmailViewSettings.objects.get_or_create(user=request.user)
+    obj.show_body_preview = request.POST.get('show_body_preview') in ('true', 'True', '1', 'on')
+    try:
+        obj.preview_length = int(request.POST.get('preview_length', obj.preview_length))
+    except (TypeError, ValueError):
+        obj.preview_length = EmailViewSettings.DEFAULT_PREVIEW_LENGTH
+    obj.clamp_preview_length()
+    obj.save()
+    messages.success(request, 'Настройки почты сохранены')
+    response = HttpResponse(status=204)
+    response['HX-Refresh'] = 'true'
+    return response
 
 
 @login_required
@@ -201,9 +545,10 @@ def inbox_view(request, folder='inbox'):
         'filter_data': filter_data,
         'all_tags': EmailTag.objects.all(),
         'clean_params': _clean_query_string(request),
-        'all_senders': Email.objects.exclude(sender='').values_list('sender', flat=True).distinct().order_by('sender'),
+        **_get_email_field_suggestions(),
         'email_list_back_url': _build_back_url(request, folder),
         'active_filters': active_filters,
+        'email_view_settings': _get_email_view_settings(request),
     }
     return render(request, 'email_ui/inbox.html', context)
 
@@ -241,6 +586,7 @@ def email_list_partial(request):
             'clean_params': _clean_query_string(request),
             'email_list_back_url': _build_back_url(request, folder),
             'active_filters': active_filters,
+            'email_view_settings': _get_email_view_settings(request),
         }
         return render(request, 'email_ui/partials/email_rows.html', context)
 
@@ -253,6 +599,8 @@ def email_list_partial(request):
         'clean_params': _clean_query_string(request),
         'email_list_back_url': _build_back_url(request, folder),
         'active_filters': active_filters,
+        'email_view_settings': _get_email_view_settings(request),
+        'oob_sync': True,
     }
     return render(request, 'email_ui/partials/email_list.html', context)
 
@@ -271,24 +619,38 @@ def filter_form_partial(request):
         'selected_categories': request.GET.getlist('category'),
         'selected_info': request.GET.getlist('info'),
         'selected_tags': request.GET.getlist('tags'),
+        **_get_email_field_suggestions(),
     }
     return render(request, 'email_ui/partials/filter_form.html', context)
 
 
 @login_required
 def email_detail(request, pk):
-    """Полноценная страница просмотра письма."""
+    """Полноценная страница просмотра письма.
+
+    Для черновиков (folder='drafts') — редирект на draft_edit (compose-редактор).
+    """
     email = get_object_or_404(
         Email.objects.select_related(
             'project_site', 'contractor', 'category', 'building_type'
         ).prefetch_related('attachments', 'tasks'),
         pk=pk
     )
+
+    # Черновики открываются в compose-редакторе
+    if email.folder == 'drafts':
+        from django.http import HttpResponseRedirect
+        return HttpResponseRedirect(
+            reverse('email_ui:draft_edit', args=[pk]) +
+            '?next=' + (request.GET.get('next') or reverse('email_ui:inbox', args=['drafts']))
+        )
+
     if not email.is_read:
         email.is_read = True
         email.save(update_fields=['is_read'])
 
-    next_url = _sanitize_next_url(request.GET.get('next', reverse('email_ui:inbox_default')))
+    raw_next = request.GET.get('next') or reverse('email_ui:inbox', args=[email.folder])
+    next_url = _sanitize_next_url(raw_next)
 
     context = {
         'email': email,
@@ -301,13 +663,21 @@ def email_detail(request, pk):
 
 @login_required
 def email_detail_modal(request, pk):
-    """Возвращает фрагмент с деталями письма для модального окна."""
+    """Возвращает фрагмент с деталями письма для модального окна.
+
+    Для черновиков — редирект на draft_edit.
+    """
     email = get_object_or_404(
         Email.objects.select_related(
             'project_site', 'contractor', 'category', 'building_type'
         ).prefetch_related('attachments', 'tasks'),
         pk=pk
     )
+
+    if email.folder == 'drafts':
+        from django.http import HttpResponseRedirect
+        return HttpResponseRedirect(reverse('email_ui:draft_edit', args=[pk]))
+
     if not email.is_read:
         email.is_read = True
         email.save(update_fields=['is_read'])
@@ -342,11 +712,18 @@ def email_body(request, pk):
             f'<div class="letter-frame letter-paper" id="letter-frame-{pk}">'
             f'<div class="letter-toolbar">'
             f'<span class="letter-toolbar-label"><i class="bi bi-card-text me-1"></i>Отображение письма</span>'
+            f'<div class="letter-toolbar-controls">'
+            f'<label class="letter-fontscale" title="Размер шрифта письма">'
+            f'<i class="bi bi-type"></i>'
+            f'<input type="range" min="12" max="24" step="1" value="16" '
+            f'oninput="setLetterFontSize({pk},this.value,this)" title="Размер шрифта письма">'
+            f'<span id="letter-fontval-{pk}">16</span>'
+            f'</label>'
             f'<div class="letter-mode-switch" role="group">'
             f'<button type="button" class="active" data-mode="letter-paper" onclick="setLetterMode({pk},\'letter-paper\',this)">Светлое</button>'
             f'<button type="button" data-mode="letter-dark" onclick="setLetterMode({pk},\'letter-dark\',this)">Тёмное</button>'
             f'<button type="button" data-mode="letter-auto" onclick="setLetterMode({pk},\'letter-auto\',this)">Оригинал</button>'
-            f'</div></div>'
+            f'</div></div></div>'
             f'<div class="letter-content">{inner}</div></div>'
         )
 
@@ -357,8 +734,8 @@ def email_body(request, pk):
             raw_html = f.read()
         resolved = resolve_inline_image_urls(email, raw_html)
         cleaned = clean_email_html(resolved)
-        highlighted = highlight_email_body(cleaned)
-        return HttpResponse(_frame(highlighted))
+        segmented = segment_letter_html(cleaned)
+        return HttpResponse(_frame(segmented))
     except Exception as e:
         return HttpResponse(_frame(f'<p>Ошибка загрузки: {e}</p>'))
 
@@ -437,10 +814,20 @@ def add_attachment(request, pk):
             att.file_path = file_path
             att.save(update_fields=['file_path'])
         messages.success(request, f'Файл "{uploaded_file.name}" добавлен')
-        return redirect(reverse('email_ui:email_detail', args=[pk]))
+        detail_url = reverse('email_ui:email_detail', args=[pk])
+        raw_next = request.POST.get('next') or request.GET.get('next')
+        if raw_next:
+            from urllib.parse import quote
+            detail_url += '?next=' + quote(raw_next, safe='')
+        return redirect(detail_url)
     except Exception as e:
         messages.error(request, f'Ошибка добавления файла: {e}')
-        return redirect(reverse('email_ui:email_detail', args=[pk]))
+        detail_url = reverse('email_ui:email_detail', args=[pk])
+        raw_next = request.POST.get('next') or request.GET.get('next')
+        if raw_next:
+            from urllib.parse import quote
+            detail_url += '?next=' + quote(raw_next, safe='')
+        return redirect(detail_url)
 
 
 @login_required
@@ -681,6 +1068,7 @@ def bulk_action(request):
             'current_order': current_order,
             'clean_params': _clean_query_string(request),
             'email_list_back_url': _build_back_url(request, folder),
+            'oob_sync': True,
         }
         return render(request, 'email_ui/partials/email_list.html', context)
     filter_params = request.POST.get('filter_params', '')
@@ -777,6 +1165,8 @@ def unread_count(request):
         'important': base.filter(is_important=True).count(),
         'attachments': base.filter(attachments__isnull=False).distinct().count(),
         'unread': base.filter(is_read=False).count(),
+        'drafts': Email.objects.filter(folder='drafts').count(),
+        'sent': Email.objects.filter(folder='sent').count(),
     }
     if request.headers.get('HX-Request') == 'true':
         return HttpResponse(str(data['inbox']))
@@ -865,6 +1255,50 @@ def open_attachment_folder(request, pk):
         return JsonResponse({'success': False, 'error': str(e)})
 
 
+def _reply_all_recipients(email, user_email=''):
+    """To/Cc для «Ответить всем» по исходному письму.
+
+    Единая логика для префилла модалки и fallback отправки:
+    To — явный адрес отправителя; Cc — явные адреса из To/Cc
+    минус отправитель, свои адреса (пользователь, YA_USER,
+    аккаунт письма, все активные SMTP). Возвращает (to, cc, missing),
+    где missing — entries без явного email (не подменяются контактами).
+    """
+    sender_email = resolve_sender_to_email(email.sender or '')
+    excluded = set()
+    if sender_email:
+        excluded.add(sender_email.lower())
+    if user_email:
+        excluded.add(user_email.lower())
+    from django.conf import settings
+    ya_user = getattr(settings, 'YA_USER', '') or ''
+    if ya_user:
+        excluded.add(ya_user.lower())
+    if email.smtp_account and email.smtp_account.from_email:
+        excluded.add(email.smtp_account.from_email.lower())
+    from email_ui.models import SMTPAccount
+    for acc in SMTPAccount.objects.filter(is_active=True):
+        if acc.from_email:
+            excluded.add(acc.from_email.lower())
+    cc_set, missing = set(), []
+    for raw_field in (email.receiver, email.cc):
+        if not raw_field:
+            continue
+        for entry in raw_field.split(','):
+            entry = entry.strip()
+            if not entry:
+                continue
+            addr = extract_email_address(entry)
+            if not addr:
+                # Явный email отсутствует - не подменяем контактом, фиксируем пропуск.
+                missing.append(entry)
+                continue
+            if addr.lower() in excluded:
+                continue
+            cc_set.add(addr)
+    return sender_email, ', '.join(sorted(cc_set)), missing
+
+
 # ==================== Phase 2: Compose & Send ====================
 
 @login_required
@@ -876,6 +1310,8 @@ def compose_modal(request):
         'form': form,
         'mode': 'compose',
         'contacts': contacts,
+        'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
         'next': request.GET.get('next', ''),
     })
 
@@ -920,58 +1356,12 @@ def reply_modal(request, pk, reply_type='reply'):
                 'в поле отправителя письма нет явного адреса. Укажите его вручную.'
             )
     elif reply_type == 'reply_all':
-        sender_email = resolve_sender_to_email(email.sender or '')
-        if not sender_email:
+        to_addr, cc_addr, missing = _reply_all_recipients(email, user_email)
+        if not to_addr:
             resolve_errors.append(
                 'Не удалось определить email отправителя для ответа: '
                 'в поле отправителя письма нет явного адреса. Укажите его вручную.'
             )
-        else:
-            to_addr = sender_email
-        # Адреса, которые НЕЛЬЗЯ включать в "Копию" (CC):
-        #  - сам получатель ответа (To, обычно это отправитель письма),
-        #  - сам пользователь (все его собственные адреса),
-        #  - отправитель исходного письма.
-        # Это гарантирует, что отправитель/пользователь никогда не попадёт в копию.
-        excluded = set()
-        if to_addr:
-            excluded.add(to_addr.lower())
-        if sender_email:
-            excluded.add(sender_email.lower())
-        # Собственные адреса пользователя (чтобы не отвечать самому себе в копии):
-        if user_email:
-            excluded.add(user_email.lower())
-        # Адрес почтового ящика, через который забирается почта (settings.YA_USER).
-        from django.conf import settings
-        ya_user = getattr(settings, 'YA_USER', '') or ''
-        if ya_user:
-            excluded.add(ya_user.lower())
-        # Адрес аккаунта, к которому относится письмо (если задан).
-        if email.smtp_account and email.smtp_account.from_email:
-            excluded.add(email.smtp_account.from_email.lower())
-        # Все активные SMTP-аккаунты - адреса, от имени которых пользователь может отправлять.
-        from email_ui.models import SMTPAccount
-        for acc in SMTPAccount.objects.filter(is_active=True):
-            if acc.from_email:
-                excluded.add(acc.from_email.lower())
-        cc_set = set()
-        missing = []
-        for raw_field in (email.receiver, email.cc):
-            if not raw_field:
-                continue
-            for entry in raw_field.split(','):
-                entry = entry.strip()
-                if not entry:
-                    continue
-                addr = extract_email_address(entry)
-                if not addr:
-                    # Явный email отсутствует - не подменяем контактом, фиксируем пропуск.
-                    missing.append(entry)
-                    continue
-                if addr.lower() in excluded:
-                    continue
-                cc_set.add(addr)
-        cc_addr = ', '.join(sorted(cc_set)) if cc_set else ''
         if missing:
             resolve_errors.append(
                 'Часть получателей (поля To/Cc) не содержит явного email-адреса и была '
@@ -996,6 +1386,8 @@ def reply_modal(request, pk, reply_type='reply'):
         'error': ' '.join(resolve_errors) if resolve_errors else '',
         'body': body_text,
         'contacts': contacts,
+        'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
         'forward_attachments': forward_attachments,
         'next': request.GET.get('next', ''),
     }
@@ -1012,6 +1404,8 @@ def send_email(request):
         logger.warning(f'send_email form errors: {form.errors}')
         return render(request, 'email_ui/partials/compose_modal.html', {
             'form': form, 'mode': 'compose', 'contacts': contacts,
+            'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
         }, status=400)
 
     cd = form.cleaned_data
@@ -1019,6 +1413,8 @@ def send_email(request):
         form.add_error('to', 'Укажите получателя')
         return render(request, 'email_ui/partials/compose_modal.html', {
             'form': form, 'mode': 'compose', 'contacts': contacts,
+            'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
         }, status=400)
 
     cd = form.cleaned_data
@@ -1043,6 +1439,8 @@ def send_email(request):
             form.add_error('to', f'Некорректные адреса: {", ".join(invalid)}')
             return render(request, 'email_ui/partials/compose_modal.html', {
                 'form': form, 'mode': 'compose', 'contacts': contacts,
+                'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
             }, status=400)
 
         cc_list = extract_all_email_addresses(cd.get('cc', ''))
@@ -1074,6 +1472,7 @@ def send_email(request):
                 folder='sent',
                 sent_status='sent',
                 sent_at=timezone.now(),
+                email_stamp=timezone.now(),
                 is_read=True,
             )
             # Save uploaded files to disk and create Attachment records
@@ -1107,6 +1506,8 @@ def send_email(request):
         logger.exception(f'Ошибка отправки: {e}')
         return render(request, 'email_ui/partials/compose_modal.html', {
             'form': form, 'mode': 'compose', 'contacts': contacts, 'error': str(e),
+            'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
         }, status=400)
 
 
@@ -1122,6 +1523,8 @@ def reply_send(request, pk):
         return render(request, 'email_ui/partials/compose_modal.html', {
             'form': form, 'email': email, 'mode': mode,
             'contacts': contacts, 'error': 'Форма невалидна',
+            'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
         }, status=400)
 
     cd = form.cleaned_data
@@ -1136,12 +1539,12 @@ def reply_send(request, pk):
 
     cc_raw = cd.get('cc', '')
     if not cc_raw and mode == 'reply_all':
-        cc_parts = []
-        if email.receiver:
-            cc_parts.append(email.receiver)
-        if email.cc:
-            cc_parts.append(email.cc)
-        cc_raw = ', '.join(cc_parts)
+        # Тот же расчёт, что префилл модалки: с исключениями себя/отправителя/ящиков.
+        sender_user_email = (
+            (request.user.email or '').lower()
+            if request.user and hasattr(request.user, 'email') else ''
+        )
+        _, cc_raw, _ = _reply_all_recipients(email, sender_user_email)
     cc_list = extract_all_email_addresses(cc_raw)
 
     # БЕЗОПАСНОСТЬ: адрес получателя обязателен и должен быть действительным.
@@ -1152,6 +1555,8 @@ def reply_send(request, pk):
     if not to_list:
         return render(request, 'email_ui/partials/compose_modal.html', {
             'form': form, 'email': email, 'mode': mode, 'contacts': contacts,
+            'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
             'error': 'Не указан ни один действительный email получателя. '
                      'Укажите адрес вручную перед отправкой ответа.',
         }, status=400)
@@ -1206,6 +1611,7 @@ def reply_send(request, pk):
             folder='sent',
             sent_status='sent',
             sent_at=timezone.now(),
+            email_stamp=timezone.now(),
             is_read=True,
             in_reply_to=email.message_id if mode != 'forward' else None,
             thread_id=email.thread_id if mode != 'forward' else None,
@@ -1234,13 +1640,211 @@ def reply_send(request, pk):
         return render(request, 'email_ui/partials/compose_modal.html', {
             'form': form, 'email': email, 'mode': mode,
             'contacts': contacts, 'error': str(e),
+            'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
+        }, status=400)
+
+
+@login_required
+def draft_edit(request, pk):
+    """Открыть черновик в compose-редакторе для редактирования и отправки."""
+    email = get_object_or_404(Email, pk=pk, folder='drafts')
+
+    body_text = ''
+    html_path = email.get_html_file_path()
+    if html_path and os.path.exists(html_path):
+        try:
+            with open(html_path, 'r', encoding='utf-8') as f:
+                body_text = f.read()
+        except Exception:
+            pass
+
+    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
+
+    context = {
+        'form': ComposeEmailForm(initial={
+            'to': email.receiver or '',
+            'cc': email.cc or '',
+            'bcc': email.bcc or '',
+            'subject': email.subject or '',
+            'body': body_text,
+        }),
+        'mode': 'edit_draft',
+        'draft_email': email,
+        'draft_attachments': list(email.attachments.all()),
+        'to': email.receiver or '',
+        'cc': email.cc or '',
+        'subject': email.subject or '',
+        'body': body_text,
+        'contacts': contacts,
+        'contacts_json': _contacts_picker_json(contacts),
+        'groups_json': _groups_picker_json(),
+        'next': request.GET.get('next', ''),
+    }
+    return render(request, 'email_ui/draft_edit.html', context)
+
+
+@login_required
+@require_http_methods(['POST'])
+def draft_send(request, pk):
+    """Отправить письмо из черновика и удалить черновик."""
+    draft = get_object_or_404(Email, pk=pk, folder='drafts')
+    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
+    form = ComposeEmailForm(request.POST, request.FILES)
+
+    if not form.is_valid():
+        return render(request, 'email_ui/draft_edit.html', {
+            'form': form, 'mode': 'edit_draft', 'draft_email': draft,
+            'draft_attachments': list(draft.attachments.all()),
+            'to': draft.receiver or '', 'cc': draft.cc or '',
+            'subject': draft.subject or '', 'body': '',
+            'contacts': contacts,
+            'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
+        }, status=400)
+
+    cd = form.cleaned_data
+    if not cd.get('to'):
+        form.add_error('to', 'Укажите получателя')
+        return render(request, 'email_ui/draft_edit.html', {
+            'form': form, 'mode': 'edit_draft', 'draft_email': draft,
+            'draft_attachments': list(draft.attachments.all()),
+            'to': draft.receiver or '', 'cc': draft.cc or '',
+            'subject': draft.subject or '', 'body': '',
+            'contacts': contacts,
+            'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
+        }, status=400)
+
+    try:
+        uploaded_files = request.FILES.getlist('attachment_files')
+
+        sender = EmailSenderService(
+            smtp_account=cd.get('smtp_account'),
+            use_outlook=cd.get('use_outlook', False),
+        )
+
+        to_list = extract_all_email_addresses(cd['to'])
+        if not to_list:
+            to_list = [addr.strip() for addr in cd['to'].split(',') if addr.strip()]
+
+        from .utils import _EMAIL_STANDALONE_RE
+        invalid = [a for a in to_list if not _EMAIL_STANDALONE_RE.match(a)]
+        if invalid:
+            form.add_error('to', f'Некорректные адреса: {", ".join(invalid)}')
+            return render(request, 'email_ui/partials/compose_modal.html', {
+                'form': form, 'mode': 'edit_draft', 'draft_email': draft,
+                'draft_attachments': list(draft.attachments.all()),
+                'contacts': contacts,
+                'contacts_json': _contacts_picker_json(contacts),
+                'groups_json': _groups_picker_json(),
+            }, status=400)
+
+        cc_list = extract_all_email_addresses(cd.get('cc', ''))
+        if not cc_list:
+            cc_list = [addr.strip() for addr in cd.get('cc', '').split(',') if addr.strip()]
+        bcc_list = extract_all_email_addresses(cd.get('bcc', ''))
+        if not bcc_list:
+            bcc_list = [addr.strip() for addr in cd.get('bcc', '').split(',') if addr.strip()]
+
+        # Собираем вложения: черновика (не удалённые) + новые загруженные
+        excluded_ids = set()
+        for val in request.POST.getlist('exclude_attachments'):
+            try:
+                excluded_ids.add(sanitize_id(val))
+            except (ValueError, TypeError):
+                continue
+
+        attachment_objs = []
+        for att in draft.attachments.all():
+            if att.pk not in excluded_ids:
+                attachment_objs.append(att)
+        for f in uploaded_files:
+            attachment_objs.append(f)
+
+        result = sender.send_via_smtp(
+            to_emails=to_list,
+            subject=cd['subject'],
+            body_html=cd['body'],
+            from_name=sender.smtp_account.from_name if sender.smtp_account else None,
+            cc=cc_list if cc_list else None,
+            bcc=bcc_list if bcc_list else None,
+            attachments=attachment_objs if attachment_objs else None,
+        )
+
+        if result:
+            email_obj = Email.objects.create(
+                email_type='OUT',
+                subject=cd['subject'],
+                sender=sender.smtp_account.from_email if sender.smtp_account else '',
+                receiver=', '.join(to_list),
+                cc=', '.join(cc_list) if cc_list else None,
+                bcc=', '.join(bcc_list) if bcc_list else None,
+                folder='sent',
+                sent_status='sent',
+                sent_at=timezone.now(),
+                email_stamp=timezone.now(),
+                is_read=True,
+            )
+
+            # Сохраняем вложения отправленного письма в БД
+            for att in attachment_objs:
+                if hasattr(att, 'pk') and att.pk:
+                    # Это существующий Attachment из черновика — копируем запись
+                    Attachment.objects.create(
+                        email=email_obj,
+                        filename=att.filename,
+                        file_path=att.file_path,
+                        size=att.size,
+                        content_type=att.content_type,
+                    )
+                else:
+                    # Это новый загруженный файл
+                    try:
+                        new_att = Attachment(
+                            email=email_obj,
+                            filename=att.name,
+                            size=att.size or 0,
+                            content_type=att.content_type or '',
+                            file_path='',
+                        )
+                        if email_obj.link:
+                            os.makedirs(email_obj.link, exist_ok=True)
+                            file_path = os.path.join(email_obj.link, att.name)
+                            with open(file_path, 'wb+') as dest:
+                                for chunk in att.chunks():
+                                    dest.write(chunk)
+                            new_att.file_path = file_path
+                        new_att.save()
+                    except Exception as e:
+                        logger.warning(f'Ошибка сохранения вложения {att.name}: {e}')
+
+            # Удаляем черновик
+            draft.delete()
+
+            next_url = _sanitize_next_url(request.POST.get('next', ''))
+            return render(request, 'email_ui/partials/send_success.html', {
+                'message': 'Письмо отправлено',
+                'next': next_url,
+            })
+
+    except Exception as e:
+        logger.exception(f'Ошибка отправки черновика: {e}')
+        return render(request, 'email_ui/draft_edit.html', {
+            'form': form, 'mode': 'edit_draft', 'draft_email': draft,
+            'draft_attachments': list(draft.attachments.all()),
+            'to': draft.receiver or '', 'cc': draft.cc or '',
+            'subject': draft.subject or '', 'body': '',
+            'contacts': contacts, 'error': str(e),
+            'contacts_json': _contacts_picker_json(contacts),
+            'groups_json': _groups_picker_json(),
         }, status=400)
 
 
 @login_required
 @require_http_methods(['POST'])
 def save_draft(request):
-    """Сохранить черновик письма."""
+    """Сохранить новый черновик письма."""
     to_val = request.POST.get('to', '')
     cc_val = request.POST.get('cc', '')
     bcc_val = request.POST.get('bcc', '')
@@ -1278,6 +1882,34 @@ def save_draft(request):
         folder='drafts',
         sent_status='draft',
     )
+
+    return HttpResponse(status=204)
+
+
+@login_required
+@require_http_methods(['POST'])
+def draft_update(request, pk):
+    """Обновить существующий черновик (без отправки)."""
+    draft = get_object_or_404(Email, pk=pk, folder='drafts')
+    to_val = request.POST.get('to', '')
+    cc_val = request.POST.get('cc', '')
+    bcc_val = request.POST.get('bcc', '')
+    subject_val = request.POST.get('subject', '')
+    body_val = request.POST.get('body', '')
+
+    draft.receiver = to_val
+    draft.cc = cc_val
+    draft.bcc = bcc_val
+    draft.subject = subject_val
+    draft.save(update_fields=['receiver', 'cc', 'bcc', 'subject'])
+
+    # Обновляем HTML тело
+    if draft.link:
+        html_path = draft.get_html_file_path()
+        if html_path:
+            os.makedirs(os.path.dirname(html_path), exist_ok=True)
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(body_val or '')
 
     return HttpResponse(status=204)
 
@@ -1463,6 +2095,171 @@ def contact_search(request):
         'company': c.company.name if c.company else '',
     } for c in contacts]
     return JsonResponse(data, safe=False)
+
+
+def _groups_picker_json(groups=None):
+    """Группы для пикера: [{n: название, e: [твёрдые почты плоско]}]."""
+    if groups is None:
+        groups = ContactGroup.objects.filter(is_active=True).prefetch_related(
+            'contacts__emails', 'subgroups',
+        )
+    return [{'n': g.name, 'e': g.all_emails()} for g in groups]
+
+
+# ==================== Contact Groups ====================
+
+def _safe_next(request, fallback_view, **kwargs):
+    """Безопасный возврат к месту вызова (?next=) или fallback."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+    nxt = request.POST.get('next') or request.GET.get('next')
+    if nxt and url_has_allowed_host_and_scheme(
+        nxt,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return redirect(nxt)
+    return redirect(fallback_view, **kwargs)
+
+
+@login_required
+def group_list(request):
+    """Список групп адресатов."""
+    query = request.GET.get('q', '')
+    groups = ContactGroup.objects.filter(is_active=True)
+    if query:
+        groups = groups.filter(
+            Q(name__icontains=query)
+            | Q(contacts__name__icontains=query)
+            | Q(contacts__emails__email__icontains=query)
+        ).distinct()
+    return render(request, 'email_ui/groups/list.html', {
+        'groups': groups.order_by('name'),
+        'query': query,
+    })
+
+
+@login_required
+def group_detail(request, pk):
+    """Карточка группы: состав, вложенность, итоговые адреса."""
+    group = get_object_or_404(ContactGroup, pk=pk)
+    return render(request, 'email_ui/groups/detail.html', {
+        'group': group,
+        'all_emails': group.all_emails(),
+        'free_contacts': Contact.objects.filter(is_active=True).order_by('name'),
+        'free_groups': ContactGroup.objects.filter(
+            is_active=True,
+        ).exclude(pk=group.pk).order_by('name'),
+        'next': request.GET.get('next', ''),
+    })
+
+
+@login_required
+def group_create_modal(request):
+    """Модальное окно создания группы."""
+    return render(request, 'email_ui/partials/group_modal.html', {
+        'form': ContactGroupForm(),
+        'mode': 'create',
+    })
+
+
+@login_required
+@require_http_methods(['POST'])
+def group_create(request):
+    """Создание группы (AJAX)."""
+    form = ContactGroupForm(request.POST)
+    if form.is_valid():
+        group = form.save()
+        messages.success(request, f'Группа "{group.name}" создана')
+        return HttpResponse(status=204)
+    return render(request, 'email_ui/partials/group_modal.html', {
+        'form': form,
+        'mode': 'create',
+    }, status=400)
+
+
+@login_required
+def group_edit_modal(request, pk):
+    """Модальное окно переименования группы."""
+    group = get_object_or_404(ContactGroup, pk=pk)
+    return render(request, 'email_ui/partials/group_modal.html', {
+        'form': ContactGroupForm(instance=group),
+        'group': group,
+        'mode': 'edit',
+    })
+
+
+@login_required
+@require_http_methods(['POST'])
+def group_edit(request, pk):
+    """Переименование группы (AJAX)."""
+    group = get_object_or_404(ContactGroup, pk=pk)
+    form = ContactGroupForm(request.POST, instance=group)
+    if form.is_valid():
+        form.save()
+        messages.success(request, 'Группа обновлена')
+        return HttpResponse(status=204)
+    return render(request, 'email_ui/partials/group_modal.html', {
+        'form': form,
+        'group': group,
+        'mode': 'edit',
+    }, status=400)
+
+
+@login_required
+@require_http_methods(['POST'])
+def group_delete(request, pk):
+    """Удаление группы (сами контакты не трогает)."""
+    group = get_object_or_404(ContactGroup, pk=pk)
+    group.delete()
+    messages.success(request, 'Группа удалена')
+    return _safe_next(request, 'email_ui:group_list')
+
+
+@login_required
+@require_http_methods(['POST'])
+def group_add_contact(request, pk):
+    """Добавить контакт в группу."""
+    group = get_object_or_404(ContactGroup, pk=pk)
+    contact = get_object_or_404(Contact, pk=request.POST.get('contact_id'))
+    group.contacts.add(contact)
+    messages.success(request, f'{contact.name} добавлен в группу')
+    return redirect('email_ui:group_detail', pk=group.pk)
+
+
+@login_required
+@require_http_methods(['POST'])
+def group_remove_contact(request, pk):
+    """Убрать контакт из группы."""
+    group = get_object_or_404(ContactGroup, pk=pk)
+    contact = get_object_or_404(Contact, pk=request.POST.get('contact_id'))
+    group.contacts.remove(contact)
+    messages.success(request, f'{contact.name} убран из группы')
+    return redirect('email_ui:group_detail', pk=group.pk)
+
+
+@login_required
+@require_http_methods(['POST'])
+def group_add_subgroup(request, pk):
+    """Вложить группу в группу (с защитой от циклов)."""
+    group = get_object_or_404(ContactGroup, pk=pk)
+    sub = get_object_or_404(ContactGroup, pk=request.POST.get('subgroup_id'))
+    if group.would_cycle(sub):
+        messages.error(request, f'Нельзя вложить "{sub.name}": циклическая вложенность')
+    else:
+        group.subgroups.add(sub)
+        messages.success(request, f'Группа "{sub.name}" вложена')
+    return redirect('email_ui:group_detail', pk=group.pk)
+
+
+@login_required
+@require_http_methods(['POST'])
+def group_remove_subgroup(request, pk):
+    """Убрать вложенную группу."""
+    group = get_object_or_404(ContactGroup, pk=pk)
+    sub = get_object_or_404(ContactGroup, pk=request.POST.get('subgroup_id'))
+    group.subgroups.remove(sub)
+    messages.success(request, f'Группа "{sub.name}" убрана')
+    return redirect('email_ui:group_detail', pk=group.pk)
 
 
 # ==================== Phase 3: Tags ====================
@@ -1866,6 +2663,7 @@ def email_thread(request, pk):
     email = get_object_or_404(Email, pk=pk)
     from .services.thread_service import ThreadService
     thread = ThreadService.get_thread(email)
+    _attach_thread_context(thread)
     return render(request, 'email_ui/partials/email_thread.html', {
         'thread': thread,
         'active_email': email,

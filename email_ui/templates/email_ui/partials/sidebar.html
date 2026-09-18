@@ -19,12 +19,14 @@
        hx-target="#email-list-container"
        hx-push-url="{% url 'email_ui:inbox' 'sent' %}">
         <i class="bi bi-send"></i> Отправленные
+        <span class="badge" id="count-sent" data-count="0">0</span>
     </a>
     <a class="nav-item{% if folder == 'drafts' %} active{% endif %}" href="#"
        hx-get="{% url 'email_ui:email_list_partial' %}?folder=drafts"
        hx-target="#email-list-container"
        hx-push-url="{% url 'email_ui:inbox' 'drafts' %}">
         <i class="bi bi-file-earmark-text"></i> Черновики
+        <span class="badge" id="count-drafts" data-count="0" style="display:none;">0</span>
     </a>
     <a class="nav-item{% if folder == 'archive' %} active{% endif %}" href="#"
        hx-get="{% url 'email_ui:email_list_partial' %}?folder=archive"
@@ -43,21 +45,34 @@
 <div class="nav-section">
     <div class="nav-section-title">Фильтры</div>
     <a class="nav-item" href="#"
-       hx-get="{% url 'email_ui:email_list_partial' %}?folder={{ request.GET.folder|default:'inbox' }}&is_important=1"
+       hx-get="{% url 'email_ui:email_list_partial' %}?is_important=1"
+       hx-vals='js:{folder: (document.getElementById("filter-folder-input")||{value:"inbox"}).value}'
        hx-target="#email-list-container" hx-push-url="false">
         <i class="bi bi-star"></i> Важные
         <span class="badge" id="count-important" data-count="0">0</span>
     </a>
     <a class="nav-item" href="#"
-       hx-get="{% url 'email_ui:email_list_partial' %}?folder={{ request.GET.folder|default:'inbox' }}&has_attachments=1"
+       hx-get="{% url 'email_ui:email_list_partial' %}?has_attachments=1"
+       hx-vals='js:{folder: (document.getElementById("filter-folder-input")||{value:"inbox"}).value}'
        hx-target="#email-list-container" hx-push-url="false">
         <i class="bi bi-paperclip"></i> С вложениями
         <span class="badge" id="count-attachments" data-count="0">0</span>
     </a>
     <a class="nav-item" href="#"
-       hx-get="{% url 'email_ui:email_list_partial' %}?folder={{ request.GET.folder|default:'inbox' }}&is_unread=1"
+       hx-get="{% url 'email_ui:email_list_partial' %}?is_unread=1"
+       hx-vals='js:{folder: (document.getElementById("filter-folder-input")||{value:"inbox"}).value}'
        hx-target="#email-list-container" hx-push-url="false">
         <i class="bi bi-envelope"></i> Непрочитанные
         <span class="badge" id="count-unread" data-count="0">0</span>
+    </a>
+</div>
+
+<div class="nav-section">
+    <div class="nav-section-title">Справочники</div>
+    <a class="nav-item" href="{% url 'email_ui:contact_list' %}">
+        <i class="bi bi-person-lines-fill"></i> Контакты
+    </a>
+    <a class="nav-item" href="{% url 'email_ui:group_list' %}">
+        <i class="bi bi-people"></i> Группы адресатов
     </a>
 </div>

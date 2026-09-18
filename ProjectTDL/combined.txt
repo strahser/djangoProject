@@ -1,0 +1,3093 @@
+﻿====================================================================================================
+FILE: admin.py
+====================================================================================================
+import logging
+from urllib.parse import urlencode, parse_qs
+
+from django import forms
+from django.contrib import admin
+from django.contrib import messages
+from django.urls import reverse
+from django.http import HttpResponse
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
+from import_export import resources
+from import_export.admin import ImportExportModelAdmin
+from import_export.fields import Field
+
+from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
+from Emails.models import Email
+from email_ui.models import EmailTaskLink
+from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar
+from ProjectTDL.Tables import StaticFilterSettings
+from mptt.admin import MPTTModelAdmin
+from ProjectTDL.models import TaskDueDateHistory, TaskNode
+from ProjectTDL.reports import ReportGenerator, html_convert
+from StaticData.models import DesignChapter
+from services.DataFrameRender.RenderDfFromModel import create_pivot_table
+
+logger = logging.getLogger(__name__)
+
+
+class DesignChapterResource(resources.ModelResource):
+    class Meta:
+        model = DesignChapter
+        fields = ['id', 'name', 'short_name']
+
+
+class TaskNodeResource(resources.ModelResource):
+    id = Field(attribute='id')
+    project_site__name = Field(attribute='project_site__name', column_name='project site')
+    building_number__name__name = Field(attribute='building_number__name__name', column_name='building')
+    building_number__building_number = Field(attribute='building_number__building_number')
+    design_chapter__short_name = Field(attribute='design_chapter__short_name', column_name='design chapter')
+    design_chapter__full_name = Field(attribute='design_chapter__name', column_name='design chapter')
+    name = Field(attribute='name')
+    description = Field(attribute='description')
+    status__name = Field(attribute='status__name')
+    due_date = Field(attribute='due_date')
+    price = Field(attribute='price')
+
+    class Meta:
+        model = TaskNode
+        fields = ('id', 'project_site__name',
+                  'building_number__name__name',
+                  'building_number__building_number',
+                  'design_chapter__short_name', 'name', 'description',
+                  'status__name', 'due_date'
+                  )
+        export_order = ('id', 'project_site__name')
+
+
+class TaskDueDateHistoryInline(admin.StackedInline):
+    model = TaskDueDateHistory
+    fk_name = 'task_node'
+    extra = 0
+    max_num = 0
+    can_delete = False
+    readonly_fields = ['old_due_date', 'new_due_date', 'change_date', 'changed_by']
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class TaskInline(admin.StackedInline):
+    model = TaskNode
+    fk_name = 'parent'
+    extra = 1
+    fields = ['name', 'description', 'price', 'due_date', 'creation_stamp']
+    readonly_fields = ('creation_stamp',)
+    verbose_name = 'Подзадача'
+    verbose_name_plural = 'Подзадачи'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(node_type='subtask')
+
+    def formfield_for_dbfield(self, db_field, **kwargs):
+        field = super().formfield_for_dbfield(db_field, **kwargs)
+        if db_field.name == 'node_type':
+            field.initial = 'subtask'
+            field.widget = forms.HiddenInput()
+        return field
+
+
+class TaskEmailLinkInline(admin.TabularInline):
+    """Inline для связей писем с задачей (EmailTaskLink)."""
+    model = EmailTaskLink
+    fk_name = 'task_node'
+    extra = 0
+    fields = ['email_link', 'link_type', 'created_by', 'created_at']
+    readonly_fields = ['email_link', 'link_type', 'created_by', 'created_at']
+
+    def email_link(self, obj):
+        if obj.email_id:
+            url = reverse('admin:Emails_email_change', args=[obj.email_id])
+            return format_html('<a href="{}">{}</a>', url, obj.email.subject or str(obj.email_id))
+        return '—'
+    email_link.short_description = 'Письмо'
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return True
+
+    class Media:
+        pass
+
+
+excluding_list = [TaskNode, Contract, DesignChapter, ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
+
+
+@admin.register(*get_filtered_registered_models('ProjectContract', excluding_list))
+@admin.register(*get_filtered_registered_models('ProjectTDL', excluding_list))
+class UniversalAdmin(admin.ModelAdmin):
+    actions = [duplicate_event]
+    list_display_links = ('id', 'name')
+    list_per_page = 20
+
+    def get_list_display(self, request):
+        return get_standard_display_list(self.model, excluding_list=['creation_stamp', 'update_stamp', 'link', 'body'])
+
+
+@admin.register(TaskNode)
+class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
+    excluding_list = ['description', 'parent', 'owner', 'contract', 'lft', 'rght', 'tree_id', 'level', ]
+    additional_list = ['creation_stamp', 'add_emails_button', 'add_report_button']
+    actions = [duplicate_event, 'html_replace', 'generate_html_report', 'generate_html_report_with_layout']
+    list_display_links = ('id',)
+    list_display = get_standard_display_list(TaskNode, excluding_list=excluding_list, additional_list=additional_list)
+    list_editable = ('status', 'category', 'price', 'due_date',)
+    list_filter = ['project_site__name', 'building_number',
+                   'status', 'category', 'contractor', 'contract', 'node_type', ]
+    search_fields = ['name', 'project_site__name', 'contractor__name']
+    inlines = [TaskInline, TaskEmailLinkInline, TaskDueDateHistoryInline]
+    resource_classes = [TaskNodeResource]
+    list_per_page = 20
+    actions_on_bottom = True
+    list_footer = True
+    mptt_level_indent = 20
+    change_list_template = 'jazzmin/admin/change_list.html'
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        email_id = request.POST.get('_email_id') or request.GET.get('_email_id')
+        if email_id and not change:
+            try:
+                from Emails.models import Email
+                email = Email.objects.get(pk=email_id)
+                EmailTaskLink.objects.create(
+                    email=email, task_node=obj,
+                    link_type='created_from', created_by=request.user,
+                )
+            except Exception:
+                pass
+
+    def response_add(self, request, obj, post_url_continue=None):
+        next_url = request.POST.get('_next')
+        if next_url:
+            from django.http import HttpResponseRedirect
+            return HttpResponseRedirect(next_url)
+        return super().response_add(request, obj, post_url_continue)
+
+    def render_change_form(self, request, context, *args, **kwargs):
+        next_url = request.GET.get('_next')
+        email_id = request.GET.get('email_id')
+        if next_url:
+            context['next_url'] = next_url
+        if email_id:
+            context['email_id'] = email_id
+        return super().render_change_form(request, context, *args, **kwargs)
+
+    def add_emails_button(self, obj):
+        url = reverse('select_email', args=[obj.pk])
+        return format_html(f'<a href="{url}" class="button">✉️</a>')
+
+    add_emails_button.short_description = 'Email'
+
+    def add_report_button(self, obj):
+        url = reverse('generate_custom_report') + f'?task_ids={obj.pk}'
+        return format_html(f'<a href="{url}" class="button" target="_blank" title="Сгенерировать отчет">📊</a>')
+
+    add_report_button.short_description = 'Отчет'
+
+    def email_list(self, obj):
+        email_ids = EmailTaskLink.objects.filter(task_node=obj).values_list('email_id', flat=True)
+        emails = Email.objects.filter(id__in=email_ids)
+        email_links = []
+        for email in emails:
+            link = reverse("admin:Emails_email_change", args=[email.id])
+            email_links.append(f'<a href="{link}">{email.subject}</a>')
+        return mark_safe(", ".join(email_links))
+
+    email_list.short_description = 'Список Email'
+
+    @admin.action(description='Заменить HTML текст')
+    def html_replace(modeladmin, request, queryset):
+        for obj in queryset:
+            try:
+                obj.description = html_convert(obj.description)
+                obj.save()
+                messages.success(request, f'данные записи {obj.id} обновлены')
+            except Exception as e:
+                messages.error(request, f'данные записи {obj.id} не обновлены {e}')
+
+    def _get_admin_return_url(self, request, selected_ids=None):
+        try:
+            admin_url = reverse('admin:ProjectTDL_tasknode_changelist')
+        except Exception as e:
+            logger.error(f"Ошибка получения URL админки: {e}")
+            return None
+
+        params = {}
+        for key, value in request.GET.items():
+            if key in ['action', 'select_across', '_popup', '_to_field', '_changelist_filters']:
+                continue
+            if key.startswith('_') or key in ['select_across']:
+                continue
+            if key in request.GET.lists():
+                values = request.GET.getlist(key)
+                if len(values) > 1:
+                    params[key] = values
+                elif values:
+                    params[key] = values[0]
+            else:
+                params[key] = value
+
+        if selected_ids:
+            params['id__in'] = ','.join(map(str, selected_ids))
+
+        changelist_filters = request.GET.get('_changelist_filters')
+        if changelist_filters:
+            try:
+                filter_params = parse_qs(changelist_filters)
+                for key, values in filter_params.items():
+                    if key not in params:
+                        if len(values) == 1:
+                            params[key] = values[0]
+                        else:
+                            params[key] = values
+            except Exception:
+                pass
+
+        if params:
+            query_parts = []
+            for key, value in params.items():
+                if isinstance(value, list):
+                    for v in value:
+                        query_parts.append(f"{key}={v}")
+                else:
+                    query_parts.append(f"{key}={value}")
+            query_string = '&'.join(query_parts)
+            admin_url = f"{admin_url}?{query_string}"
+
+        admin_url = request.build_absolute_uri(admin_url)
+        return admin_url
+
+    @admin.action(description='Сгенерировать HTML отчет')
+    def generate_html_report(self, request, queryset):
+        try:
+            task_count = queryset.count()
+            if task_count == 0:
+                messages.warning(request, "Не выбрано ни одной задачи для отчета")
+                return None
+
+            tasks = queryset.select_related(
+                'project_site', 'building_number__name',
+                'design_chapter', 'contractor', 'status', 'category', 'contract'
+            ).prefetch_related('due_date_history')
+
+            task_ids = list(queryset.values_list('id', flat=True))
+            admin_url = self._get_admin_return_url(request, task_ids)
+
+            logger.info(f"Генерация отчета: пользователь {request.user}, задач: {task_count}, "
+                        f"выбранные ID: {task_ids[:10]}{'...' if len(task_ids) > 10 else ''}")
+
+            html_report = ReportGenerator.generate_html_report(
+                tasks, request, admin_url=admin_url, use_layout=False
+            )
+
+            response = HttpResponse(html_report, content_type='text/html')
+            response['Content-Disposition'] = 'inline; filename="tasks_report.html"'
+            response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response['Pragma'] = 'no-cache'
+            response['Expires'] = '0'
+
+            logger.info(f"Отчет успешно сгенерирован: {task_count} задач")
+            return response
+
+        except Exception as e:
+            logger.error(f'Ошибка при генерации отчета: {str(e)}', exc_info=True)
+            self.message_user(request, f'Ошибка при генерации отчета: {str(e)}', level=messages.ERROR)
+            return None
+
+    @admin.action(description='Сгенерировать отчет с layout')
+    def generate_html_report_with_layout(self, request, queryset):
+        try:
+            task_count = queryset.count()
+            if task_count == 0:
+                messages.warning(request, "Не выбрано ни одной задачи для отчета")
+                return None
+
+            tasks = queryset.select_related(
+                'project_site', 'building_number__name',
+                'design_chapter', 'contractor', 'status', 'category', 'contract'
+            ).prefetch_related('due_date_history')
+
+            task_ids = list(queryset.values_list('id', flat=True))
+            admin_url = self._get_admin_return_url(request, task_ids)
+
+            html_report = ReportGenerator.generate_html_report(
+                tasks, request, admin_url=admin_url, use_layout=True
+            )
+
+            response = HttpResponse(html_report, content_type='text/html')
+            response['Content-Disposition'] = 'inline; filename="tasks_report_layout.html"'
+            return response
+
+        except Exception as e:
+            logger.error(f'Ошибка при генерации отчета с layout: {str(e)}', exc_info=True)
+            self.message_user(request, f'Ошибка при генерации отчета с layout: {str(e)}', level=messages.ERROR)
+            return None
+
+    def changelist_view(self, request, extra_context=None):
+        response = super().changelist_view(request, extra_context=extra_context)
+
+        if hasattr(response, 'context_data'):
+            response.context_data['report_actions_info'] = {
+                'generate_report': 'Создает компактный отчет в новой вкладке',
+                'generate_report_with_layout': 'Создает отчет в стиле приложения',
+            }
+
+        try:
+            qs = response.context_data['cl'].queryset
+        except (AttributeError, KeyError):
+            return response
+
+        pivot_table_list = []
+        for name, _column in zip(StaticFilterSettings.pivot_columns_names,
+                                 StaticFilterSettings.pivot_columns_values):
+            pivot_table1 = {"name": name,
+                            'table': create_pivot_table(TaskNode, qs, StaticFilterSettings.replaced_list, _column)}
+            pivot_table_list.append(pivot_table1)
+
+        response.context_data['pivot_table_list'] = pivot_table_list
+        return response
+
+    class Media(object):
+        # js подключается глобально через jazzmin custom_js (jasmin.py) — не дублируем
+        css = {
+            'all': ('admin/admin_css_v2.css',)
+        }
+
+
+@admin.register(DesignChapter)
+class DesignChapterAdmin(ImportExportModelAdmin):
+    actions = [duplicate_event]
+    resource_classes = [DesignChapterResource]
+    list_display = get_standard_display_list(DesignChapter)
+
+====================================================================================================
+FILE: apps.py
+====================================================================================================
+import os
+from django.apps import AppConfig
+
+
+class ProjecttdlConfig(AppConfig):
+	default_auto_field = 'django.db.models.BigAutoField'
+	name = 'ProjectTDL'
+	verbose_name = 'Проекты СИМРУС'
+
+	def ready(self):
+		if os.environ.get('RUN_MAIN') == 'true' or not os.environ.get('DJANGO_AUTORELOAD'):
+			from . import scheduled
+			scheduled.start_task()
+
+
+====================================================================================================
+FILE: forms.py
+====================================================================================================
+# -*- coding: utf-8 -*-
+
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Layout, Submit, Row, Column
+from django import forms
+from django.forms import ModelForm
+from loguru import logger
+from ProjectTDL.models import TaskNode
+
+
+class TaskForm(forms.ModelForm):
+    class Meta:
+        model = TaskNode
+        fields = '__all__'
+        widgets = {
+            'due_date': forms.DateInput(
+                attrs={'type': 'date',
+                       'class': 'form-control',
+                       'placeholder': "Date",
+                       'onfocus': "(this.type='date')",
+                       'onblur': "if(this.value==''){this.type='text'}"
+                       }
+            )
+        }
+
+
+
+class TaskAdminUpdateDate(forms.Form):
+    helper = FormHelper()
+    due_date = forms.DateField(label='Выберите дату завершения')
+    due_date.widget = forms.widgets.DateInput(attrs={'type': 'date',
+                                                     'class': 'form-control',
+                                                     'placeholder': "Date",
+                                                     'onfocus': "(this.type='date')",
+                                                     'onblur': "if(this.value==''){this.type='text'}"
+
+                                                     })
+
+    # helper.add_input(Submit('submit', "Подтвердить", css_class='btn-success'))
+
+    def update_due_date(self, task):
+        task.due_date = self.cleaned_data['due_date']
+        task.save()
+
+
+class TaskUpdateValuesForm(ModelForm):
+    due_date = forms.DateField(label='Выберите дату завершения')
+    due_date.widget = forms.widgets.DateInput(attrs={'type': 'date',
+                                                     'class': 'form-control',
+                                                     'placeholder': "Date",
+                                                     'onfocus': "(this.type='date')",
+                                                     'onblur': "if(this.value==''){this.type='text'}"
+                                                     })
+
+    class Meta:
+        model = TaskNode
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super(TaskUpdateValuesForm, self).__init__(*args, **kwargs)
+
+        for key in self.fields:
+            self.fields[key].required = False
+
+    helper = FormHelper()
+    helper.form_method = 'POST'
+    helper.add_input(Submit('submit', 'Подтвердить', css_class='btn-success'))
+
+
+class TaskAdminUpdate(forms.Form):
+    price = forms.FloatField()
+
+    def update_price(self, task):
+        task.price = self.cleaned_data['price']
+        task.save()
+
+def select_default_widget(qs, label: str, field_name:str, _choices=None):
+    """возвращает MultipleChoiceField для заданного qs field_name возвращает pk, label для выбора  """
+    _choices_list = []
+    if not _choices:
+        for val in qs:
+            try:
+                field_value = getattr(val, field_name)
+                if field_value:
+                    temp = field_value.pk, field_value.name
+                    _choices_list.append(temp)
+            except Exception as e:
+                logger.exception(e)
+    else:
+        _choices_list = _choices
+    return forms.MultipleChoiceField(widget=forms.CheckboxSelectMultiple(),
+                                     label=label,
+                                     choices=set(_choices_list),
+                                     required=False,
+                                     )
+
+
+class TaskFilterForm(forms.Form):
+    due_date = forms.ChoiceField(
+        widget=forms.Select,
+        choices=[('', ''),
+                 ('today', 'Сегодня'),
+                 ('week', 'Эта Неделя'),
+                 ('past', 'просроченные')
+                 ],
+        required=False,
+        label="Окончание",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        qs = TaskNode.objects.filter(node_type='task')
+        self.fields['project_site'] = select_default_widget(qs, 'Проект', 'project_site')
+        self.fields['status'] = select_default_widget(qs, 'Статус', 'status')
+        self.fields['category'] = select_default_widget(qs, 'Категория', 'category')
+        self.fields['contractor'] = select_default_widget(qs, 'Ответственный', 'contractor')
+        self.fields['building_number'] = select_default_widget(qs, 'Здание', 'building_number')
+
+        self.helper = FormHelper()
+        self.helper.form_class = 'form-vertical'
+        self.helper.label_class = 'col-lg-7'
+        self.helper.field_class = 'col-lg-7'
+        self.helper.add_input(Submit('submit', 'Обновить', css_class='btn-success'))
+        self.helper.add_input(Submit('save_attachments', 'Экспорт в ексель', css_class='btn-primary'))
+        self.helper.layout = Layout(
+        Row(
+            Column('project_site'),
+            Column('status'),
+            Column('category'),
+            Column('contractor'),
+            Column('due_date'),
+        )
+    )
+
+    @staticmethod
+    def update_contractor_form(df_initial, _filter_form) -> forms.Form:
+        _contractor_choices = [(val, val) for val in df_initial['contractor'].unique() if val]
+        contractor = forms.MultipleChoiceField(widget=forms.CheckboxSelectMultiple(),
+                                               label='Ответсв.',
+                                               choices=_contractor_choices,
+                                               initial=(c[0] for c in _contractor_choices),
+                                               required=False,
+                                               )
+        _filter_form.fields["contractor"] = contractor
+        return _filter_form
+
+
+class TaskUpdateForm(forms.ModelForm):
+    helper = FormHelper()
+    helper.add_input(Submit('submit', "Подтвердить"))
+
+    class Meta:
+        model = TaskNode
+        fields = '__all__'
+
+
+class ScaleForm(forms.Form):
+    scale = forms.ChoiceField(
+        choices=[
+            ('day', 'День'),
+            ('week', 'Неделя'),
+            ('month', 'Месяц'),
+            ('quarter', 'Квартал'),
+        ],
+        initial='day',
+    )
+
+
+class TaskNodeQuickForm(forms.ModelForm):
+    class Meta:
+        model = TaskNode
+        fields = ['name', 'description', 'price', 'due_date']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Название подзадачи'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Описание (необязательно)'}),
+            'price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+            'due_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+        }
+
+
+====================================================================================================
+FILE: models.py
+====================================================================================================
+from django.conf import settings
+from django.db import models
+from django.db.models.signals import pre_save, post_save
+from django.dispatch import receiver
+from tinymce.models import HTMLField
+
+
+class TaskDueDateHistory(models.Model):
+    task_node = models.ForeignKey('TaskNode', on_delete=models.CASCADE, verbose_name="Задача",
+                                  related_name='due_date_history', null=True, blank=True)
+    old_due_date = models.DateField(verbose_name="Предыдущая дата", null=True, blank=True)
+    new_due_date = models.DateField(verbose_name="Новая дата", null=True, blank=True)
+    change_date = models.DateTimeField(auto_now_add=True, verbose_name="Дата изменения")
+    changed_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, verbose_name="Кто изменил", null=True,
+                                   blank=True)
+
+    class Meta:
+        verbose_name = 'История изменения срока задачи'
+        verbose_name_plural = 'История изменений сроков задач'
+        ordering = ['-change_date']
+
+    def __str__(self):
+        return f"Изменение сроков для {self.task_node.name if self.task_node_id else '—'}"
+
+
+@receiver(pre_save, sender='ProjectTDL.TaskNode')
+def track_due_date_change_node(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old_node = instance.__class__.objects.get(pk=instance.pk)
+            if old_node.due_date != instance.due_date:
+                instance._old_due_date = old_node.due_date
+        except instance.__class__.DoesNotExist:
+            pass
+
+
+@receiver(post_save, sender='ProjectTDL.TaskNode')
+def create_due_date_history_node(sender, instance, created, **kwargs):
+    if not created and hasattr(instance, '_old_due_date'):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        user = User.objects.first()
+        TaskDueDateHistory.objects.create(
+            task_node=instance,
+            old_due_date=instance._old_due_date,
+            new_due_date=instance.due_date,
+            changed_by=user
+        )
+
+
+from mptt.models import MPTTModel, TreeForeignKey
+
+class TaskNode(MPTTModel):
+    """Единая рекурсивная модель: задача и подзадача в одной таблице."""
+    NODE_TYPES = [('task', 'Задача'), ('subtask', 'Подзадача')]
+
+    owner = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='task_nodes', verbose_name='Владелец')
+    parent = TreeForeignKey('self', null=True, blank=True, related_name='children',
+                            on_delete=models.CASCADE, verbose_name='Родитель')
+    node_type = models.CharField(max_length=10, choices=NODE_TYPES, default='task', verbose_name='Тип')
+    project_site = models.ForeignKey('StaticData.ProjectSite', on_delete=models.CASCADE, verbose_name='Проект')
+    building_number = models.ForeignKey('StaticData.BuildingNumber', null=True, blank=True, on_delete=models.CASCADE, verbose_name='Здание')
+    design_chapter = models.ForeignKey('StaticData.DesignChapter', null=True, blank=True, on_delete=models.CASCADE, verbose_name='Раздел')
+    contractor = models.ForeignKey('ProjectContract.Contractor', null=True, blank=True, on_delete=models.CASCADE, verbose_name='Ответственный')
+    status = models.ForeignKey('StaticData.Status', on_delete=models.DO_NOTHING, default=1, null=True, blank=True, verbose_name='Статус')
+    category = models.ForeignKey('StaticData.Category', on_delete=models.SET_NULL, null=True, blank=True, default=1, verbose_name='Категория')
+    contract = models.ForeignKey('ProjectContract.Contract', on_delete=models.SET_NULL, null=True, blank=True, verbose_name='Договор')
+    name = models.CharField(max_length=150, verbose_name='Наименование')
+    description = HTMLField(null=True, blank=True, verbose_name='Описание')
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0, null=True, blank=True, verbose_name='Цена')
+    due_date = models.DateField(null=True, blank=True, verbose_name='Завершение')
+    creation_stamp = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания')
+    update_stamp = models.DateTimeField(auto_now=True, verbose_name='Дата изменения')
+
+    class MPTTMeta:
+        order_insertion_by = ['name']
+
+    class Meta:
+        verbose_name = 'Задача (дерево)'
+        verbose_name_plural = 'Задачи (дерево)'
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def subtree_price(self):
+        from django.db.models import Sum
+        agg = self.get_descendants().aggregate(total=Sum('price'))
+        return agg['total'] or 0
+
+
+class ProjectPin(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, verbose_name='Пользователь')
+    project_site = models.ForeignKey('StaticData.ProjectSite', on_delete=models.CASCADE, verbose_name='Проект')
+
+    class Meta:
+        verbose_name = 'Закреплённый проект'
+        verbose_name_plural = 'Закреплённые проекты'
+        unique_together = ('user', 'project_site')
+
+    def __str__(self):
+        return f'{self.project_site.name} ({self.user.username})'
+
+
+class UserSettings(models.Model):
+    inherit_props = models.BooleanField(default=False, verbose_name='Наследовать свойства от родителя')
+    new_task_position = models.CharField(max_length=10, default='bottom', verbose_name='Порядок новых подзадач',
+                                         choices=[('top', 'Вверху списка'), ('bottom', 'Внизу списка')])
+    default_tree_view = models.BooleanField(default=False, verbose_name='Дерево по умолчанию')
+    default_project_site = models.BooleanField(default=False, verbose_name='Заполнять проект из контекста')
+    default_category = models.BooleanField(default=False, verbose_name='Заполнять категорию из контекста')
+    default_status = models.BooleanField(default=False, verbose_name='Заполнять статус из контекста')
+    default_contractor = models.BooleanField(default=False, verbose_name='Заполнять ответственного из контекста')
+    default_building = models.BooleanField(default=False, verbose_name='Заполнять здание из контекста')
+    column_visibility = models.JSONField(default=dict, verbose_name='Видимость колонок')
+    auto_save = models.BooleanField(default=True, verbose_name='Сохранять состояние фильтров')
+    active_project = models.ForeignKey('StaticData.ProjectSite', null=True, blank=True, on_delete=models.SET_NULL,
+                                       verbose_name='Активный проект')
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                related_name='task_user_settings', verbose_name='Пользователь')
+
+    class Meta:
+        verbose_name = 'Настройки пользователя'
+        verbose_name_plural = 'Настройки пользователей'
+
+    def __str__(self):
+        return f'Настройки {self.user.username}'
+
+
+class TaskFilterState(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name='task_filter_states', verbose_name='Пользователь')
+    project_site = models.ForeignKey('StaticData.ProjectSite', on_delete=models.CASCADE, null=True, blank=True,
+                                     verbose_name='Проект')
+    params = models.JSONField(default=dict, verbose_name='Параметры фильтров')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Обновлено')
+
+    class Meta:
+        verbose_name = 'Сохранённое состояние фильтров'
+        verbose_name_plural = 'Сохранённые состояния фильтров'
+        unique_together = ('user', 'project_site')
+
+    def __str__(self):
+        return f'Фильтры {self.user.username} · {self.project_site or "все проекты"}'
+
+
+====================================================================================================
+FILE: reports.py
+====================================================================================================
+# ProjectTDL/reports.py
+from django.utils import timezone
+from html.parser import HTMLParser
+from django.template.loader import render_to_string
+from django.urls import reverse
+from django.utils.html import mark_safe
+import locale
+
+# Настройка локали для форматирования чисел
+try:
+    locale.setlocale(locale.LC_ALL, 'ru_RU.UTF-8')
+except:
+    try:
+        locale.setlocale(locale.LC_ALL, 'Russian_Russia.1251')
+    except:
+        locale.setlocale(locale.LC_ALL, '')
+
+
+class HTMLFilter(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.text = ""
+
+    def handle_data(self, data):
+        self.text += data
+
+
+def html_convert(data):
+    """Конвертация HTML в текст"""
+    if data:
+        f = HTMLFilter()
+        f.feed(data)
+        return f.text
+    else:
+        return ""
+
+
+def format_currency(value, decimal_places=2):
+    """Форматирование денежных значений"""
+    try:
+        if value is None:
+            return f"0.{'0' * decimal_places}"
+
+        value = float(value)
+        if decimal_places == 2:
+            # Форматирование с разделителями тысяч
+            return f"{value:,.2f}".replace(",", " ").replace(".", ",")
+        elif decimal_places == 3:
+            return f"{value:,.3f}".replace(",", " ").replace(".", ",")
+        else:
+            return f"{value:,.2f}".replace(",", " ").replace(".", ",")
+    except:
+        return f"0.{'0' * decimal_places}"
+
+
+class ReportGenerator:
+    """Генератор отчетов по задачам"""
+
+    @staticmethod
+    def generate_html_report(tasks_queryset, request=None, admin_url=None, use_layout=False):
+        """Генерация HTML отчета по выбранным задачам
+
+        Args:
+            tasks_queryset: QuerySet задач
+            request: HTTP запрос (для построения абсолютных URL)
+            admin_url: URL для возврата в админку с фильтрами
+            use_layout: Использовать ли основной layout приложения
+        """
+        html_content = []
+
+        # Собираем данные для summary
+        total_price_all = 0
+        total_subtasks_all = 0
+        total_history_all = 0
+
+        # Статусы для подсчета
+        status_counts = {
+            'active': 0,
+            'completed': 0,
+            'overdue': 0
+        }
+
+        # Получаем все выбранные ID для информации
+        selected_task_ids = list(tasks_queryset.values_list('id', flat=True))
+
+        for task in tasks_queryset:
+            # Определяем класс статуса для CSS
+            status_class = 'active'
+            if task.status and ('выполнена' in task.status.name.lower() or 'завершена' in task.status.name.lower()):
+                status_class = 'completed'
+            elif task.status and 'просроч' in task.status.name.lower():
+                status_class = 'overdue'
+
+            # Обновляем счетчики статусов
+            if status_class == 'active':
+                status_counts['active'] += 1
+            elif status_class == 'completed':
+                status_counts['completed'] += 1
+            elif status_class == 'overdue':
+                status_counts['overdue'] += 1
+
+            # Основная информация о задаче
+            task_info = {
+                'id': task.id,
+                'name': task.name,
+                'project': task.project_site.name if task.project_site else '-',
+                'building': f"{task.building_number.name.name} ({task.building_number.building_number})"
+                if task.building_number and task.building_number.name else '-',
+                'design_chapter': task.design_chapter.name if task.design_chapter else '-',
+                'contractor': task.contractor.name if task.contractor else '-',
+                'status': task.status.name if task.status else '-',
+                'status_class': status_class,
+                'category': task.category.name if task.category else '-',
+                'price': float(task.price) if task.price else 0.0,
+                'price_display': format_currency(task.price, 2) if task.price else '0,00',
+                'due_date': task.due_date.strftime('%d.%m.%Y') if task.due_date else '-',
+                'description': mark_safe(task.description) if task.description else mark_safe(
+                    '<span class="no-data">Нет описания</span>'),
+                'created': task.creation_stamp.strftime('%d.%m.%Y %H:%M'),
+                'updated': task.update_stamp.strftime('%d.%m.%Y %H:%M'),
+            }
+
+            # Подзадачи (TaskNode children)
+            subtasks = getattr(task, 'get_children', lambda: [])()
+            if callable(subtasks):
+                subtasks = subtasks.filter(node_type='subtask') if hasattr(subtasks, 'filter') else []
+            subtasks_data = []
+            subtask_total = 0
+            for subtask in subtasks:
+                subtasks_data.append({
+                    'name': subtask.name,
+                    'description': mark_safe(subtask.description) if subtask.description else '',
+                    'price': format_currency(subtask.price, 3) if subtask.price else '0,000',
+                    'due_date': subtask.due_date.strftime('%d.%m.%Y') if subtask.due_date else '-',
+                    'created': subtask.creation_stamp.strftime('%d.%m.%Y %H:%M'),
+                })
+                if subtask.price:
+                    subtask_total += float(subtask.price)
+
+            # История изменений сроков
+            history = task.due_date_history.all()
+            history_data = []
+            for record in history:
+                history_data.append({
+                    'old_date': record.old_due_date.strftime('%d.%m.%Y') if record.old_due_date else '-',
+                    'new_date': record.new_due_date.strftime('%d.%m.%Y') if record.new_due_date else '-',
+                    'change_date': record.change_date.strftime('%d.%m.%Y %H:%M'),
+                    'changed_by': record.changed_by.username if record.changed_by else '-',
+                })
+
+            total_price_all += task_info['price']
+            total_subtasks_all += len(subtasks)
+            total_history_all += len(history)
+
+            html_content.append({
+                'task': task_info,
+                'subtasks': subtasks_data,
+                'subtask_total': subtask_total,
+                'subtask_total_formatted': format_currency(subtask_total, 3),
+                'history': history_data,
+                'subtask_count': len(subtasks),
+                'history_count': len(history),
+            })
+
+        # Создаем URL для возврата на главную страницу
+        home_url = None
+        if request:
+            try:
+                home_url = reverse('custom_task_view')
+                home_url = request.build_absolute_uri(home_url)
+            except:
+                home_url = None
+
+        # Если admin_url не передан, создаем его с учетом текущих параметров
+        if not admin_url and request:
+            try:
+                # Базовый URL админки
+                admin_url = reverse('admin:ProjectTDL_tasknode_changelist')
+
+                # Добавляем параметры для сохранения выбранных задач
+                if selected_task_ids:
+                    # Вместо id__in используем стандартный формат админки
+                    admin_url += f'?id__in={",".join(map(str, selected_task_ids))}'
+
+                admin_url = request.build_absolute_uri(admin_url)
+            except:
+                admin_url = None
+
+        # Форматируем общую стоимость
+        total_price_all_formatted = format_currency(total_price_all, 2)
+
+        # Определяем, какой шаблон использовать
+        if use_layout:
+            template_name = 'ProjectTDL/report_with_layout.html'
+        else:
+            template_name = 'ProjectTDL/report.html'
+
+        # Подготовка контекста для шаблона
+        context = {
+            'current_date': timezone.now().strftime('%d.%m.%Y %H:%M'),
+            'task_count': len(html_content),
+            'selected_task_count': len(selected_task_ids),
+            'selected_task_ids': selected_task_ids,
+            'total_price_all': total_price_all,
+            'total_price_all_formatted': total_price_all_formatted,
+            'total_subtasks_all': total_subtasks_all,
+            'total_history_all': total_history_all,
+            'status_counts': status_counts,
+            'html_content': html_content,
+            'download_timestamp': timezone.now().strftime("%Y%m%d_%H%M"),
+            'admin_url': admin_url,
+            'home_url': home_url,
+            'use_layout': use_layout,
+        }
+
+        # Рендерим шаблон
+        html_report = render_to_string(template_name, context)
+
+        return html_report
+
+====================================================================================================
+FILE: scheduled.py
+====================================================================================================
+import os
+import re
+import shutil
+import datetime
+from apscheduler.schedulers.background import BackgroundScheduler
+from loguru import logger
+
+from djangoProject.settings import BASE_DIR, AUTOSAVE_PERIOD, BACKUP_PATH, DB_DIR, BACKUP_KEEP_VERSIONS
+from pathlib import Path
+
+
+def _cleanup_old_backups(keep=BACKUP_KEEP_VERSIONS):
+    backup_dir = Path(BACKUP_PATH)
+    if not backup_dir.exists():
+        return
+
+    files = []
+    for f in backup_dir.iterdir():
+        if f.is_file() and f.name.endswith('_db_backup.sqlite3'):
+            files.append(f)
+
+    files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+
+    for f in files[keep:]:
+        try:
+            f.unlink()
+            logger.info(f'removed old backup: {f.name}')
+        except Exception as e:
+            logger.warning(f'failed to remove {f.name}: {e}')
+
+
+def make_db_backup():
+    now = datetime.datetime.now()
+    timestamp = str(now.strftime("%Y_%m_%d_%H_%M_%S"))
+    src = os.path.join(DB_DIR, 'db.sqlite3')
+
+    Path(BACKUP_PATH).mkdir(parents=True, exist_ok=True)
+    dest = f"{BACKUP_PATH}/{timestamp}_db_backup.sqlite3"
+    shutil.copy(src, dest)
+    logger.info(f'copy successful to{dest}')
+
+    _cleanup_old_backups()
+
+
+def start_task():
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(make_db_backup, 'interval', minutes=AUTOSAVE_PERIOD)
+    scheduler.start()
+
+
+====================================================================================================
+FILE: Tables.py
+====================================================================================================
+import os
+from pprint import pprint
+import pandas as pd
+import datetime
+import django_tables2 as tables
+from django.db.models import QuerySet
+from django.http import HttpResponse
+from django.urls import reverse_lazy, reverse
+from django.utils.safestring import mark_safe
+from django_tables2 import LazyPaginator
+from pretty_html_table import pretty_html_table
+
+from AdminUtils import get_standard_display_list
+from ProjectContract.models import Contractor
+from ProjectTDL.models import TaskNode
+from StaticData.models import Status
+from services.DataFrameRender.RenderDfFromModel import create_df_from_model, renamed_dict
+from services.Downloads.ExcelDownload import df_to_excel_in_memory, result_to_excel_add_table
+import re
+
+
+# region Table
+class StaticFilterSettings:
+    filtered_value_list = ['project_site', 'building_number', 'status', 'category', 'contractor', ]
+    replaced_list = ['contractor', 'contract', 'category', 'status']
+    pivot_columns_values = ['contract', 'status', 'category', ]
+    pivot_columns_names = ['Договор', 'Статус', 'Категория']
+    export_excluding_list = ['price', 'contract', 'owner', 'description']
+
+
+def create_filter_qs(request, filtered_value_list, data=None) -> dict:
+    source = data if data is not None else request.POST
+    filter_dict = {}
+    for field_name in filtered_value_list:
+        _data = source.getlist(field_name) if hasattr(source, 'getlist') else [source.get(field_name)]
+        if _data:
+            _data = [v for v in _data if v]
+            if _data:
+                filter_dict[f'{field_name}__id__in'] = _data
+    return filter_dict
+
+
+def data_filter_qs(request, datefield, data=None):
+    source = data if data is not None else request.POST
+    get_date = source.get(datefield)
+    res_dict = {}
+    _today = datetime.date.today()
+    if get_date:
+        if get_date == 'today':
+            res_dict[f'{datefield}'] = _today
+        if get_date == 'week':
+            res_dict[f'{datefield}__gte'] = _today
+        if get_date == 'past':
+            res_dict[f'{datefield}__lt'] = _today
+    return res_dict
+
+
+def add_period_data_to_column(df_cash_flow: pd.DataFrame, freq='d'):
+    df_cash_flow['creation_stamp'] = df_cash_flow['creation_stamp'].apply(
+        lambda x: pd.to_datetime(x, utc=True).tz_localize(None).date())
+    df_cash_flow['due_date'] = df_cash_flow['due_date'].apply(
+        lambda x: pd.to_datetime(x, utc=True).tz_localize(None).date()
+    )
+    df_cash_flow['date_range'] = df_cash_flow.apply(
+        lambda x: pd.date_range(x['creation_stamp'], x['due_date'], freq=freq).date, axis=1)
+    return df_cash_flow
+
+
+def create_multithreading_period_data(df_day, df_month, df_year):
+    renamed_month_dict = {1: 'январь', 2: 'февраль', 3: 'март', 4: 'апрель'}
+    headers1 = [
+        (val3, val2, val1) for val1, val2, val3 in zip(
+            df_day.iloc[0], df_month.iloc[0].replace(renamed_month_dict), df_year.iloc[0]
+        )
+    ]
+    headers = df_day.iloc[0]
+    df_day.columns = pd.MultiIndex.from_tuples(headers1) if headers1 else headers
+    return df_day
+
+
+def add_bar_to_df_columns(df_day):
+    return df_day.mask(df_day.notnull(), '&#9644;&#9644;')
+
+
+def get_period_data(df_cash_flow, start, end) -> pd.DataFrame:
+    df_cash_flow_ = add_period_data_to_column(df_cash_flow)
+
+    dt_range = pd.date_range(start=start,
+                             end=end,
+                             normalize=True,
+                             freq='1d'
+                             )
+    df_day = dt_range.day.to_frame().T
+    df_month = dt_range.month.to_frame().T
+    df_year = dt_range.year.to_frame().T
+    df_cash_flow = df_cash_flow[['id', 'name', 'due_date']]
+    res = pd.concat([df_cash_flow, df_day], axis=1, ignore_index=True)
+
+    return df_cash_flow_
+
+
+def create_cash_flow_chart(qs, freq: str = 'd') -> str:
+    GANT_DF_PROPERTY = dict(
+        classes="table table-hover",
+        table_id='GantTable',
+        index=False,
+        show_dimensions=False,
+        render_links=True,
+        justify='center',
+        escape=False,
+        border=2,
+    )
+    df_cash_flow = create_df_from_model(TaskNode, qs, skip_time_stamps=False) \
+        .drop(['description', 'building_number', 'design_chapter', 'update_stamp'], axis=1)
+    per1 = add_period_data_to_column(df_cash_flow, freq)
+    per1['tim_dif'] = per1['due_date'] - per1['creation_stamp']
+    per1['tim_dif'] = per1['tim_dif'] / pd.Timedelta(days=1)
+    per1['tim_dif'] = per1['tim_dif'].astype(int)
+    max_value = per1["due_date"].max()
+    min_value = per1["creation_stamp"].min()
+    all_periods = pd.date_range(min_value, max_value, freq=freq)
+    all_periods = [val.date() for val in all_periods]
+    gant_list = []
+    for index, row in per1.iterrows():
+        for data in row["date_range"]:
+            if len(row['date_range']) > 0 and row['price']:
+                res = round(row['price'] / len(row['date_range']), 2)
+                df = pd.DataFrame({'id': [row['id']], (data.year, data.month, data.day): [res]})
+                gant_list.append(df)
+            elif row["due_date"] not in all_periods:
+                res = row["price"]
+                df = pd.DataFrame({'id': [row['id']], (data.year, data.month, all_periods[0]): [res]})
+                gant_list.append(df)
+    res = pd.concat(gant_list)
+    res = res.pivot_table(index='id', aggfunc="sum").reset_index()
+    # res = res.replace(0, '&#9644;&#9644;')
+    res = res.replace(0, '')
+    df_cash_flow_columns = ['id', 'name', 'contractor', 'status', 'price',
+                            'creation_stamp', 'due_date', 'tim_dif',
+                            ]
+    fitret_df_cash_flow = df_cash_flow[df_cash_flow_columns]
+
+    res = fitret_df_cash_flow.merge(res, how='left', on='id', )
+    res.columns = [(val, '', '') if not isinstance(val, tuple) else val for val in res]
+    columns = pd.MultiIndex.from_tuples([val for val in res.columns])
+    res.columns = columns
+    res = res.fillna('').to_html(**GANT_DF_PROPERTY)
+    # res =  pretty_html_table.build_table(res, 'blue_dark', escape=False, )
+    return res
+
+
+# endregion
+def rows_highlighter(**kwargs):
+    selected_rows = kwargs["table"].selected_rows
+    if selected_rows and kwargs["record"].pk in selected_rows:
+        return "highlight-me"
+    return ""
+
+
+class CheckBoxColumnWithName(tables.CheckBoxColumn):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attrs = {"td__input": {"class": "form-check-input task-checkbox"}}
+
+
+class TaskNodeTable(tables.Table):
+    name = tables.LinkColumn('task_detail', args=[tables.A('pk')], default='Link', empty_values=())
+    selection = CheckBoxColumnWithName(
+        verbose_name=mark_safe('<input type="checkbox" class="form-check-input" id="checkAll">'), accessor="pk",
+        orderable=False,
+    )
+
+    def render_name(self, record):
+        # Иконка/отступ для дерева: родители (есть дети) — папка + стрелка; подзадачи — отступ
+        try:
+            has_children = TaskNode.objects.filter(parent_id=record.pk).exists()
+        except Exception:
+            has_children = False
+        depth = record.get_level() if hasattr(record, 'get_level') else 0
+        indent = depth * 22
+        if has_children:
+            toggle = '<i class="bi bi-chevron-right small tree-toggle me-1" style="cursor:pointer;"></i>'
+            folder = '<i class="bi bi-folder2-open me-1" style="color:#ffc107;"></i>'
+            cls = 'tree-name tree-parent-name'
+            link_cls = 'fw-semibold'  # жирный — только для родителя
+        else:
+            toggle = ''
+            folder = '<i class="bi bi-dot small text-muted me-1" style="width:1em;"></i>'
+            cls = 'tree-name'
+            link_cls = ''  # подзадачи — обычный вес
+        return mark_safe(
+            f'<span style="display:inline-flex;align-items:center;padding-left:{indent}px;">'
+            f'{toggle}{folder}'
+            f'<a href="{reverse("task_detail", args=[record.pk])}" class="{link_cls} text-decoration-none {cls}" '
+            f'onclick="event.stopPropagation()">{record.name}</a></span>'
+        )
+
+    def render_contractor(self, record):
+        return record.contractor.name if record.contractor else ''
+
+    def render_building_number(self, record):
+        return record.building_number.name.name if record.building_number and record.building_number.name else ''
+
+    def render_project_site(self, record):
+        return record.project_site.name if record.project_site else ''
+
+    def render_category(self, record):
+        return record.category.name if record.category else ''
+
+    def render_contract(self, record):
+        return record.contract.name if record.contract else ''
+
+    def render_owner(self, record):
+        return record.owner.username if record.owner else ''
+
+    def render_description(self, record):
+        if not record.description:
+            return ''
+        text = str(record.description)
+        return text[:80] + ('…' if len(text) > 80 else '')
+
+    def render_creation_stamp(self, record):
+        return record.creation_stamp.strftime('%d.%m.%Y %H:%M') if record.creation_stamp else ''
+
+    def render_update_stamp(self, record):
+        return record.update_stamp.strftime('%d.%m.%Y %H:%M') if record.update_stamp else ''
+
+    def render_status(self, record):
+        return record.status.name if record.status else ''
+
+    def render_due_date(self, record):
+        return record.due_date.strftime('%d.%m.%Y') if record.due_date else ''
+
+    def render_price(self, record):
+        return f'{record.price:.2f} ₽' if record.price else ''
+
+    class Meta:
+        model = TaskNode
+        template_name = "django_tables2/bootstrap_no_pag.html"
+        exclude = ('lft', 'rght', 'level', 'tree_id', 'parent', 'node_type')
+        row_attrs = {
+            "data-id": lambda record: record.pk,
+            "data-parent-id": lambda record: record.parent_id or '',
+            "data-depth": lambda record: record.get_level() if hasattr(record, 'get_level') else 0,
+            "data-has-children": lambda record: '1' if TaskNode.objects.filter(parent_id=record.pk).exists() else '0',
+            "data-project-site-id": lambda record: record.project_site_id or '',
+            "data-project-site-name": lambda record: record.project_site.name if record.project_site else '',
+            "data-building-id": lambda record: record.building_number_id or '',
+            "data-building-name": lambda record: record.building_number.name.name if record.building_number and record.building_number.name else '',
+            "data-status-id": lambda record: record.status_id or '',
+            "data-status-name": lambda record: record.status.name if record.status else '',
+            "data-category-id": lambda record: record.category_id or '',
+            "data-category-name": lambda record: record.category.name if record.category else '',
+            "data-contractor-id": lambda record: record.contractor_id or '',
+            "data-contractor-name": lambda record: record.contractor.name if record.contractor else '',
+            "data-due-date": lambda record: record.due_date.strftime('%Y-%m-%d') if record.due_date else '',
+            "data-price": lambda record: str(record.price) if record.price else '',
+        }
+        attrs = {"id": "TaskTable",
+                 'class': 'table table-bordered',
+                 'thead': {
+                     'class': 'table-light',
+                 },
+                 }
+        sequence = ("selection", "...",)
+
+
+====================================================================================================
+FILE: urls.py
+====================================================================================================
+from django.urls import path
+from ProjectTDL import views
+from ProjectTDL.views import TaskUpdateView, TaskDeleteView, SubTaskDeleteView, SubTaskUpdateView, \
+    generate_custom_report
+
+urlpatterns = [
+    path("", views.custom_task_view, name='custom_task_view'),
+    path("task/<int:pk>/", views.task_detail, name='task_detail'),
+    path("TaskUpdateView/<int:pk>", TaskUpdateView.as_view(), name='TaskUpdateView'),
+    path("TaskDeleteView/<int:pk>", TaskDeleteView.as_view(), name='TaskDeleteView'),
+    path("TaskCloneView/<int:pk>", views.TaskCloneView, name='TaskCloneView'),
+    path("SubTaskUpdateView/<int:pk>", SubTaskUpdateView.as_view(), name='SubTaskUpdateView'),
+    path("SubTaskDeleteView/<int:pk>", SubTaskDeleteView.as_view(), name='SubTaskDeleteView'),
+    path("SubTaskCloneView/<int:pk>", views.SubTaskCloneView, name='SubTaskCloneView'),
+    path('manage_ref/', views.manage_reference, name='manage_reference'),
+    path('quick_create_task/', views.quick_create_task, name='quick_create_task'),
+    path('quick_create_subtask/', views.quick_create_subtask, name='quick_create_subtask'),
+    path('cascade_filter_options/', views.cascade_filter_options, name='cascade_filter_options'),
+    path('update_task_field/', views.update_task_field, name='update_task_field'),
+    path('reports/custom/', generate_custom_report, name='generate_custom_report'),
+    path('tree/', views.task_tree_view, name='task_tree_view'),
+    path('bulk_update/', views.bulk_update_tasks, name='bulk_update_tasks'),
+    path('save_settings/', views.save_user_settings, name='save_user_settings'),
+    path('save_filter_state/', views.save_filter_state, name='save_filter_state'),
+    path('filter_ajax/', views.filter_tasks_ajax, name='filter_tasks_ajax'),
+    path('pinned/list/', views.list_pinned_projects, name='list_pinned_projects'),
+    path('pinned/add/', views.add_pinned_project, name='add_pinned_project'),
+    path('pinned/remove/', views.remove_pinned_project, name='remove_pinned_project'),
+]
+
+====================================================================================================
+FILE: views.py
+====================================================================================================
+from datetime import datetime
+import json
+from urllib.parse import urlparse
+
+import pandas as pd
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponseRedirect, JsonResponse
+from django.shortcuts import render, redirect, HttpResponse, get_object_or_404
+from django.urls import reverse, reverse_lazy
+from django.views.decorators.http import require_POST
+from django.views.generic import UpdateView, DeleteView
+from django_tables2 import RequestConfig
+
+from AdminUtils import get_standard_display_list
+from ProjectContract.models import Contractor
+from ProjectTDL.Tables import TaskNodeTable, create_filter_qs, data_filter_qs, StaticFilterSettings
+from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, TaskNodeQuickForm
+from ProjectTDL.models import TaskNode, UserSettings, TaskFilterState
+from ProjectTDL.reports import ReportGenerator
+from StaticData.models import Status, Category, ProjectSite, BuildingNumber, BuildingType, DesignChapter
+from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord, create_df_from_model, ButtonData, \
+    create_group_button, HTML_DF_PROPERTY, create_pivot_table
+
+
+FILTER_FIELDS = ('project_site', 'building_number', 'status', 'category', 'contractor', 'due_date')
+
+
+def get_filter_state_for_request(request):
+    """Состояние фильтров для текущего пользователя: по активному проекту, иначе общее."""
+    if not request.user.is_authenticated:
+        return None
+    settings = UserSettings.objects.filter(user=request.user).first()
+    active_project_id = settings.active_project_id if settings else None
+    if active_project_id:
+        state = TaskFilterState.objects.filter(user=request.user, project_site_id=active_project_id).first()
+        if state:
+            return state
+    return TaskFilterState.objects.filter(user=request.user, project_site__isnull=True).first()
+
+
+def task_action(request):
+    if request.method == "POST":
+        pks = request.POST.getlist("selection")
+        if pks: request.session['pks'] = pks
+        _form = TaskUpdateValuesForm(request.POST or None)
+        if request.session.get('pks', None):
+            all_fields = [f.name for f in TaskNode._meta.fields]
+            update_dict = {}
+            for k, v in _form.data.items():
+                if k in all_fields and v:
+                    update_dict[k] = v
+            if update_dict:
+                try:
+                    selected_objects = TaskNode.objects.filter(pk__in=request.session.get('pks'))
+                    selected_objects.update(**update_dict)
+                    request.session['pks'] = None
+                    for data in selected_objects:
+                        messages.success(request, data)
+                    return redirect('custom_task_view')
+                except Exception as e:
+                    messages.error(request, e)
+                    return redirect('custom_task_view')
+            else:
+                _form = TaskUpdateValuesForm()
+                return render(request, 'ProjectTDL/Universal_update_form.html', {'form': _form})
+        else:
+            messages.error(request, 'Не выбраны данные')
+            return redirect('custom_task_view')
+    else:
+        messages.error(request, 'Не выбраны данные')
+        return redirect('custom_task_view')
+
+
+def custom_task_view(request):
+    qs = TaskNode.objects.filter(node_type='task').select_related(*StaticFilterSettings.filtered_value_list)
+
+    initial = {}
+    filter_state = None
+    if request.method == 'GET':
+        filter_state = get_filter_state_for_request(request)
+        if filter_state:
+            initial = {k: v for k, v in (filter_state.params or {}).items() if v}
+
+    filter_dict = create_filter_qs(request, StaticFilterSettings.filtered_value_list)
+    if not filter_dict and initial:
+        filter_dict = create_filter_qs(request, StaticFilterSettings.filtered_value_list, data=initial)
+    qs = qs.filter(**filter_dict)
+    qs = qs.filter(**data_filter_qs(request, 'due_date', data=initial if not request.POST else None))
+
+    _form = TaskFilterForm(request.POST or None, initial=initial)
+    table = TaskNodeTable(qs)
+    RequestConfig(request).configure(table)
+
+    tree_roots = TaskNode.objects.filter(parent__isnull=True, node_type='task').select_related(
+        'project_site', 'status', 'contractor'
+    ).prefetch_related('children')
+
+    pivot_table_list = []
+    gant_table = ''
+    if request.method == 'POST':
+
+        if 'submit' in request.POST and _form.is_valid():
+            for name, _column in zip(StaticFilterSettings.pivot_columns_names,
+                                     StaticFilterSettings.pivot_columns_values):
+                pivot_table1 = {"name": name,
+                                'table': create_pivot_table(TaskNode, qs, StaticFilterSettings.replaced_list, _column)}
+                pivot_table_list.append(pivot_table1)
+
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return render(request, 'ProjectTDL/custom_table_view.html', {'table': table, 'form': _form})
+
+        if 'save_attachments' in request.POST and _form.is_valid():
+            df_initial = create_df_from_model(TaskNode, qs)
+            df_initial['project_site'] = df_initial['project_site'].apply(lambda x: getattr(x, 'name'))
+            df_initial = df_initial.sort_values('project_site')
+            df_export = df_initial \
+                .filter(get_standard_display_list(TaskNode, excluding_list=StaticFilterSettings.export_excluding_list)) \
+                .rename(renamed_dict(TaskNode), axis='columns') \
+                .fillna('')
+            messages.success(request, f"успешно экспортировано {df_export.shape[0]} строк {df_export.shape[1]} столбцов")
+            response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            response['Content-Disposition'] = 'attachment; filename="Задачи.xlsx"'
+            writer = pd.ExcelWriter(response, engine='xlsxwriter')
+            df_export.to_excel(writer, sheet_name='Задачи', index=False, freeze_panes=(1, 1))
+            workbook = writer.book
+            worksheet = writer.sheets['Задачи']
+            column_settings = [{'header': column} for column in df_export]
+            (max_row, max_col) = df_export.shape
+            worksheet.add_table(0, 0, max_row, max_col - 1,
+                           {'columns': column_settings,
+                            'banded_columns': True,
+                            'name': 'Задачи',
+                            'autofilter': True,
+                            'style': 'Table Style Light 8'})
+            writer.close()
+            return response
+
+    user_settings = {
+        'inherit_props': False,
+        'new_task_position': 'bottom',
+        'default_tree_view': False,
+        'default_project_site': False,
+        'default_building': False,
+        'default_category': False,
+        'default_status': False,
+        'default_contractor': False,
+        'column_visibility': {},
+        'auto_save': True,
+        'active_project_id': '',
+    }
+    if request.user.is_authenticated:
+        _us = UserSettings.objects.filter(user=request.user).first()
+        if _us:
+            user_settings = {
+                'inherit_props': _us.inherit_props,
+                'new_task_position': _us.new_task_position,
+                'default_tree_view': _us.default_tree_view,
+                'default_project_site': _us.default_project_site,
+                'default_building': _us.default_building,
+                'default_category': _us.default_category,
+                'default_status': _us.default_status,
+                'default_contractor': _us.default_contractor,
+                'column_visibility': _us.column_visibility or {},
+                'auto_save': _us.auto_save,
+                'active_project_id': _us.active_project_id or '',
+            }
+
+    context = {
+        'form': _form,
+        'table': table,
+        "gant_table": gant_table,
+        'pivot_table_list': pivot_table_list,
+        'tasks': qs,
+        'tree_roots': tree_roots,
+        'all_contractors': Contractor.objects.all().order_by('name'),
+        'all_statuses': Status.objects.all().order_by('name'),
+        'all_categories': Category.objects.all().order_by('name'),
+        'all_project_sites': ProjectSite.objects.all().order_by('name'),
+        'all_buildings': BuildingNumber.objects.all().order_by('building_number'),
+        'all_building_types': BuildingType.objects.all().order_by('name'),
+        'all_design_chapters': DesignChapter.objects.all().order_by('short_name'),
+        'user_settings': user_settings,
+        'filter_state': (filter_state.params or {}) if filter_state else {},
+    }
+    return render(request, 'ProjectTDL/custom_task_view_enhanced.html', context)
+
+
+def TaskCloneView(request, pk):
+    queryset = TaskNode.objects.filter(pk=pk)
+    CloneRecord(queryset)
+    messages.success(request, f'Запись {queryset.first().name} была скопирована ')
+    return redirect("custom_task_view")
+
+
+def SubTaskCloneView(request, pk):
+    queryset = TaskNode.objects.filter(pk=pk)
+    CloneRecord(queryset)
+    messages.success(request, f'Запись {queryset.first().name} была скопирована ')
+    previous_url = request.META.get('HTTP_REFERER')
+    if previous_url and urlparse(previous_url).hostname == request.get_host():
+        return HttpResponseRedirect(previous_url)
+
+
+class TaskDeleteView(DeleteView):
+    model = TaskNode
+    template_name = 'ProjectTDL/Delete_Form.html'
+
+    def get_context_data(self, **kwargs):
+        context = super(DeleteView, self).get_context_data(**kwargs)
+        context['Name'] = "Обновление полей модели "
+        next_url = (
+            self.request.POST.get('__next__')
+            or self.request.GET.get('next')
+            or self.request.META.get('HTTP_REFERER')
+            or reverse('custom_task_view')
+        )
+        context['i__next__'] = next_url
+        return context
+
+    def get_success_url(self):
+        return self.request.POST.get('__next__') or reverse('custom_task_view')
+
+
+class TaskUpdateView(UpdateView):
+    model = TaskNode
+    form_class = TaskUpdateForm
+    template_name = 'ProjectTDL/Update_form.html'
+    success_url = reverse_lazy('custom_task_view')
+
+    def get_context_data(self, **kwargs):
+        c_object = self.get_object()
+        context = super(TaskUpdateView, self).get_context_data(**kwargs)
+        context['i__next__'] = self.request.POST.get('__next__') or reverse('custom_task_view')
+        qs = c_object.get_children().filter(node_type='subtask')
+        if qs:
+            df_initial = create_df_from_model(qs.model, qs)
+            button_data_copy = ButtonData('SubTaskCloneView', "pk", name='📄')
+            button_data_delete = ButtonData('SubTaskDeleteView', "pk", cls='danger', name='X')
+            button_data_update = ButtonData('SubTaskUpdateView', "pk")
+            df_initial['name'] = df_initial.apply(lambda x: button_data_update.create_text_link(x['id'], x['name']),
+                                                  axis=1)
+            button_copy = df_initial.apply(lambda x: button_data_copy.button_link(x['id']), axis=1)
+            button_delete = df_initial.apply(lambda x: button_data_delete.button_link(x['id']), axis=1)
+            df_initial['действия'] = create_group_button([button_copy, button_delete])
+            data = df_initial.rename(renamed_dict(TaskNode), axis='columns').to_html(**HTML_DF_PROPERTY)
+            context['data'] = data
+        return context
+@require_POST
+def update_task_field(request):
+    try:
+        task_id = int(request.POST.get('task_id'))
+        field = request.POST.get('field')
+        value = request.POST.get('value')
+
+        task = get_object_or_404(TaskNode, pk=task_id)
+
+        if field == 'contractor':
+            contractor = get_object_or_404(Contractor, pk=value)
+            task.contractor = contractor
+        elif field == 'status':
+            status = get_object_or_404(Status, pk=value)
+            task.status = status
+        elif field == 'category':
+            category = get_object_or_404(Category, pk=value)
+            task.category = category
+        elif field == 'design_chapter':
+            design_chapter = get_object_or_404(DesignChapter, pk=value)
+            task.design_chapter = design_chapter
+        elif field == 'building_number':
+            building_number = get_object_or_404(BuildingNumber, pk=value)
+            task.building_number = building_number
+        elif field == 'due_date':
+            if value:
+                task.due_date = datetime.strptime(value, '%Y-%m-%d').date()
+            else:
+                task.due_date = None
+        elif field == 'price':
+            if value:
+                task.price = float(value)
+            else:
+                task.price = None
+        else:
+            return JsonResponse({'status': 'error', 'message': 'Invalid field'})
+
+        task.save()
+        return JsonResponse({'status': 'ok', 'message': f'{field} updated'})
+    except (ValueError, KeyError, Status.DoesNotExist, Category.DoesNotExist,
+            Contractor.DoesNotExist, DesignChapter.DoesNotExist, BuildingNumber.DoesNotExist, Exception) as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+def manage_reference(request):
+    model_map = {
+        'project_site': ProjectSite,
+        'status': Status,
+        'category': Category,
+        'contractor': Contractor,
+        'design_chapter': DesignChapter,
+    }
+    model_key = request.POST.get('model') or request.GET.get('model')
+    Model = model_map.get(model_key)
+    if not Model:
+        return JsonResponse({'status': 'error', 'message': 'Unknown model'})
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'add':
+            name = request.POST.get('name', '').strip()
+            if name:
+                obj, created = Model.objects.get_or_create(name=name)
+                if created:
+                    return JsonResponse({'status': 'ok', 'object': {'pk': obj.pk, 'name': obj.name}})
+                return JsonResponse({'status': 'error', 'message': 'Уже существует'})
+            return JsonResponse({'status': 'error', 'message': 'Укажите название'})
+        elif action == 'delete':
+            obj_id = request.POST.get('id')
+            try:
+                Model.objects.filter(pk=obj_id).delete()
+                return JsonResponse({'status': 'ok'})
+            except Exception as e:
+                return JsonResponse({'status': 'error', 'message': str(e)})
+
+    objects = Model.objects.all().order_by('name')
+    return JsonResponse({
+        'objects': [{'pk': o.pk, 'name': o.name} for o in objects]
+    })
+
+
+@require_POST
+def quick_create_task(request):
+    name = request.POST.get('name', '').strip()
+    if not name:
+        return JsonResponse({'status': 'error', 'message': 'Укажите название задачи'})
+    if not request.user.is_authenticated:
+        return JsonResponse({'status': 'error', 'message': 'Требуется авторизация'})
+
+    project_site = request.POST.get('project_site') or None
+    status = request.POST.get('status') or None
+    category = request.POST.get('category') or None
+    contractor = request.POST.get('contractor') or None
+    building_number = request.POST.get('building_number') or None
+
+    # Наследование контекста от ПОСЛЕДНЕЙ задачи выбранного проекта:
+    # если у пользователя включено наследование (inherit_props) или любой default_*,
+    # незаполненные поля берутся из последней задачи проекта (order_by -pk).
+    settings = None
+    if request.user.is_authenticated:
+        settings = UserSettings.objects.filter(user=request.user).first()
+    inherit = bool(settings and (
+        settings.inherit_props
+        or settings.default_project_site
+        or settings.default_building
+        or settings.default_category
+        or settings.default_status
+        or settings.default_contractor
+    ))
+    if inherit and project_site:
+        last_task = TaskNode.objects.filter(
+            node_type='task', project_site_id=project_site
+        ).order_by('-pk').first()
+        if last_task:
+            if not status:
+                status = last_task.status_id or None
+            if not category:
+                category = last_task.category_id or None
+            if not contractor:
+                contractor = last_task.contractor_id or None
+            if not building_number:
+                building_number = last_task.building_number_id or None
+
+    task = TaskNode.objects.create(
+        name=name,
+        node_type='task',
+        owner=request.user,
+        project_site_id=project_site,
+        status_id=status,
+        category_id=category,
+        contractor_id=contractor,
+        building_number_id=building_number,
+    )
+    return JsonResponse({'status': 'ok', 'task_id': task.pk, 'task_name': task.name})
+
+
+def cascade_filter_options(request):
+    from StaticData.models import Status, Category
+    from ProjectContract.models import Contractor
+    project_site_id = request.GET.get('project_site')
+    building_type_id = request.GET.get('building_number')  # id BuildingType (тип здания)
+
+    def _all_entries():
+        return {
+            'statuses': [{'pk': s.pk, 'name': s.name} for s in Status.objects.all().order_by('name')],
+            'categories': [{'pk': c.pk, 'name': c.name} for c in Category.objects.all().order_by('name')],
+            'contractors': [{'pk': c.pk, 'name': c.name} for c in Contractor.objects.all().order_by('name')],
+            'buildings': [{'pk': b.pk, 'name': b.name} for b in BuildingType.objects.all().order_by('name')],
+        }
+
+    if not project_site_id and not building_type_id:
+        return JsonResponse(_all_entries())
+
+    qs = TaskNode.objects.filter(node_type='task')
+    if project_site_id:
+        qs = qs.filter(project_site_id=project_site_id)
+    if building_type_id:
+        qs = qs.filter(building_number__name_id=building_type_id)
+
+    def _field_items(field_name, related_name, model_class):
+        vals = list(qs.filter(**{field_name + '__isnull': False}).order_by(related_name + '__name').values_list(field_name + '_id', flat=True).distinct())
+        if vals:
+            return [{'pk': obj.pk, 'name': obj.name} for obj in model_class.objects.filter(pk__in=vals).order_by('name')]
+        return [{'pk': obj.pk, 'name': obj.name} for obj in model_class.objects.all().order_by('name')]
+
+    def _building_items():
+        # Типы зданий каскадируются от ПРОЕКТА (не от выбранного типа): список сохраняет выбранное значение.
+        bqs = TaskNode.objects.filter(node_type='task')
+        if project_site_id:
+            bqs = bqs.filter(project_site_id=project_site_id)
+        vals = list(bqs.filter(building_number__isnull=False, building_number__name__isnull=False)
+                    .values_list('building_number__name_id', flat=True).distinct())
+        if vals:
+            return [{'pk': obj.pk, 'name': obj.name}
+                    for obj in BuildingType.objects.filter(pk__in=vals).order_by('name')]
+        return [{'pk': obj.pk, 'name': obj.name}
+                for obj in BuildingType.objects.all().order_by('name')]
+
+    return JsonResponse({
+        'statuses': _field_items('status', 'status', Status),
+        'categories': _field_items('category', 'category', Category),
+        'contractors': _field_items('contractor', 'contractor', Contractor),
+        'buildings': _building_items(),
+    })
+
+
+@require_POST
+def quick_create_subtask(request):
+    parent_id = request.POST.get('parent_id')
+    name = request.POST.get('name', '').strip()
+    if not parent_id or not name:
+        return JsonResponse({'status': 'error', 'message': 'Укажите родительскую задачу и название'})
+    try:
+        parent = TaskNode.objects.get(pk=parent_id)
+        subtask = TaskNode.objects.create(
+            name=name,
+            node_type='subtask',
+            parent=parent,
+            owner=request.user if request.user.is_authenticated else None,
+            project_site=parent.project_site,
+            status=parent.status,
+            category=parent.category,
+            contractor=parent.contractor,
+            building_number=parent.building_number,
+            design_chapter=parent.design_chapter,
+        )
+        return JsonResponse({'status': 'ok', 'subtask_id': subtask.pk, 'subtask_name': subtask.name})
+    except TaskNode.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Родительская задача не найдена'})
+
+
+@require_POST
+def bulk_update_tasks(request):
+    task_ids = request.POST.getlist('task_ids')
+    if not task_ids:
+        return JsonResponse({'status': 'error', 'message': 'Задачи не выбраны'})
+
+    updates = {}
+    field_mapping = {
+        'project_site': 'project_site_id',
+        'building_number': 'building_number_id',
+        'status': 'status_id',
+        'category': 'category_id',
+        'contractor': 'contractor_id',
+        'design_chapter': 'design_chapter_id',
+        'due_date': 'due_date',
+        'price': 'price',
+    }
+
+    for field, db_field in field_mapping.items():
+        value = request.POST.get(field)
+        if value:
+            if field in ['status', 'category', 'contractor', 'design_chapter', 'building_number']:
+                try:
+                    updates[db_field] = int(value)
+                except ValueError:
+                    pass
+            elif field == 'price':
+                try:
+                    updates[db_field] = float(value.replace(',', '.'))
+                except ValueError:
+                    pass
+            else:
+                updates[db_field] = value
+
+    if updates:
+        updated_count = TaskNode.objects.filter(id__in=task_ids).update(**updates)
+        return JsonResponse({
+            'status': 'ok',
+            'message': f'Успешно обновлено {updated_count} задач',
+            'updated_fields': list(updates.keys())
+        })
+
+    return JsonResponse({'status': 'error', 'message': 'Нет данных для обновления'})
+
+
+@login_required
+@require_POST
+def save_user_settings(request):
+    settings, _ = UserSettings.objects.get_or_create(user=request.user)
+
+    bool_fields = ['inherit_props', 'default_tree_view', 'default_project_site', 'default_building',
+                   'default_category', 'default_status', 'default_contractor']
+    for field in bool_fields:
+        if field in request.POST:
+            setattr(settings, field, request.POST.get(field) in ('true', 'True', '1', 'on'))
+
+    if request.POST.get('new_task_position') in ('top', 'bottom'):
+        settings.new_task_position = request.POST['new_task_position']
+
+    if 'active_project_id' in request.POST:
+        active_id = request.POST.get('active_project_id') or None
+        settings.active_project_id = int(active_id) if active_id else None
+
+    if 'column_visibility' in request.POST:
+        try:
+            settings.column_visibility = json.loads(request.POST['column_visibility'])
+        except (TypeError, ValueError):
+            pass
+
+    settings.save()
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@require_POST
+def save_filter_state(request):
+    """Сохранение состояния фильтров в БД (по проекту или общее). auto_save=false — забыть состояние."""
+    auto_save = request.POST.get('auto_save') == 'true'
+
+    settings, _ = UserSettings.objects.get_or_create(user=request.user)
+    settings.auto_save = auto_save
+    settings.save()
+
+    params = {field: request.POST.get(field, '') for field in FILTER_FIELDS}
+    project_id = params.get('project_site') or None
+    if project_id:
+        try:
+            project_id = int(project_id)
+        except (TypeError, ValueError):
+            project_id = None
+
+    if not auto_save:
+        TaskFilterState.objects.filter(user=request.user, project_site_id=project_id).delete()
+        return JsonResponse({'status': 'ok', 'auto_save': False})
+
+    state, _ = TaskFilterState.objects.get_or_create(user=request.user, project_site_id=project_id)
+    state.params = params
+    state.save()
+    return JsonResponse({'status': 'ok', 'auto_save': True})
+
+
+def filter_tasks_ajax(request):
+    from django.template.loader import render_to_string
+    view_mode = request.GET.get('view', 'flat')
+    if view_mode == 'tree':
+        # Дерево: все узлы (задачи + подзадачи) в порядке MPTT (родитель → дети)
+        qs = TaskNode.objects.all().select_related(*StaticFilterSettings.filtered_value_list).order_by('tree_id', 'lft')
+    else:
+        qs = TaskNode.objects.filter(node_type='task').select_related(*StaticFilterSettings.filtered_value_list)
+
+    project_site = request.GET.get('project_site')
+    building_number = request.GET.get('building_number')
+    status_id = request.GET.get('status')
+    category_id = request.GET.get('category')
+    contractor_id = request.GET.get('contractor')
+    due_date = request.GET.get('due_date')
+
+    if project_site:
+        qs = qs.filter(project_site_id=project_site)
+    if building_number:
+        qs = qs.filter(building_number__name_id=building_number)
+    if status_id:
+        qs = qs.filter(status_id=status_id)
+    if category_id:
+        qs = qs.filter(category_id=category_id)
+    if contractor_id:
+        qs = qs.filter(contractor_id=contractor_id)
+    if due_date:
+        filter_dict = data_filter_qs(request, 'due_date', data=request.GET)
+        qs = qs.filter(**filter_dict)
+
+    table = TaskNodeTable(qs)
+    RequestConfig(request).configure(table)
+    table_html = render_to_string('django_tables2/bootstrap_no_pag.html', {'table': table}, request)
+
+    tree_roots = TaskNode.objects.filter(parent__isnull=True, node_type='task').select_related(
+        'project_site', 'status', 'contractor'
+    ).prefetch_related('children')
+    tree_html = render_to_string('ProjectTDL/task_tree_nodes_partial.html', {'tree_roots': tree_roots}, request)
+
+    return JsonResponse({
+        'table': table_html,
+        'tree': tree_html,
+        'count': qs.count(),
+    })
+
+
+@login_required
+def list_pinned_projects(request):
+    from .models import ProjectPin
+    pins = ProjectPin.objects.filter(user=request.user).select_related('project_site')
+    return JsonResponse([
+        {'id': p.project_site_id, 'name': p.project_site.name}
+        for p in pins
+    ], safe=False)
+
+
+@login_required
+@require_POST
+def add_pinned_project(request):
+    from .models import ProjectPin
+    from StaticData.models import ProjectSite
+    site_id = request.POST.get('project_site_id')
+    if not site_id:
+        return JsonResponse({'error': 'project_site_id required'}, status=400)
+    site = get_object_or_404(ProjectSite, pk=site_id)
+    ProjectPin.objects.get_or_create(user=request.user, project_site=site)
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def remove_pinned_project(request):
+    from .models import ProjectPin
+    site_id = request.POST.get('project_site_id')
+    if not site_id:
+        return JsonResponse({'error': 'project_site_id required'}, status=400)
+    ProjectPin.objects.filter(user=request.user, project_site_id=site_id).delete()
+    return JsonResponse({'ok': True})
+
+
+class SubTaskUpdateView(UpdateView):
+    model = TaskNode
+    template_name = 'ProjectTDL/Universal_update_form.html'
+    fields = '__all__'
+
+    def get_context_data(self, **kwargs):
+        context = super(UpdateView, self).get_context_data(**kwargs)
+        context['Name'] = "Обновление полей модели "
+        # __next__: из POST (save), из GET-параметра, иначе fallback на карточку задачи
+        next_url = (
+            self.request.POST.get('__next__')
+            or self.request.GET.get('next')
+            or self.request.META.get('HTTP_REFERER')
+            or reverse('task_detail', args=[self.object.pk])
+        )
+        context['i__next__'] = next_url
+        return context
+
+    def get_success_url(self):
+        return self.request.POST.get('__next__') or reverse('custom_task_view')
+
+
+class SubTaskDeleteView(TaskDeleteView):
+    template_name = 'ProjectTDL/Delete_Form.html'
+
+
+@login_required
+def task_detail(request, pk):
+    """Рабочая карточка задачи: удобнее админки — письма, подзадачи в одном месте."""
+    task = get_object_or_404(
+        TaskNode.objects.select_related(
+            'project_site', 'building_number__name', 'design_chapter',
+            'contractor', 'status', 'category', 'contract', 'owner'
+        ),
+        pk=pk
+    )
+
+    linked_emails = task.emails.select_related(
+        'project_site', 'contractor'
+    ).prefetch_related('attachments', 'email_tags__tag').order_by('-email_stamp')[:100]
+
+    subtasks = task.get_children().filter(node_type='subtask').order_by('id')
+
+    subtask_form = TaskNodeQuickForm(request.POST or None, prefix='subtask')
+    if request.method == 'POST' and 'create_subtask' in request.POST:
+        if subtask_form.is_valid():
+            st = subtask_form.save(commit=False)
+            st.node_type = 'subtask'
+            st.parent = task
+            st.owner = request.user
+            st.project_site = task.project_site
+            st.save()
+            messages.success(request, f'Подзадача «{st.name}» добавлена')
+            return redirect('task_detail', pk=pk)
+
+    from ProjectTDL.models import TaskDueDateHistory
+    from StaticData.models import Status as TaskStatus
+    context = {
+        'task': task,
+        'subtasks': subtasks,
+        'linked_emails': linked_emails,
+        'history': TaskDueDateHistory.objects.filter(task_node_id=pk).select_related('changed_by'),
+        'subtask_form': subtask_form,
+        'all_statuses': TaskStatus.objects.all().order_by('name'),
+        'subtask_total': task.subtree_price,
+    }
+    return render(request, 'ProjectTDL/task_detail.html', context)
+
+
+@login_required
+def task_tree_view(request):
+    """Дерево задач: плоская таблица с иерархией (родитель/дети) + фильтры."""
+    roots = TaskNode.objects.filter(parent__isnull=True).select_related(
+        'project_site', 'building_number__name', 'design_chapter',
+        'contractor', 'status', 'category', 'owner', 'parent'
+    ).prefetch_related('children')
+
+    project = request.GET.get('project_site')
+    if project:
+        roots = roots.filter(project_site_id=project)
+    building = request.GET.get('building_number')
+    if building:
+        roots = roots.filter(building_number__name_id=building)
+    design = request.GET.get('design_chapter')
+    if design:
+        roots = roots.filter(design_chapter_id=design)
+    status = request.GET.get('status')
+    if status:
+        roots = roots.filter(status_id=status)
+    category = request.GET.get('category')
+    if category:
+        roots = roots.filter(category_id=category)
+    contractor = request.GET.get('contractor')
+    if contractor:
+        roots = roots.filter(contractor_id=contractor)
+
+    context = {
+        'roots': roots,
+        'all_project_sites': ProjectSite.objects.all().order_by('name'),
+        'all_statuses': Status.objects.all().order_by('name'),
+        'all_categories': Category.objects.all().order_by('name'),
+        'all_contractors': Contractor.objects.all().order_by('name'),
+        'all_building_types': BuildingType.objects.all().order_by('name'),
+        'all_design_chapters': DesignChapter.objects.all().order_by('short_name'),
+    }
+    return render(request, 'ProjectTDL/task_tree.html', context)
+
+
+@login_required
+def generate_custom_report(request):
+    """View для генерации кастомного отчета"""
+    task_ids = request.GET.getlist('task_ids')
+
+    if not task_ids:
+        return HttpResponse("Не выбраны задачи для отчета")
+
+    tasks = TaskNode.objects.filter(id__in=task_ids).select_related(
+        'project_site', 'building_number__name',
+        'design_chapter', 'contractor', 'status', 'category', 'contract'
+    ).prefetch_related('due_date_history')
+
+    html_report = ReportGenerator.generate_html_report(tasks)
+
+    response = HttpResponse(html_report, content_type='text/html')
+    response['Content-Disposition'] = 'inline; filename="custom_tasks_report.html"'
+
+    return response
+
+
+
+
+
+
+
+
+
+
+
+====================================================================================================
+FILE: __init__.py
+====================================================================================================
+
+
+====================================================================================================
+FILE: migrations\0001_initial.py
+====================================================================================================
+# Generated by Django 5.0.6 on 2026-03-13 17:15
+
+import django.db.models.deletion
+import tinymce.models
+from django.conf import settings
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    initial = True
+
+    dependencies = [
+        ('ProjectContract', '0001_initial'),
+        ('StaticData', '0001_initial'),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name='Task',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('name', models.CharField(max_length=150, verbose_name='Наименование Задачи')),
+                ('description', tinymce.models.HTMLField(blank=True, null=True, verbose_name='Описание')),
+                ('price', models.DecimalField(blank=True, decimal_places=2, default=0, max_digits=12, null=True, verbose_name='цена')),
+                ('due_date', models.DateField(blank=True, null=True, verbose_name='завершение')),
+                ('creation_stamp', models.DateTimeField(auto_now_add=True, verbose_name='дата создания')),
+                ('update_stamp', models.DateTimeField(auto_now=True, verbose_name='дата изменения')),
+                ('building_number', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='StaticData.buildingnumber', verbose_name='Здание')),
+                ('category', models.ForeignKey(blank=True, default=1, null=True, on_delete=django.db.models.deletion.SET_NULL, to='StaticData.category', verbose_name='Категория')),
+                ('contract', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='ProjectContract.contract', verbose_name='Договор')),
+                ('contractor', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='ProjectContract.contractor', verbose_name='Ответсвенный')),
+                ('design_chapter', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='StaticData.designchapter', verbose_name='Раздел')),
+                ('owner', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='tasks', to=settings.AUTH_USER_MODEL, verbose_name='Владелец')),
+                ('project_site', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='StaticData.projectsite', verbose_name='Проект')),
+                ('status', models.ForeignKey(blank=True, default=1, null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='StaticData.status', verbose_name='Статус')),
+                ('sub_project', models.ForeignKey(on_delete=django.db.models.deletion.DO_NOTHING, to='StaticData.subproject', verbose_name='Подпроект')),
+            ],
+            options={
+                'verbose_name': 'Задача',
+                'verbose_name_plural': 'Задачи',
+            },
+        ),
+        migrations.CreateModel(
+            name='SubTask',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('name', models.CharField(blank=True, max_length=256, null=True, verbose_name='Подзадача')),
+                ('description', tinymce.models.HTMLField(blank=True, null=True, verbose_name='Описание')),
+                ('price', models.DecimalField(blank=True, decimal_places=3, max_digits=12, null=True, verbose_name='цена')),
+                ('creation_stamp', models.DateTimeField(auto_now_add=True, verbose_name='дата создания')),
+                ('update_stamp', models.DateTimeField(auto_now=True, verbose_name='дата изменения')),
+                ('due_date', models.DateField(blank=True, null=True, verbose_name='дата завершения')),
+                ('parent', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='ProjectTDL.task', verbose_name='Род. Задача')),
+            ],
+            options={
+                'verbose_name': 'Подзадача',
+                'verbose_name_plural': 'Подзадачи',
+            },
+        ),
+        migrations.CreateModel(
+            name='TaskDueDateHistory',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('old_due_date', models.DateField(blank=True, null=True, verbose_name='Предыдущая дата')),
+                ('new_due_date', models.DateField(blank=True, null=True, verbose_name='Новая дата')),
+                ('change_date', models.DateTimeField(auto_now_add=True, verbose_name='Дата изменения')),
+                ('changed_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL, verbose_name='Кто изменил')),
+                ('task', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='due_date_history', to='ProjectTDL.task', verbose_name='Задача')),
+            ],
+            options={
+                'verbose_name': 'История изменения срока задачи',
+                'verbose_name_plural': 'История изменений сроков задач',
+                'ordering': ['-change_date'],
+            },
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0002_tasknode.py
+====================================================================================================
+# Generated by Django 6.0.7 on 2026-07-28 06:55
+
+import django.db.models.deletion
+import mptt.fields
+import tinymce.models
+from django.conf import settings
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('Emails', '0006_email_sender_name'),
+        ('ProjectContract', '0001_initial'),
+        ('ProjectTDL', '0001_initial'),
+        ('StaticData', '0001_initial'),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name='TaskNode',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('node_type', models.CharField(choices=[('task', 'Задача'), ('subtask', 'Подзадача')], default='task', max_length=10, verbose_name='Тип')),
+                ('name', models.CharField(max_length=150, verbose_name='Наименование')),
+                ('description', tinymce.models.HTMLField(blank=True, null=True, verbose_name='Описание')),
+                ('price', models.DecimalField(blank=True, decimal_places=2, default=0, max_digits=12, null=True, verbose_name='Цена')),
+                ('due_date', models.DateField(blank=True, null=True, verbose_name='Завершение')),
+                ('creation_stamp', models.DateTimeField(auto_now_add=True, verbose_name='Дата создания')),
+                ('update_stamp', models.DateTimeField(auto_now=True, verbose_name='Дата изменения')),
+                ('lft', models.PositiveIntegerField(editable=False)),
+                ('rght', models.PositiveIntegerField(editable=False)),
+                ('tree_id', models.PositiveIntegerField(db_index=True, editable=False)),
+                ('level', models.PositiveIntegerField(editable=False)),
+                ('building_number', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='StaticData.buildingnumber', verbose_name='Здание')),
+                ('category', models.ForeignKey(blank=True, default=1, null=True, on_delete=django.db.models.deletion.SET_NULL, to='StaticData.category', verbose_name='Категория')),
+                ('contract', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='ProjectContract.contract', verbose_name='Договор')),
+                ('contractor', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='ProjectContract.contractor', verbose_name='Ответственный')),
+                ('design_chapter', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='StaticData.designchapter', verbose_name='Раздел')),
+                ('emails', models.ManyToManyField(blank=True, related_name='task_nodes', to='Emails.email', verbose_name='Письма')),
+                ('owner', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='task_nodes', to=settings.AUTH_USER_MODEL, verbose_name='Владелец')),
+                ('parent', mptt.fields.TreeForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='children', to='ProjectTDL.tasknode', verbose_name='Родитель')),
+                ('project_site', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='StaticData.projectsite', verbose_name='Проект')),
+                ('status', models.ForeignKey(blank=True, default=1, null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='StaticData.status', verbose_name='Статус')),
+                ('sub_project', models.ForeignKey(on_delete=django.db.models.deletion.DO_NOTHING, to='StaticData.subproject', verbose_name='Подпроект')),
+            ],
+            options={
+                'verbose_name': 'Задача (дерево)',
+                'verbose_name_plural': 'Задачи (дерево)',
+            },
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0003_remove_tasknode_emails.py
+====================================================================================================
+# Generated by Django 6.0.7 on 2026-07-29 09:06
+
+from django.db import migrations
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0002_tasknode'),
+    ]
+
+    operations = [
+        migrations.RemoveField(
+            model_name='tasknode',
+            name='emails',
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0004_migrate_task_to_tasknode.py
+====================================================================================================
+from collections import defaultdict
+
+from django.db import migrations
+
+
+TASK_FIELDS = [
+    'owner_id', 'project_site_id', 'sub_project_id', 'building_number_id',
+    'name', 'description', 'design_chapter_id', 'contractor_id',
+    'status_id', 'category_id', 'price', 'contract_id', 'due_date',
+    'creation_stamp', 'update_stamp',
+]
+
+
+def forward(apps, schema_editor):
+    Task = apps.get_model('ProjectTDL', 'Task')
+    SubTask = apps.get_model('ProjectTDL', 'SubTask')
+    TaskNode = apps.get_model('ProjectTDL', 'TaskNode')
+
+    # --- 1. Root tasks (node_type='task', no parent) ---
+    root_nodes = []
+    tree_id = 1
+    for task in Task.objects.all().iterator():
+        kwargs = {f: getattr(task, f) for f in TASK_FIELDS}
+        root_nodes.append(TaskNode(
+            id=task.pk,  # reuse old PK so subtask FK still works
+            node_type='task', parent=None,
+            lft=1, rght=2, tree_id=tree_id, level=0,
+            **kwargs,
+        ))
+        tree_id += 1
+
+    TaskNode.objects.bulk_create(root_nodes)
+
+    # --- 2. Subtask as children ---
+    # Group subtasks by parent to assign sequential lft/rght
+    children_by_parent = defaultdict(list)
+    for st in SubTask.objects.all().iterator():
+        children_by_parent[st.parent_id].append(st)
+
+    child_nodes = []
+    for parent_pk, subtasks in children_by_parent.items():
+        parent_node = TaskNode.objects.get(pk=parent_pk)
+        for idx, st in enumerate(subtasks):
+            child_nodes.append(TaskNode(
+                node_type='subtask',
+                parent=parent_node,
+                owner=parent_node.owner,
+                project_site=parent_node.project_site,
+                sub_project=parent_node.sub_project,
+                name=st.name or '',
+                description=st.description,
+                price=st.price,
+                due_date=st.due_date,
+                creation_stamp=st.creation_stamp,
+                update_stamp=st.update_stamp,
+                lft=2 + idx * 2,
+                rght=3 + idx * 2,
+                tree_id=parent_node.tree_id,
+                level=1,
+            ))
+
+        # Update parent's rght to encompass children
+        TaskNode.objects.filter(pk=parent_pk).update(
+            rght=1 + len(subtasks) * 2
+        )
+
+    if child_nodes:
+        TaskNode.objects.bulk_create(child_nodes)
+
+
+def backward(apps, schema_editor):
+    TaskNode = apps.get_model('ProjectTDL', 'TaskNode')
+    TaskNode.objects.filter(node_type__in=('task', 'subtask')).delete()
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0003_remove_tasknode_emails'),
+    ]
+
+    operations = [
+        migrations.RunPython(forward, backward),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0005_alter_subtask_parent_alter_taskduedatehistory_task.py
+====================================================================================================
+# Generated by Django 6.0.7 on 2026-07-29 12:22
+
+import django.db.models.deletion
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0004_migrate_task_to_tasknode'),
+    ]
+
+    operations = [
+        migrations.AlterField(
+            model_name='subtask',
+            name='parent',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='ProjectTDL.tasknode', verbose_name='Род. Задача'),
+        ),
+        migrations.AlterField(
+            model_name='taskduedatehistory',
+            name='task',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='due_date_history', to='ProjectTDL.tasknode', verbose_name='Задача'),
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0006_alter_subtask_parent_alter_taskduedatehistory_task.py
+====================================================================================================
+# Generated by Django 6.0.7 on 2026-07-29 12:42
+
+import django.db.models.deletion
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0005_alter_subtask_parent_alter_taskduedatehistory_task'),
+    ]
+
+    operations = [
+        migrations.AlterField(
+            model_name='subtask',
+            name='parent',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='ProjectTDL.task', verbose_name='Род. Задача'),
+        ),
+        migrations.AlterField(
+            model_name='taskduedatehistory',
+            name='task',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='due_date_history', to='ProjectTDL.task', verbose_name='Задача'),
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0007_taskduedatehistory_task_node.py
+====================================================================================================
+# Generated by Django 6.0.7 on 2026-07-29 14:12
+
+import django.db.models.deletion
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0006_alter_subtask_parent_alter_taskduedatehistory_task'),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name='taskduedatehistory',
+            name='task_node',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='due_date_history', to='ProjectTDL.tasknode', verbose_name='Задача (дерево)'),
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0008_remove_task_building_number_remove_task_category_and_more.py
+====================================================================================================
+# Generated by Django 6.0.7 on 2026-07-29 14:33
+
+import django.db.models.deletion
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0007_taskduedatehistory_task_node'),
+    ]
+
+    operations = [
+        migrations.RemoveField(
+            model_name='task',
+            name='building_number',
+        ),
+        migrations.RemoveField(
+            model_name='task',
+            name='category',
+        ),
+        migrations.RemoveField(
+            model_name='task',
+            name='contract',
+        ),
+        migrations.RemoveField(
+            model_name='task',
+            name='contractor',
+        ),
+        migrations.RemoveField(
+            model_name='task',
+            name='design_chapter',
+        ),
+        migrations.RemoveField(
+            model_name='task',
+            name='owner',
+        ),
+        migrations.RemoveField(
+            model_name='task',
+            name='project_site',
+        ),
+        migrations.RemoveField(
+            model_name='task',
+            name='status',
+        ),
+        migrations.RemoveField(
+            model_name='task',
+            name='sub_project',
+        ),
+        migrations.RemoveField(
+            model_name='taskduedatehistory',
+            name='task',
+        ),
+        migrations.AlterField(
+            model_name='taskduedatehistory',
+            name='task_node',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='due_date_history', to='ProjectTDL.tasknode', verbose_name='Задача'),
+        ),
+        migrations.DeleteModel(
+            name='SubTask',
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0009_delete_task.py
+====================================================================================================
+# Generated by Django 6.0.7 on 2026-07-29 14:33
+
+from django.db import migrations
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('Emails', '0008_remove_email_parent'),
+        ('ProjectTDL', '0008_remove_task_building_number_remove_task_category_and_more'),
+        ('email_ui', '0005_alter_emailtasklink_unique_together_and_more'),
+    ]
+
+    operations = [
+        migrations.DeleteModel(
+            name='Task',
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0010_projectpin.py
+====================================================================================================
+# Generated by Django 5.2.16 on 2026-07-30 14:30
+
+import django.db.models.deletion
+from django.conf import settings
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0009_delete_task'),
+        ('StaticData', '0001_initial'),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name='ProjectPin',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('project_site', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='StaticData.projectsite', verbose_name='Площадка')),
+                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL, verbose_name='Пользователь')),
+            ],
+            options={
+                'verbose_name': 'Закреплённая площадка',
+                'verbose_name_plural': 'Закреплённые площадки',
+                'unique_together': {('user', 'project_site')},
+            },
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0011_alter_projectpin_options_remove_tasknode_sub_project_and_more.py
+====================================================================================================
+# Generated by Django 4.2.18 on 2026-07-31 14:37
+
+from django.db import migrations, models
+import django.db.models.deletion
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('StaticData', '0002_projectsite_default_category_and_more'),
+        ('ProjectTDL', '0010_projectpin'),
+    ]
+
+    operations = [
+        migrations.AlterModelOptions(
+            name='projectpin',
+            options={'verbose_name': 'Закреплённый проект', 'verbose_name_plural': 'Закреплённые проекты'},
+        ),
+        migrations.RemoveField(
+            model_name='tasknode',
+            name='sub_project',
+        ),
+        migrations.AlterField(
+            model_name='projectpin',
+            name='project_site',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='StaticData.projectsite', verbose_name='Проект'),
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0012_taskfilterstate.py
+====================================================================================================
+from django.conf import settings
+from django.db import migrations, models
+import django.db.models.deletion
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0011_alter_projectpin_options_remove_tasknode_sub_project_and_more'),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name='TaskFilterState',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('params', models.JSONField(default=dict, verbose_name='Параметры фильтров')),
+                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Обновлено')),
+                ('project_site', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='StaticData.projectsite', verbose_name='Проект')),
+                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='task_filter_states', to=settings.AUTH_USER_MODEL, verbose_name='Пользователь')),
+            ],
+            options={
+                'verbose_name': 'Сохранённое состояние фильтров',
+                'verbose_name_plural': 'Сохранённые состояния фильтров',
+                'unique_together': {('user', 'project_site')},
+            },
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0013_usersettings.py
+====================================================================================================
+from django.conf import settings
+from django.db import migrations, models
+import django.db.models.deletion
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0012_taskfilterstate'),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name='UserSettings',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('inherit_props', models.BooleanField(default=False, verbose_name='Наследовать свойства от родителя')),
+                ('new_task_position', models.CharField(choices=[('top', 'Вверху списка'), ('bottom', 'Внизу списка')], default='bottom', max_length=10, verbose_name='Порядок новых подзадач')),
+                ('default_tree_view', models.BooleanField(default=False, verbose_name='Дерево по умолчанию')),
+                ('default_project_site', models.BooleanField(default=False, verbose_name='Заполнять проект из контекста')),
+                ('default_category', models.BooleanField(default=False, verbose_name='Заполнять категорию из контекста')),
+                ('default_status', models.BooleanField(default=False, verbose_name='Заполнять статус из контекста')),
+                ('default_contractor', models.BooleanField(default=False, verbose_name='Заполнять ответственного из контекста')),
+                ('column_visibility', models.JSONField(default=dict, verbose_name='Видимость колонок')),
+                ('auto_save', models.BooleanField(default=True, verbose_name='Сохранять состояние фильтров')),
+                ('active_project', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='StaticData.projectsite', verbose_name='Активный проект')),
+                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='task_user_settings', to=settings.AUTH_USER_MODEL, verbose_name='Пользователь')),
+            ],
+            options={
+                'verbose_name': 'Настройки пользователя',
+                'verbose_name_plural': 'Настройки пользователей',
+            },
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\0014_usersettings_default_building.py
+====================================================================================================
+# Generated by Django 4.2.18 on 2026-08-05 06:37
+
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('ProjectTDL', '0013_usersettings'),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name='usersettings',
+            name='default_building',
+            field=models.BooleanField(default=False, verbose_name='Заполнять здание из контекста'),
+        ),
+    ]
+
+
+====================================================================================================
+FILE: migrations\__init__.py
+====================================================================================================
+
+
+====================================================================================================
+FILE: querys\OutlookEmailCreate.py
+====================================================================================================
+import pythoncom
+from ProjectTDL.models import Email, EmailType
+
+from pathlib import Path
+from datetime import datetime
+from django.contrib import messages
+
+import win32com.client
+import win32clipboard  # pip install pywin32
+
+import os
+from django import forms
+
+
+def copy_to_clipboard(text):
+    win32clipboard.OpenClipboard()
+    win32clipboard.EmptyClipboard()
+    win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+    win32clipboard.CloseClipboard()
+
+
+def text_replace(text):
+    for ch in ['\\', '"', ':', '`', '*', '_', '{', '}', '[', ']', '(', ')', '>', '#', '+', '-', '.', '!', '$', '\'']:
+        text = text.replace(ch, "")
+    return text
+
+
+class SaveAttached:
+    def __init__(self, folder_path: str) -> None:
+        pythoncom.CoInitialize()  # @UndefinedVariable
+        self.outlook = win32com.client.Dispatch("Outlook.Application")
+        self.folder_path = folder_path
+
+    @property
+    def _messages(self):
+        return self.outlook.ActiveExplorer().Selection
+
+    def _get_folder_path(self, folder_path):
+        return os.path.abspath(folder_path)
+
+    def message(self):
+        return self._messages(1)
+
+    def get_sender_email_address(self):
+        return self.message().SenderEmailAddress
+
+    def _get_message_sender(self):
+        return str(self.message().Sender).replace(
+            ' ', '_') if self.message().Sender else ''
+
+    def get_message_save_name(self):
+        """from topic of e-mail
+            Returns:
+                _type_: _description_
+            """
+        message_name = self.message().subject
+        if message_name:
+            message_name = str(message_name)[0:30] if len(str(message_name)) > 30 else str(message_name)
+            message_name = text_replace(message_name)  # replace wrong symbols
+            msg_ext = f"{message_name}.msg"
+            return msg_ext
+        else:
+            return 'Без темы'
+
+    def save_message(self):
+        self.message().SaveAs(self.folder_path, self.get_message_save_name())
+
+    def _get_link_path(self):
+        link_body = f"files wer saved to \n {self.folder_path} "
+        return link_body
+
+    # message.Body = rb'{\rtf1{Here is the }{\field{\*\fldinst { HYPERLINK "https://www.python.org" }}{\fldrslt {
+    # link}}}{ I need}}'
+
+    def saved_attached_files(self):
+        for att in self.message().Attachments:
+            att.SaveAsFile(os.path.join(self.folder_path, att.FileName))
+
+    def _get_attached_files_names(self):
+        file_names = []
+        for att in self.message().Attachments:
+            file_names.append(att.FileName)
+        return file_names
+
+    def get_old_body_text(self):
+        """_summary_
+
+            Returns:
+            str: e-mail body return
+        """
+        return self.message().Body + "\n" * 3
+
+    def get_new_body_text(self):
+        attached = ", ".join(self._get_attached_files_names()) + "\n" * 2
+        link_path = self._get_link_path() + "\n" * 2
+
+        new_body = link_path + self.get_old_body_text()
+        return new_body
+
+    def change_mail_body(self):
+        self.message().Body = self.get_new_body_text()
+        return self.message().Body
+
+    def delete_attachments(self):
+        attachments = self.message().Attachments
+        attachments_number = attachments.Count
+        if attachments_number:
+            for i in range(1, attachments_number + 1):
+                attachments.Remove(i)
+
+
+def get_body_text(_email: SaveAttached):
+    body_text = _email.get_old_body_text()
+    data = 'From'.join(body_text.split('From')[:-1])
+    return data if data else body_text
+
+
+def make_folder(_data_path: str):
+    Path(_data_path).mkdir(parents=True, exist_ok=True)
+    _is_folder_exist = os.path.isdir(_data_path)
+    if _is_folder_exist:
+        copy_to_clipboard(_data_path)
+
+
+def parsing_form_for_e_mail_path(_form: forms.ModelForm) -> forms.ModelForm:
+    """создаем данные для пути к файлу project_site,contractor,contractor,email_type,name,today"""
+    project_site = _form.cleaned_data['project_site'].name
+    contractor = _form.cleaned_data['contractor'].name
+    email_type = getattr(EmailType, _form.cleaned_data['email_type']).value
+    name = _form.cleaned_data['name']
+    parent = _form.cleaned_data['parent'].project_site.name if _form.cleaned_data.get('parent') else ''
+    year = str(datetime.now().year)
+    today = datetime.today().strftime('%Y_%m_%d')
+    _data_path = os.path.join(
+        'C:\\', 'Bitrix 24', 'Переписка', project_site, contractor, email_type, year, f'{today}_{name}\\',
+    )
+    _form.cleaned_data['link'] = _data_path
+    return _form
+
+
+def process_e_mail(_form: forms.ModelForm, request) -> forms.ModelForm:
+    """забираем данные из е-мэйла subject,body,sender,сохраняем е-мэйл"""
+    try:
+        email = SaveAttached(_form.cleaned_data['link'])
+        _form.cleaned_data['subject'] = email.message().Subject
+        _form.cleaned_data['body'] = email.get_old_body_text()
+        _form.cleaned_data['sender'] = email.message().Sender
+        # email.delete_attachments()
+        # email.change_mail_body()
+        email.saved_attached_files()
+        # email.save_message()
+        messages.success(request, f'E mail {email.message().Subject} parsing ok')
+        return _form
+    except Exception as e:
+        _form.add_error(None, str(e))
+        messages.error(request, 'парсинг e-mail не удался' + str(e))
+        return _form
+
+
+def add_form_data_to_data_base(_form: forms.ModelForm, request):
+    """записываем данные из формы в базу данных"""
+    try:
+        Email.objects.create(**_form.cleaned_data)
+        messages.success(request, 'Добавление данных прошло успешно')
+    # return redirect('home')
+    except Exception as e:
+        _form.add_error(None, str(e))
+        messages.error(request, 'Не смог добавить в базу данных', str(e))
+
+
+====================================================================================================
+FILE: templates\admin\ProjectTDL\task\change_form.html
+====================================================================================================
+{% extends "admin/change_form.html" %}
+{% block form_top %}
+{% if next_url %}
+<input type="hidden" name="_next" value="{{ next_url }}">
+{% endif %}
+{% if email_id %}
+<input type="hidden" name="_email_id" value="{{ email_id }}">
+{% endif %}
+{{ block.super }}
+{% endblock %}
+
+
+====================================================================================================
+FILE: templates\admin\ProjectTDL\tasknode\change_form.html
+====================================================================================================
+{% extends "admin/change_form.html" %}
+{% block form_top %}
+{% if next_url %}
+<input type="hidden" name="_next" value="{{ next_url }}">
+{% endif %}
+{% if email_id %}
+<input type="hidden" name="_email_id" value="{{ email_id }}">
+{% endif %}
+{{ block.super }}
+{% endblock %}
+
+
+====================================================================================================
+FILE: templates\ProjectTDL\task_detail.html
+====================================================================================================
+{% extends 'base.html' %}
+{% block content %}
+<style>
+  .td-card{background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:12px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
+  .td-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;background:var(--bg-table-header,#f5f7fb);border:1px solid var(--border,#e2e6ee);font-size:13px;font-weight:600}
+  .td-nav .nav-link{color:var(--text-muted,#7b8494);font-weight:700;border-radius:9px;padding:8px 16px}
+  .td-nav .nav-link.active{background:var(--accent,#ffcc00);color:#1c2027}
+  .td-table td,.td-table th{vertical-align:middle}
+  /* Название задачи и текст на тёмном фоне */
+  body.dark-mode .td-card h3{color:var(--text-color,#e0e0e0)!important}
+  body.dark-mode .td-card .fw-bold{color:var(--text-color,#e0e0e0)!important}
+  body.dark-mode .td-card .form-label{color:var(--text-muted,#a0a0a0)!important}
+  body.dark-mode .td-card .form-control,body.dark-mode .td-card .form-select{background:var(--bg-body,#1a1d23);color:var(--text-color,#e0e0e0);border-color:var(--border-color,#4a4f5e)}
+  body.dark-mode .td-card .form-control::placeholder{color:var(--text-muted,#a0a0a0)}
+  body.dark-mode .subtask-form-title{color:var(--text-color,#e0e0e0)}
+  body.dark-mode .td-card .table a{color:#8ab4f8}
+  body.dark-mode .btn-outline-secondary{color:#e2e6ee!important;border-color:#6c757d!important;background:transparent!important}
+  body.dark-mode .btn-outline-secondary:hover{background:#495057!important;color:#fff!important}
+  body.dark-mode .btn-outline-primary{color:#8ab4f8!important;border-color:#4a6fa5!important}
+  body.dark-mode .btn-outline-primary:hover{background:#4a6fa5!important;color:#fff!important}
+  body.dark-mode .btn-outline-danger{color:#f28b82!important;border-color:#a0605a!important}
+  body.dark-mode .btn-outline-danger:hover{background:#a0605a!important;color:#fff!important}
+  body.dark-mode .td-card{background:var(--bg-card,#2d323e);border-color:var(--border-color,#4a4f5e)}
+  body.dark-mode .breadcrumb-item a{color:#8ab4f8}
+  body.dark-mode .td-chip{background:var(--bg-table-header,#2a2e38);border-color:var(--border-color,#4a4f5e);color:var(--text-color,#e2e6ee)}
+  body.dark-mode .td-table{color:var(--text-color,#e2e6ee)}
+  body.dark-mode .modal-content{background:var(--bg-card,#2d323e);color:var(--text-color,#e0e0e0);border-color:var(--border-color,#4a4f5e)}
+  body.dark-mode .modal .form-control,body.dark-mode .modal .form-select{background:var(--bg-body,#1a1d23);color:var(--text-color,#e0e0e0);border-color:var(--border-color,#4a4f5e)}
+</style>
+<div class="container-fluid py-3" style="max-width:1200px;">
+  <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
+    <li class="breadcrumb-item"><a href="{% url 'custom_task_view' %}">Задачи</a></li>
+    <li class="breadcrumb-item active">{{ task.name|truncatechars:60 }}</li>
+  </ol></nav>
+
+  <div class="td-card p-4 mb-3">
+    <div class="d-flex flex-wrap align-items-start gap-3">
+      <div class="flex-grow-1">
+        <h3 class="mb-1">{{ task.name }}</h3>
+        <div class="d-flex flex-wrap gap-2 mt-2">
+          <span class="td-chip"><i class="bi bi-building"></i>{{ task.project_site.name }}</span>
+          {% if task.sub_project %}<span class="td-chip"><i class="bi bi-diagram-3"></i>{{ task.sub_project.name }}</span>{% endif %}
+          {% if task.building_number %}<span class="td-chip"><i class="bi bi-houses"></i>{{ task.building_number }}</span>{% endif %}
+          {% if task.design_chapter %}<span class="td-chip"><i class="bi bi-file-earmark-text"></i>{{ task.design_chapter.short_name }}</span>{% endif %}
+          {% if task.contractor %}<span class="td-chip"><i class="bi bi-person-badge"></i>{{ task.contractor.name }}</span>{% endif %}
+          {% if task.category %}<span class="td-chip"><i class="bi bi-tag"></i>{{ task.category.name }}</span>{% endif %}
+        </div>
+      </div>
+      <div class="text-end">
+        <div class="fw-bold" style="font-size:26px;letter-spacing:-.02em;">{{ task.price|floatformat:2 }} ₽</div>
+        <small class="text-muted">подзадачи: {{ subtask_total|floatformat:2 }} ₽</small>
+      </div>
+    </div>
+    <hr class="my-3" style="border-color:var(--border,#e2e6ee);">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small text-muted mb-0">Статус</label>
+        <select id="td-status" class="form-select form-select-sm">
+          {% for s in all_statuses %}
+          <option value="{{ s.pk }}" {% if task.status_id == s.pk %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-muted mb-0">Срок завершения</label>
+        <input type="date" id="td-due" class="form-control form-control-sm" value="{{ task.due_date|date:'Y-m-d' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-muted mb-0">Цена</label>
+        <input type="number" step="0.01" id="td-price" class="form-control form-control-sm" value="{{ task.price|default_if_none:'' }}">
+      </div>
+      <div class="col-md-4 text-end">
+        <span id="td-save-msg" class="text-danger small me-2" style="display:none;">Ошибка сохранения. Проверьте соединение.</span>
+        <button class="btn btn-sm btn-primary" id="td-save-btn"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'custom_task_view' %}"><i class="bi bi-x-lg me-1"></i>Закрыть</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'admin:ProjectTDL_tasknode_change' task.pk %}"><i class="bi bi-gear me-1"></i>В админке</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'TaskCloneView' task.pk %}"><i class="bi bi-copy me-1"></i>Клон</a>
+      </div>
+    </div>
+  </div>
+
+  <ul class="nav td-nav gap-1 mb-3">
+    <li class="nav-item d-flex align-items-center">
+      <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-subtasks" type="button"><i class="bi bi-list-task me-1"></i>Подзадачи ({{ subtasks|length }})</button>
+      <button class="btn btn-sm btn-primary ms-2" id="btnNewSubtask" type="button"><i class="bi bi-plus-lg me-1"></i>Новая подзадача</button>
+    </li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-emails" type="button"><i class="bi bi-envelope me-1"></i>Письма ({{ linked_emails|length }})</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-desc" type="button"><i class="bi bi-card-text me-1"></i>Описание</button></li>
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="tab-subtasks">
+      <div class="td-card p-0 table-responsive">
+        <table class="table td-table mb-0">
+          <thead><tr><th>#</th><th>Название</th><th>Цена</th><th>Срок</th><th>Обновлена</th><th></th></tr></thead>
+          <tbody>
+            {% for st in subtasks %}
+            <tr>
+              <td class="text-muted">{{ st.pk }}</td>
+              <td><a href="{% url 'SubTaskUpdateView' st.pk %}?next={{ request.get_full_path|urlencode }}">{{ st.name|default:"—" }}</a></td>
+              <td>{{ st.price|floatformat:2|default:"—" }}</td>
+              <td>{{ st.due_date|date:"d.m.Y"|default:"—" }}</td>
+              <td class="text-muted small">{{ st.update_stamp|date:"d.m.Y H:i" }}</td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-danger py-0" href="{% url 'SubTaskDeleteView' st.pk %}"><i class="bi bi-x"></i></a></td>
+            </tr>
+            {% empty %}<tr><td colspan="6" class="text-center text-muted py-4">Подзадач пока нет</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-emails">
+      <div class="td-card p-0 table-responsive">
+        <table class="table td-table mb-0">
+          <thead><tr><th>Тема</th><th>Отправитель</th><th>Дата</th><th>Вложения</th><th></th></tr></thead>
+          <tbody>
+            {% for em in linked_emails %}
+            <tr>
+              <td>
+                <a href="{% url 'email_ui:email_detail' em.pk %}?next={{ request.get_full_path|urlencode }}" class="fw-semibold text-decoration-none">
+                  {{ em.subject|default:"Без темы"|truncatechars:80 }}
+                </a>
+                {% if em.is_important %}<i class="bi bi-star-fill text-warning ms-1" style="font-size:12px;"></i>{% endif %}
+              </td>
+              <td>{{ em.sender_name|default:em.sender|truncatechars:30 }}</td>
+              <td class="text-muted text-nowrap">{{ em.email_stamp|date:"d.m.Y" }}</td>
+              <td>{% if em.attachments.all %}<span class="td-chip"><i class="bi bi-paperclip"></i>{{ em.attachments.all|length }}</span>{% else %}—{% endif %}</td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-primary py-0" href="{% url 'email_ui:email_detail' em.pk %}?next={{ request.get_full_path|urlencode }}">Открыть</a></td>
+            </tr>
+            {% empty %}<tr><td colspan="5" class="text-center text-muted py-4">Писем не привязано. Привяжите из карточки письма (кнопка «+» в блоке «Задачи»).</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-desc">
+      <div class="td-card p-4">{{ task.description|safe|default:"<span class='text-muted'>Нет описания</span>" }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="subtaskModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Новая подзадача</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" id="subtaskForm">
+          {% csrf_token %}
+          <div class="mb-3"><label class="form-label small text-muted">Название</label>{{ subtask_form.name }}</div>
+          <div class="mb-3"><label class="form-label small text-muted">Описание</label>{{ subtask_form.description }}</div>
+          <div class="row g-2">
+            <div class="col-6"><label class="form-label small text-muted">Цена</label>{{ subtask_form.price }}</div>
+            <div class="col-6"><label class="form-label small text-muted">Срок</label>{{ subtask_form.due_date }}</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        <button type="submit" form="subtaskForm" name="create_subtask" class="btn btn-primary">Создать</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block custom-js %}
+<script>
+function tdCookie(name){
+  var v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+  return v ? v[2] : null;
+}
+function tdSave(field, value){
+  return fetch('{% url "update_task_field" %}', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':tdCookie('csrftoken')},
+    body:'task_id={{ task.pk }}&field=' + field + '&value=' + encodeURIComponent(value)
+  }).then(function(res){
+    if (!res.ok) { throw new Error(field + ': HTTP ' + res.status); }
+    return res;
+  });
+}
+document.getElementById('td-save-btn').addEventListener('click', function(){
+  var btn = document.getElementById('td-save-btn');
+  btn.disabled = true;
+  Promise.all([
+    tdSave('status', document.getElementById('td-status').value),
+    tdSave('due_date', document.getElementById('td-due').value),
+    tdSave('price', document.getElementById('td-price').value)
+  ]).then(function(){
+    window.location.href = '{% url "custom_task_view" %}';
+  }).catch(function(err){
+    console.error('Ошибка сохранения задачи:', err);
+    btn.disabled = false;
+    var msg = document.getElementById('td-save-msg');
+    if (msg) { msg.style.display = 'inline'; }
+  });
+});
+$(function(){
+  $('#btnNewSubtask').on('click', function(){
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('subtaskModal')).show();
+  });
+});
+</script>
+{% endblock %}
+
+TOTAL FILES: 29
+

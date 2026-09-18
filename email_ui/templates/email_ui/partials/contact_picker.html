@@ -1,15 +1,12 @@
-<div class="dropdown" id="contacts-dropdown-{{ field }}">
-    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Выбрать из контактов">
-        <i class="bi bi-book"></i>
-    </button>
-    <div class="dropdown-menu dropdown-menu-end" style="min-width:280px;">
-        <div class="px-2 py-1">
-            <input type="text" class="form-control form-control-sm" id="contacts-search-{{ field }}" placeholder="Поиск контактов..." oninput="filterContacts(this.value, '{{ field }}')">
-        </div>
-        <ul class="list-unstyled mb-0" id="contacts-list-{{ field }}" style="max-height: 260px; overflow-y: auto;">
-            {% for contact in contacts %}
-            <li><a class="dropdown-item small" href="#" data-email="{{ contact.primary_email.email|default:'' }}" data-field="{{ field }}" onclick="addContactTo(this); return false;" data-search="{{ contact.name|lower }} {{ contact.primary_email.email|default:''|lower }}">{{ contact.name }} — {{ contact.primary_email.email|default:'нет email' }}</a></li>
-            {% endfor %}
-        </ul>
+{% comment %}Поле почты в окне письма: строка (поле + кнопка), панель на всю ширину блока.
+Параметры: picker, input_id, input_name, placeholder, value. Данные: общий JSON контактов.{% endcomment %}
+<div class="email-picker" data-picker="{{ picker }}" data-input-id="{{ input_id }}" data-json="contacts-data" data-groups="groups-data" data-chips="0">
+    <div class="d-flex gap-1 align-items-start">
+        <textarea name="{{ input_name }}" id="{{ input_id }}" class="form-control form-control-sm" rows="1"
+                  placeholder="{{ placeholder|default:'' }}"
+                  oninput="autoResize(this);EmailApp.markDirty()"
+                  style="resize:none;flex:1 1 auto;width:auto;min-width:0;">{{ value|default:'' }}</textarea>
+        {% include 'email_ui/partials/email_picker_button.html' %}
     </div>
+    {% include 'email_ui/partials/email_picker_body.html' %}
 </div>

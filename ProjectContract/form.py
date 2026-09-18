@@ -9,17 +9,18 @@ class ContractPaymentsAdminForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        if cleaned_data['use_custom_formula']:
-            if not cleaned_data['custom_formula']:
-                self.add_error(
-                    'custom_formula',
-                    'Введите формулу, если вы хотите использовать пользовательский расчет.'
-                )
-            if not cleaned_data['field_to_overwrite']:
-                self.add_error(
-                    'field_to_overwrite',
-                    'Выберите поле для перезаписи.'
-                )
+        calc_type = cleaned_data.get('calc_type') or 'manual'
+        if calc_type in ('percent_of_contract', 'percent_of_base') \
+                and not cleaned_data.get('percent'):
+            self.add_error(
+                'percent',
+                'Укажите долю (0..1) для процентного расчёта цены.'
+            )
+        if calc_type == 'percent_of_base' and not cleaned_data.get('base_amount'):
+            self.add_error(
+                'base_amount',
+                'Укажите фиксированную сумму-базу для расчёта доли.'
+            )
 
         return cleaned_data
 

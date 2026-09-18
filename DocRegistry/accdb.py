@@ -5,7 +5,10 @@ import datetime
 
 import pyodbc
 
-ACCDB = r"E:\Проекты Симрус\M1\00 Организация\УтвПРРАБ\М1.accdb"
+ACCDB_PATHS = {
+    # Путь К1.accdb пока неизвестен - передавать --accdb явно.
+    'M1': r"E:\Проекты Симрус\M1\00 Организация\УтвПРРАБ\М1.accdb",
+}
 DRIVER = "{Microsoft Access Driver (*.mdb, *.accdb)}"
 
 #: accdb-колонка → поле DocRegisterEntry
@@ -38,19 +41,28 @@ def _clean(v):
     return str(v)
 
 
-def connect():
-    return pyodbc.connect(f'DRIVER={DRIVER};DBQ={ACCDB};ReadOnly=True')
+def resolve_path(project, explicit=None):
+    if explicit:
+        return explicit
+    try:
+        return ACCDB_PATHS[project]
+    except KeyError:
+        raise ValueError('Нет пути accdb объекта %r - укажите --accdb' % project)
+
+
+def connect(path=None, project='M1'):
+    return pyodbc.connect(f'DRIVER={DRIVER};DBQ={path or resolve_path(project)};ReadOnly=True')
 
 
 def table_count(cur, table: str) -> int:
     return cur.execute(f'SELECT COUNT(*) FROM [{table}]').fetchval()
 
 
-def read_registry_rows() -> list[dict]:
+def read_registry_rows(path=None, project='M1') -> list[dict]:
     """Все строки [01 Реестр] как dict полетов Entry (даты '' → None для save)."""
     from .services import accdb_row_hash
 
-    conn = connect()
+    conn = connect(path, project)
     try:
         cur = conn.cursor()
         cols = [c.column_name for c in cur.columns('01 Реестр')]

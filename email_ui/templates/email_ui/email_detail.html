@@ -23,6 +23,9 @@
         <button class="btn btn-outline-primary btn-sm" onclick="EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'forward' %}');return false;">
             <i class="bi bi-forward me-1"></i>Переслать
         </button>
+        <button class="btn btn-outline-primary btn-sm" id="thread-btn" onclick="toggleThread();return false;" title="Показать цепочку сообщений по теме">
+            <i class="bi bi-chat-left-text me-1"></i>Цепочка
+        </button>
         <button class="btn btn-outline-primary btn-sm {% if email.is_important %}text-warning{% endif %}"
                 hx-post="{% url 'email_ui:toggle_important' email.pk %}" hx-target="this" hx-swap="outerHTML">
             <i class="bi {% if email.is_important %}bi-star-fill{% else %}bi-star{% endif %}"></i>
@@ -54,15 +57,24 @@
         </button>
     </div>
 
+    <div class="card mb-3 d-none" id="thread-panel">
+        <div class="card-header py-2">
+            <h6 class="mb-0"><i class="bi bi-chat-left-text me-1"></i>Цепочка сообщений</h6>
+        </div>
+        <div class="card-body" id="thread-container">
+            <div class="text-center text-muted"><div class="spinner-border spinner-border-sm"></div> Загрузка...</div>
+        </div>
+    </div>
+
     <div class="card mb-3">
         <div class="card-body">
             <table class="table table-sm table-borderless mb-0">
                 <tr><td class="text-muted" style="width:80px;font-size:13px;">От:</td>
-                    <td class="fw-semibold">{% if email.sender_name %}{{ email.sender_name }} <{{ email.sender }}>{% else %}{{ email.sender|default:"—" }}{% endif %}</td></tr>
+                    <td class="fw-semibold">{{ email.sender|canon_email|default:"—" }}</td></tr>
                 <tr><td class="text-muted" style="font-size:13px;">Кому:</td>
-                    <td>{{ email.receiver|recipient_name|default:"—" }}</td></tr>
-                {% if email.cc %}
-                <tr><td class="text-muted" style="font-size:13px;">Копия:</td><td>{{ email.cc|recipient_name }}</td></tr>
+                    <td>{{ email.receiver|canon_emails|default:"—" }}</td></tr>
+                {% if email.cc|canon_emails %}
+                <tr><td class="text-muted" style="font-size:13px;">Копия:</td><td>{{ email.cc|canon_emails }}</td></tr>
                 {% endif %}
                 <tr><td class="text-muted" style="font-size:13px;">Дата:</td>
                     <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td></tr>
@@ -77,18 +89,6 @@
                     {% include "email_ui/partials/metadata_display.html" %}
                 </div>
             </div>
-
-            {% if email.project_site and email.contractor %}
-            <div class="mt-2">
-                <form method="post" action="{% url 'email_ui:copy_email' email.pk %}">
-                    {% csrf_token %}
-                    <input type="hidden" name="next" value="{{ request.GET.next|default:'' }}">
-                    <button type="submit" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-folder-plus me-1"></i>Скопировать в структуру проекта
-                    </button>
-                </form>
-            </div>
-            {% endif %}
         </div>
     </div>
 
@@ -126,8 +126,9 @@
                 </div>
                 <div class="section-body">
                     {% include "email_ui/partials/attachments_list.html" %}
-                    <form method="post" action="{% url 'email_ui:add_attachment' email.pk %}" enctype="multipart/form-data" class="mt-2">
+                    <form method="post" action="{% url 'email_ui:add_attachment' email.pk %}?next={{ next_url|urlencode }}" enctype="multipart/form-data" class="mt-2">
                         {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ next_url }}">
                         <div class="input-group input-group-sm">
                             <input type="file" name="attachment_file" class="form-control" required>
                             <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-circle"></i></button>
@@ -150,7 +151,16 @@
 
 <script>
 var detailIsDirty = false;
-var detailNextUrl = '{{ next_url|default:"/" }}';
+var detailNextUrl = '{{ next_url|default:"/"|escapejs }}';
+var threadLoaded = false;
+function toggleThread() {
+    var panel = document.getElementById('thread-panel');
+    panel.classList.toggle('d-none');
+    if (!panel.classList.contains('d-none') && !threadLoaded) {
+        threadLoaded = true;
+        htmx.ajax('GET', '{% url "email_ui:email_thread" email.pk %}', '#thread-container');
+    }
+}
 function markDetailDirty() { detailIsDirty = true; }
 function clearDetailDirty() { detailIsDirty = false; }
 function handleDetailClose() {

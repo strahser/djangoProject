@@ -15,6 +15,7 @@ from django_tables2 import RequestConfig
 
 from AdminUtils import get_standard_display_list
 from ProjectContract.models import Contractor
+from ProjectContract.services import log_change
 from ProjectTDL.Tables import TaskNodeTable, create_filter_qs, data_filter_qs, StaticFilterSettings
 from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, TaskNodeQuickForm
 from ProjectTDL.models import TaskNode, UserSettings, TaskFilterState
@@ -54,7 +55,13 @@ def task_action(request):
             if update_dict:
                 try:
                     selected_objects = TaskNode.objects.filter(pk__in=request.session.get('pks'))
-                    selected_objects.update(**update_dict)
+                    ids = list(selected_objects.values_list('pk', flat=True))
+                    updated_count = selected_objects.update(**update_dict)
+                    # queryset.update() не шлёт сигналов — суммарная запись (DMX-1)
+                    log_change(action='task:bulk_update',
+                               details=f'Массовое обновление {updated_count} задач '
+                                       f'(ids {ids[:20]}): {sorted(update_dict)}',
+                               user=request.user)
                     request.session['pks'] = None
                     for data in selected_objects:
                         messages.success(request, data)
@@ -73,12 +80,32 @@ def task_action(request):
         return redirect('custom_task_view')
 
 
+def _inherit_filter_q(filter_dict, date_filter):
+    """Q для строк поддерева: совпадение с фильтром ИЛИ пустое поле.
+
+    Пустое поле подзадачи означает «как у родителя» (наследование), поэтому
+    такие строки остаются в выдаче. А вот явно несовпадающее значение
+    (например, «Закрыто» при фильтре «Открыто») строку скрывает.
+    """
+    result = Q()
+    for key, values in (filter_dict or {}).items():
+        base = key.split('__')[0]
+        result &= Q(**{key: values}) | Q(**{f'{base}__isnull': True})
+    for key, value in (date_filter or {}).items():
+        base = key.split('__')[0]
+        result &= Q(**{key: value}) | Q(**{f'{base}__isnull': True})
+    return result
+
+
 def _task_subtree_qs(filter_dict, date_filter):
-    """Задачи, подходящие под фильтр, и все их подзадачи (поддеревья по MPTT).
+    """Задачи, подходящие под фильтр, и их подзадачи (поддеревья по MPTT).
 
     Подзадачи наследуют не все поля от родителя, поэтому их нельзя фильтровать
-    напрямую — иначе подзадачи с пустыми полями (например, без ответственного)
-    пропадут и из плоского списка, и из дерева.
+    строгим совпадением — иначе подзадачи с пустыми полями (например, без
+    ответственного) пропадут и из плоского списка, и из дерева. Вместо этого
+    к поддереву применяется правило наследования (_inherit_filter_q): пустое
+    поле = «как у родителя» (строка остаётся), явно чужое значение
+    (напр. «Закрыто» при фильтре «Открыто») = строка скрывается.
     """
     tasks_qs = TaskNode.objects.filter(node_type='task')
     if filter_dict:
@@ -91,7 +118,10 @@ def _task_subtree_qs(filter_dict, date_filter):
         bounds |= Q(tree_id=task.tree_id, lft__gte=task.lft, lft__lte=task.rght)
     if not bounds:
         return TaskNode.objects.none()
-    return TaskNode.objects.filter(bounds).select_related(
+    qs = TaskNode.objects.filter(bounds)
+    if filter_dict or date_filter:
+        qs = qs.filter(_inherit_filter_q(filter_dict, date_filter))
+    return qs.select_related(
         *StaticFilterSettings.filtered_value_list
     ).order_by('tree_id', 'lft')
 
@@ -501,6 +531,75 @@ def bulk_delete_tasks(request):
     return JsonResponse({'status': 'ok', 'deleted': count})
 
 
+@login_required
+@require_POST
+def task_reminder_add(request, pk):
+    """Кнопка «Напомнить» в карточке задачи (DMX-2)."""
+    from django.contrib.auth.models import User
+    from django.utils.dateparse import parse_date
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from ProjectContract.models import ContractReminder
+    task = get_object_or_404(TaskNode, pk=pk)
+    due = parse_date(request.POST.get('due_date') or '')
+    if due is None:
+        messages.error(request, 'Укажите дату напоминания')
+        return redirect('task_detail', pk=pk)
+    message = (request.POST.get('message') or '').strip()[:255]
+    recipient = None
+    rid = request.POST.get('recipient') or ''
+    if rid:
+        recipient = User.objects.filter(pk=rid, is_active=True).first()
+    ContractReminder.objects.create(
+        contract=task.contract, task=task, due_date=due, message=message,
+        recipient=recipient, created_by=request.user)
+    log_change(task=task, action='reminder:create',
+               details=f'напомнить до {due:%d.%m.%Y}'
+                       + (f': {message}' if message else ''),
+               user=request.user)
+    messages.success(request, f'Напоминание на {due:%d.%m.%Y} создано')
+    return redirect('task_detail', pk=pk)
+
+
+@login_required
+@require_POST
+def task_comment_add(request, pk):
+    """Добавить комментарий к задаче (DMX-3, C8)."""
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from ProjectContract.models import TaskComment
+    task = get_object_or_404(TaskNode, pk=pk)
+    body = (request.POST.get('body') or '').strip()
+    if not body:
+        messages.error(request, 'Текст комментария не может быть пустым')
+        return redirect('task_detail', pk=pk)
+    TaskComment.objects.create(task=task, author=request.user, body=body)
+    log_change(task=task, action='task:comment',
+               details=body[:200], user=request.user)
+    messages.success(request, 'Комментарий добавлен')
+    return redirect('task_detail', pk=pk)
+
+
+@login_required
+@require_POST
+def task_attachment_add(request, pk):
+    """Загрузить файл к задаче (DMX-4, C11)."""
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from ProjectContract.models import Attachment
+    task = get_object_or_404(TaskNode, pk=pk)
+    f = request.FILES.get('file')
+    if not f:
+        messages.error(request, 'Выберите файл')
+        return redirect('task_detail', pk=pk)
+    Attachment.objects.create(file=f, task=task, uploaded_by=request.user,
+                              description=(request.POST.get('description') or '')[:255])
+    log_change(task=task, action='task:attach',
+               details=f.name, user=request.user)
+    messages.success(request, f'Файл «{f.name}» загружен')
+    return redirect('task_detail', pk=pk)
+
+
 @require_POST
 def bulk_update_tasks(request):
     task_ids = request.POST.getlist('task_ids')
@@ -536,7 +635,14 @@ def bulk_update_tasks(request):
                 updates[db_field] = value
 
     if updates:
-        updated_count = TaskNode.objects.filter(id__in=task_ids).update(**updates)
+        qs = TaskNode.objects.filter(id__in=task_ids)
+        ids = list(qs.values_list('pk', flat=True))
+        updated_count = qs.update(**updates)
+        # queryset.update() не шлёт сигналов — суммарная запись (DMX-1)
+        log_change(action='task:bulk_update',
+                   details=f'Массовое обновление {updated_count} задач '
+                           f'(ids {ids[:20]}): {sorted(updates)}',
+                   user=request.user)
         return JsonResponse({
             'status': 'ok',
             'message': f'Успешно обновлено {updated_count} задач',
@@ -745,12 +851,20 @@ def task_detail(request, pk):
             return redirect('task_detail', pk=pk)
 
     from ProjectTDL.models import TaskDueDateHistory
+    from ProjectContract.models import ContractChangeLog, ContractReminder, TaskComment
+    from django.contrib.auth.models import User
     from StaticData.models import Status as TaskStatus
     context = {
         'task': task,
         'subtasks': subtasks,
         'linked_emails': linked_emails,
         'history': TaskDueDateHistory.objects.filter(task_node_id=pk).select_related('changed_by'),
+        'change_history': ContractChangeLog.objects.filter(task=task).select_related('user')[:100],
+        'reminders': ContractReminder.objects.filter(
+            task=task, is_done=False).select_related('recipient').order_by('due_date', 'id'),
+        'reminder_users': User.objects.filter(is_active=True).order_by('username'),
+        'comments': TaskComment.objects.filter(task=task).select_related('author')[:50],
+        'attachments': task.attachments.select_related('uploaded_by')[:20],
         'subtask_form': subtask_form,
         'all_statuses': TaskStatus.objects.all().order_by('name'),
         'subtask_total': task.subtree_price,
@@ -820,10 +934,28 @@ def generate_custom_report(request):
         except Exception:
             admin_url = None
 
-    html_report = ReportGenerator.generate_html_report(tasks, request=request, admin_url=admin_url)
+    if request and request.GET.get('format') == 'protocol':
+        from datetime import date as _date
+        meeting_date = None
+        raw = (request.GET.get('meeting_date') or '').strip()
+        if raw:
+            try:
+                meeting_date = _date.fromisoformat(raw)
+            except ValueError:
+                try:
+                    d, m, y = raw.split('.')
+                    meeting_date = _date(int(y), int(m), int(d))
+                except ValueError:
+                    meeting_date = None
+        html_report = ReportGenerator.generate_protocol_report(
+            tasks, request=request, admin_url=admin_url, meeting_date=meeting_date)
+        filename = 'protocol_soveshchaniya.html'
+    else:
+        html_report = ReportGenerator.generate_html_report(tasks, request=request, admin_url=admin_url)
+        filename = 'custom_tasks_report.html'
 
     response = HttpResponse(html_report, content_type='text/html')
-    response['Content-Disposition'] = 'inline; filename="custom_tasks_report.html"'
+    response['Content-Disposition'] = f'inline; filename="{filename}"'
     response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response['Pragma'] = 'no-cache'
     response['Expires'] = '0'

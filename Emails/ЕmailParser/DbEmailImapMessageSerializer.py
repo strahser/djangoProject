@@ -3,7 +3,7 @@ from typing import Optional
 
 from imap_tools import MailBox
 
-from Emails.models import Email
+from Emails.models import Email, html_body_to_text
 from Emails.ЕmailParser.EmailImapMessage import EmailBody
 from email_ui.models import Contact, ContactEmail
 
@@ -25,6 +25,10 @@ class DbEmailImapMessageSerializer:
         self.message_id = self._get_header(msg, 'Message-ID')
         self.in_reply_to = self._get_header(msg, 'In-Reply-To')
         self.references = self._get_header(msg, 'References')
+        try:
+            self.attachment_names = [a.filename for a in (msg.attachments or ())]
+        except Exception:
+            self.attachment_names = []
 
     @staticmethod
     def _get_header(msg, header_name: str) -> str:
@@ -104,7 +108,14 @@ class DbEmailImapMessageSerializer:
         """
         Извлекает имя и email из заголовка From, корректирует email через базу контактов.
         Возвращает (sender_name, sender_email, contact_or_None).
+
+        Единое состояние истины: sender_email — всегда каноническая bare-почта
+        (lowercase), твёрдый адрес берётся из addr.email/addr_spec, которые
+        imap_tools парсит из заголовков Yandex. Алиасы/обрезки вида
+        'Name <localpart' (старый split('@')[0]) запрещены.
         """
+        from email_ui.utils import canonical_email
+
         from_values = msg.from_values
         if from_values is None:
             raw = (msg.from_ or '').strip()
@@ -115,29 +126,38 @@ class DbEmailImapMessageSerializer:
                 m = re.match(r'"?([^"<]*)"?\s*<([^>]+)>', raw)
                 if m:
                     header_name = m.group(1).strip()
-                    header_email = m.group(2).strip()
+                    header_email = canonical_email(m.group(2))
                 else:
-                    return '', raw, None
+                    return '', '', None
             else:
-                return '', raw, None
+                header_email = canonical_email(raw)
+                header_name = ''
+                if not header_email:
+                    # Только отображаемое имя без адреса — не выдумываем почту
+                    return raw.strip(), '', None
             contact, corrected = DbEmailImapMessageSerializer._lookup_contact(header_name, header_email)
-            return header_name, corrected, contact
+            return header_name, canonical_email(corrected), contact
 
+        # Твёрдый адрес от Yandex: именно addr.email/addr_spec, НЕ str(addr)
         header_email = getattr(from_values, 'email', None)
         if header_email is None:
             header_email = getattr(from_values, 'addr_spec', None)
         if header_email is None:
             header_email = str(from_values)
+        header_email = canonical_email(header_email)
 
         header_name = getattr(from_values, 'name', '') or ''
         if not DbEmailImapMessageSerializer._is_valid_name(header_name, header_email):
             header_name = ''
+        if not header_email:
+            return header_name, '', None
 
         contact, corrected = DbEmailImapMessageSerializer._lookup_contact(header_name, header_email)
-        return header_name, corrected, contact
+        return header_name, canonical_email(corrected), contact
 
     def _format_address(self, addr) -> str:
-        """Форматирует адрес как 'Name <email>' или просто email."""
+        """Возвращает каноническую bare-почту адреса (единое состояние истины)."""
+        from email_ui.utils import canonical_email
         if addr is None:
             return ''
         email = getattr(addr, 'email', None)
@@ -145,30 +165,25 @@ class DbEmailImapMessageSerializer:
             email = getattr(addr, 'addr_spec', None)
         if email is None:
             email = str(addr)
-
-        name = getattr(addr, 'name', '') or ''
-        if DbEmailImapMessageSerializer._is_valid_name(name, email):
-            return f'{name} <{email}>'
-        return email
+        return canonical_email(email)
 
     def create_record(self) -> Email:
+        # Канонические bare-списки; display-only части без @ выбрасываются
         receiver_str = ''
         if self.receiver:
-            if len(self.receiver) == 1:
-                receiver_str = self._format_address(self.receiver[0])
-            else:
-                receiver_str = ', '.join(
-                    self._format_address(val) for val in self.receiver
-                )
+            addrs = [self._format_address(val) for val in self.receiver]
+            receiver_str = ', '.join(a for a in addrs if a)
 
         cc_str = ''
         if self.cc:
-            cc_str = ', '.join(
-                self._format_address(val) for val in self.cc
-            )
+            addrs = [self._format_address(val) for val in self.cc]
+            cc_str = ', '.join(a for a in addrs if a)
 
         folder = 'inbox' if self.email_type == 'IN' else 'sent'
 
+        from email_ui.utils import strip_tech_headers
+        body_text = strip_tech_headers(
+            html_body_to_text(self.body), self.subject, self.attachment_names)
         defaults = {
             'email_type': self.email_type,
             'subject': self.subject,
@@ -179,6 +194,7 @@ class DbEmailImapMessageSerializer:
             'cc': cc_str or None,
             'email_stamp': self.email_stamp,
             'folder': folder,
+            'body_text': body_text,
             'message_id': self.message_id or None,
             'in_reply_to': self.in_reply_to or None,
             'references': self.references or None,
@@ -192,7 +208,19 @@ class DbEmailImapMessageSerializer:
         )
 
         if not created:
+            from email_ui.utils import strip_tech_headers
+            body_text = strip_tech_headers(
+                html_body_to_text(self.body), self.subject, self.attachment_names)
             update_fields = []
+            # Файл письма перезаписывается при каждом фетче, поэтому body_text
+            # тоже обязан обновляться — иначе список/поиск показывают старую
+            # версию («Добрый день…»), а карточка (файл) — уже новую («Hi, signed.»).
+            if body_text and body_text != (email.body_text or ''):
+                email.body_text = body_text
+                update_fields.append('body_text')
+            if (self.subject or '') != (email.subject or ''):
+                email.subject = self.subject
+                update_fields.append('subject')
             if email.sender != self.sender:
                 email.sender = self.sender
                 update_fields.append('sender')

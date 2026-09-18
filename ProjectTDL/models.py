@@ -1,3 +1,4 @@
+﻿from decimal import Decimal
 from django.conf import settings
 from django.db import models
 from django.db.models.signals import pre_save, post_save
@@ -71,6 +72,8 @@ class TaskNode(MPTTModel):
     due_date = models.DateField(null=True, blank=True, verbose_name='Завершение')
     creation_stamp = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания')
     update_stamp = models.DateTimeField(auto_now=True, verbose_name='Дата изменения')
+    tags = models.ManyToManyField('ProjectContract.Tag', blank=True,
+                                  related_name='tasks', verbose_name='Теги')
 
     class MPTTMeta:
         order_insertion_by = ['name']
@@ -87,6 +90,26 @@ class TaskNode(MPTTModel):
         from django.db.models import Sum
         agg = self.get_descendants().aggregate(total=Sum('price'))
         return agg['total'] or 0
+
+    @property
+    def total_paid(self):
+        """Сумма платежей, привязанных к этой задаче через PaymentTaskLink."""
+        from django.db.models import Sum
+        from ProjectContract.models import PaymentTaskLink
+        agg = PaymentTaskLink.objects.filter(
+            task_node=self
+        ).aggregate(total=Sum('amount_applied'))
+        return agg['total'] or Decimal('0')
+
+    @property
+    def payment_balance(self):
+        """Остаток: стоимость задачи - уже привязанные платежи."""
+        return (self.price or Decimal('0')) - self.total_paid
+
+    @property
+    def is_overpaid(self):
+        """True, если сумма привязок превышает стоимость задачи."""
+        return self.total_paid > (self.price or Decimal('0'))
 
 
 class ProjectPin(models.Model):

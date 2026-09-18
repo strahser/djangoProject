@@ -1,26 +1,22 @@
 import sys
 
-import pandas as pd
 from django.contrib import admin, messages
 
 from django.forms import Textarea
-from django_pandas.io import read_frame
-
+from ProjectContract.models import ContractPayments, Contractor, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog
 from AdminUtils import get_standard_display_list, duplicate_event, duplicate_object
 from ProjectContract.PivotTableUtility import create_calendar_list_view, create_payment_calendar
+from ProjectContract.services import log_change
 
 from ProjectContract.form import ContractPaymentsAdminForm
-from ProjectContract.models import ContractPayments, Contractor
+from ProjectContract.models import ContractPayments, Contractor, ContractChangeLog, CashflowEntry
 from django.db import models
-from django.db.models import Sum, Value, DecimalField, Count, Q
+from django.db.models import Sum, Value, DecimalField
 from django.db.models.functions import Coalesce
-from django.db.models import F
 
 from StaticData.models import ProjectSite
 from .models import Contract  # Замените на свою модель
-from django import forms
 from loguru import logger
-from django.http import HttpResponse
 from django.utils.html import format_html
 from urllib.parse import urlencode
 from django.http import HttpResponseRedirect
@@ -28,6 +24,19 @@ from django.shortcuts import redirect
 from django.urls import reverse, path
 from django.utils.translation import gettext_lazy as _
 logger.add(sys.stderr, format="{time} {level} {message}", filter="my_module", level="INFO")
+
+
+def _extract_scale(request):
+    """Забрать scale из GET, чтобы админ не считал его lookup-фильтром (?e=1).
+
+    Возвращает (scale, original_get). После super().changelist_view()
+    нужно вернуть request.GET обратно, чтобы шаблоны видели полный querystring.
+    """
+    original = request.GET
+    params = original.copy()
+    scale = params.pop('scale', ['day'])[0]
+    request.GET = params
+    return scale, original
 
 
 class ProjectSiteFilter(admin.SimpleListFilter):
@@ -100,75 +109,6 @@ class PaymentTypeFilter(admin.SimpleListFilter):
         return queryset
 
 
-def calculate_price(instance):
-    if instance.use_custom_formula:
-        try:
-            # Вычислить результат формулы
-            result = eval(instance.custom_formula)
-            setattr(instance, instance.field_to_overwrite, result)
-        except Exception as e:
-            raise forms.ValidationError(f'Ошибка при выполнении формулы: {e}')
-
-
-def export_as_excel_pandas(modeladmin, request, queryset):
-    """
-    Кастомное действие для экспорта данных в Excel с использованием pandas и django-pandas.
-    """
-    # Получаем отображаемые поля из list_display
-    list_display = modeladmin.list_display
-
-    # Аннотируем queryset нужными полями
-    queryset = queryset.annotate(
-        paid_amount=Coalesce(Sum('contractpayments__price', filter=Q(contractpayments__made_payment=True)), Value(0),
-                             output_field=DecimalField(max_digits=12, decimal_places=2))
-    ).annotate(
-        unpaid_amount=Coalesce(Sum('contractpayments__price', filter=Q(contractpayments__made_payment=False)), Value(0),
-                               output_field=DecimalField(max_digits=12, decimal_places=2))
-    ).annotate(
-        status_check=F('price') - (
-                    Coalesce(Sum('contractpayments__price', filter=Q(contractpayments__made_payment=True)), Value(0),
-                             output_field=DecimalField(max_digits=12, decimal_places=2)) + Coalesce(
-                Sum('contractpayments__price', filter=Q(contractpayments__made_payment=False)), Value(0),
-                output_field=DecimalField(max_digits=12, decimal_places=2)))
-    )
-
-    # Получаем verbose_name для полей
-    verbose_names = {}
-    for field_name in list_display:
-        if hasattr(modeladmin, field_name):  # проверяем, если это функция, а не поле
-            verbose_names[field_name] = getattr(modeladmin, field_name).short_description
-        else:
-            verbose_names[field_name] = modeladmin.model._meta.get_field(field_name).verbose_name
-
-    # Создаем DataFrame, используя django-pandas
-    df = read_frame(
-        queryset,
-        fieldnames=list_display,
-    )
-
-    # Переименовываем столбцы
-    df.rename(columns=verbose_names, inplace=True)
-
-    # Конвертируем Decimal и другие типы в float перед экспортом
-    for column in df.columns:
-        if df[column].dtype == 'object':
-            try:
-                df[column] = df[column].astype(float)
-            except (ValueError, TypeError):
-                pass  # Оставляем как есть, если не удается преобразовать
-
-    # Создаем HTTP-ответ с Excel-файлом
-    response = HttpResponse(content_type='application/ms-excel')
-    response['Content-Disposition'] = 'attachment; filename="contracts.xlsx"'
-
-    # Сохраняем DataFrame в Excel
-    df.to_excel(response, index=False,
-                engine='openpyxl')  # engine='openpyxl' чтобы pandas использовал openpyxl, а не xlsxwriter
-
-    return response
-
-export_as_excel_pandas.short_description = "Скачать выбранные контракты в Excel (Pandas)"
-
 class BaseAdmin(admin.ModelAdmin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -200,6 +140,13 @@ class BaseAdmin(admin.ModelAdmin):
         obj = self.get_object(request, pk)
         duplicate_object(obj)
         return redirect(request.META.get('HTTP_REFERER', reverse(f'admin:{self.app_name}_{self.model_name}_changelist')))
+
+
+class AttachmentInline(admin.TabularInline):
+    model = Attachment
+    extra = 0
+    readonly_fields = ('file', 'uploaded_by', 'creation_stamp')
+    fields = ('file', 'description', 'uploaded_by', 'creation_stamp')
 
 
 class ContractPaymentsInline(admin.TabularInline):
@@ -251,35 +198,49 @@ class ContractAdmin(BaseAdmin):
     list_display = get_standard_display_list(Contract, excluding_list=excluding_list,additional_list=additional_list)
     list_filter = get_standard_display_list(Contract, excluding_list=['id', 'proposal_number', 'price', 'name'])
     actions = [duplicate_event]
-    inlines = (ContractPaymentsInline,)
+    inlines = (ContractPaymentsInline, AttachmentInline)
     change_list_template = 'jazzmin/admin/change_list_contract.html'
 
     def changelist_view(self, request, extra_context=None):
+        # Один рендер: пивоты/итоги докладываем в context_data уже отрендеренного
+        # (но ещё не сериализованного) TemplateResponse. Ф2: считать ДДС из БД.
         extra_context = extra_context or {}
-        response = super().changelist_view(request,extra_context=extra_context)
-        _extra_context = create_calendar_list_view(request, response, extra_context)
+        _, original_get = _extract_scale(request)
         try:
-            if hasattr(response,"context_data"):
-                # Получаем queryset
+            response = super().changelist_view(request, extra_context=extra_context)
+        finally:
+            request.GET = original_get
+        if hasattr(response, "context_data"):
+            before = set(extra_context)
+            tables = create_calendar_list_view(request, response, extra_context)
+            if isinstance(tables, dict):
+                response.context_data.update(
+                    {k: v for k, v in tables.items() if k not in before})
+            try:
                 qs = response.context_data["cl"].queryset
-                # Вычисляем суммы
                 total_price = qs.aggregate(total=Sum('price'))['total']
-                total_paid = qs.aggregate(total=Coalesce(Sum('contractpayments__price', filter=models.
-                                                             Q(contractpayments__made_payment=True)), Value(0),
-                                                                output_field=DecimalField(max_digits=12, decimal_places=2)))['total']
-                total_unpaid = qs.aggregate(total=Coalesce(Sum('contractpayments__price', filter=models.
-                                                               Q(contractpayments__made_payment=False)), Value(0),
-                                                                output_field=DecimalField(max_digits=12, decimal_places=2)))['total']
+                total_paid = qs.aggregate(total=Coalesce(Sum('contractpayments__price', filter=models.Q(contractpayments__made_payment=True)), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2)))['total']
+                total_unpaid = qs.aggregate(total=Coalesce(Sum('contractpayments__price', filter=models.Q(contractpayments__made_payment=False)), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2)))['total']
+                response.context_data.update({
+                    'total_price': total_price,
+                    'total_paid': total_paid,
+                    'total_unpaid': total_unpaid,
+                    'total_status': total_price - (total_paid + total_unpaid),
+                })
+            except KeyError:
+                pass
+        return response
 
-                 # Добавляем итоговые значения в контекст
-                _extra_context['total_price'] = total_price
-                _extra_context['total_paid'] = total_paid
-                _extra_context['total_unpaid'] = total_unpaid
-                _extra_context['total_status'] = total_price-(total_paid+total_unpaid)
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        log_change(contract=obj, action='updated' if change else 'created',
+                   details=str(obj), user=request.user)
 
-        except KeyError:
-            pass
-        return super().changelist_view(request, extra_context=extra_context)  # return response in original
+    def delete_model(self, request, obj):
+        log_change(contract=obj, action='deleted',
+                   details=f'{obj} (id={obj.pk}, цена={obj.price})',
+                   user=request.user)
+        super().delete_model(request, obj)
 
     def paid_amount(self, obj):
       return obj.contractpayments_set.filter(made_payment=True)\
@@ -298,15 +259,23 @@ class ContractAdmin(BaseAdmin):
     status_check.short_description = 'Статус проверки'
 
 
+class PaymentTaskLinkInline(admin.TabularInline):
+    model = PaymentTaskLink
+    extra = 0
+    fields = ('task_node', 'amount_applied', 'notes')
+    autocomplete_fields = ('task_node',)
+
+
 @admin.register(ContractPayments)
 class ContractPaymentsAdmin(admin.ModelAdmin):
     _all_list = ['contract',  'price', 'start_date', 'due_date', 'duration']
-    list_display = ['id', 'parent', 'project_site', 'payment_type', 'made_payment', 'contractor_name', ] + _all_list
+    list_display = ['id', 'parent', 'project_site', 'payment_type', 'status', 'made_payment', 'contractor_name', ] + _all_list
     list_filter = [ContractFilter, ProjectSiteFilter,ContractorFilter, PaymentTypeFilter,  'made_payment','start_date']
     search_fields = ['contract__name', 'name']
     list_display_links = ['id', ]
     list_editable = ['parent', 'start_date', 'due_date', 'duration']
     actions = [duplicate_event,]
+    inlines = (PaymentTaskLinkInline,)
     form = ContractPaymentsAdminForm
     list_per_page = 10
     change_list_template = 'jazzmin/admin/paymentCalendar.html'
@@ -331,29 +300,185 @@ class ContractPaymentsAdmin(admin.ModelAdmin):
         return super().response_post_save_change(request, obj)
 
     def changelist_view(self, request, extra_context=None):
-        scale = request.GET.get('scale', 'day')
+        # Один рендер: календарь докладываем в context_data. Ф2: считать ДДС из БД.
+        scale, original_get = _extract_scale(request)
         extra_context = extra_context or {}
-        response = super().changelist_view(request, extra_context=extra_context)
+        try:
+            response = super().changelist_view(request, extra_context=extra_context)
+        finally:
+            request.GET = original_get
         try:
             # Проверяем наличие context_data
             if hasattr(response, 'context_data'):
                 qs = response.context_data['cl'].queryset
-                qs = qs.filter()
                 filtered_contracts = qs.values_list('contract', flat=True)
                 contract_list = Contract.objects.filter(id__in=filtered_contracts).all()
+                before = set(extra_context)
                 payments = create_payment_calendar(extra_context, scale, all_contracts=contract_list, contract_payment_filter=qs)
-                extra_context.update(payments)
-            else:
-                # Получаем queryset другим способом, например, из request.session
-                qs = request.session.get('queryset')
-
+                response.context_data.update(
+                    {k: v for k, v in payments.items() if k not in before})
         except Exception as e:
             messages.error(request, f" ошибка {e}")
 
-        return super().changelist_view(request, extra_context=extra_context)
+        return response
 
-    # После сохранения объекта
     def save_model(self, request, obj, form, change):
-        calculate_price(obj)
         super().save_model(request, obj, form, change)
+        log_change(payment=obj, action='updated' if change else 'created',
+                   details=f'{obj.name} ({obj.price})', user=request.user)
 
+    def delete_model(self, request, obj):
+        log_change(payment=obj, action='deleted',
+                   details=f'{obj.name} (id={obj.pk}, цена={obj.price})',
+                   user=request.user)
+        super().delete_model(request, obj)
+
+
+@admin.register(ContractChangeLog)
+class ContractChangeLogAdmin(admin.ModelAdmin):
+    list_display = ['creation_stamp', 'action', 'contract', 'payment', 'task', 'user']
+    list_filter = ['action', 'creation_stamp']
+    search_fields = ['details', 'contract__name', 'payment__name', 'task__name']
+    date_hierarchy = 'creation_stamp'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TaskComment)
+class TaskCommentAdmin(admin.ModelAdmin):
+    """Комментарии к задачам (DMX-3): только чтение."""
+    list_display = ['creation_stamp', 'task', 'author', 'body']
+    list_filter = ['creation_stamp']
+    search_fields = ['body', 'task__name']
+    date_hierarchy = 'creation_stamp'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Tag)
+class TagAdmin(admin.ModelAdmin):
+    list_display = ['name', 'color', 'description']
+    search_fields = ['name']
+
+
+@admin.register(Attachment)
+class AttachmentAdmin(admin.ModelAdmin):
+    list_display = ['file', 'task', 'contract', 'uploaded_by', 'creation_stamp']
+    list_filter = ['creation_stamp']
+    search_fields = ['file', 'task__name', 'contract__name']
+    date_hierarchy = 'creation_stamp'
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ContractReminder)
+class ContractReminderAdmin(admin.ModelAdmin):
+    """Напоминания (DMX-2): кому/когда, флаги отправки и закрытия."""
+    list_display = ['due_date', 'contract', 'task', 'payment', 'message',
+                    'recipient', 'is_sent', 'is_done']
+    list_filter = ['is_sent', 'is_done', 'due_date']
+    search_fields = ['message', 'contract__name', 'task__name']
+    date_hierarchy = 'due_date'
+    list_per_page = 25
+
+
+@admin.register(ContractStageLog)
+class ContractStageLogAdmin(admin.ModelAdmin):
+    """Журнал этапов (DMC-5): фильтры stage/date/contract, просмотр без правок."""
+    list_display = ['date', 'contract', 'stage_display', 'is_next_step', 'user', 'notes']
+    list_filter = ['stage', 'date', 'contract', 'is_next_step']
+    search_fields = ['contract__name', 'contract__number', 'notes']
+    date_hierarchy = 'date'
+    list_per_page = 25
+
+    @admin.display(description='Этап', ordering='stage')
+    def stage_display(self, obj):
+        return obj.get_stage_display()
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(CashflowEntry)
+class CashflowEntryAdmin(admin.ModelAdmin):
+    """Строки ДДС — только чтение (пересчёт — rebuild_cashflow/сигналы)."""
+    list_display = ['date', 'contract', 'payment', 'bucket', 'amount']
+    list_filter = ['bucket', 'contract']
+    date_hierarchy = 'date'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+
+@admin.register(PaymentTaskLink)
+class PaymentTaskLinkAdmin(admin.ModelAdmin):
+    list_display = ['id', 'payment', 'task_node', 'amount_applied', 'notes']
+    list_filter = ['payment__contract', 'payment__status']
+    search_fields = ['payment__name', 'task_node__name']
+    autocomplete_fields = ('payment', 'task_node')
+    list_per_page = 20
+
+
+class EstimateConceptInline(admin.TabularInline):
+    model = EstimateConcept
+    extra = 0
+    fields = ('name', 'unit', 'quantity', 'unit_price', 'amount', 'task_node')
+    readonly_fields = ('amount',)
+    autocomplete_fields = ('task_node',)
+
+
+@admin.register(ContractEstimate)
+class ContractEstimateAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'contract', 'status', 'total_amount', 'is_overrun_flag']
+    list_filter = ['status', 'contract']
+    search_fields = ['name', 'contract__name', 'contract__number']
+    inlines = (EstimateConceptInline,)
+    actions = ('rollup_estimates', 'approve_estimates')
+    list_per_page = 20
+
+    @admin.display(boolean=True, description='Перерасход')
+    def is_overrun_flag(self, obj):
+        return obj.is_overrun
+
+    @admin.action(description='Пересчитать итоги смет')
+    def rollup_estimates(self, request, queryset):
+        for est in queryset:
+            est.rollup()
+        self.message_user(request, f'Пересчитано смет: {queryset.count()}')
+
+    @admin.action(description='Утвердить сметы')
+    def approve_estimates(self, request, queryset):
+        updated = queryset.update(status='approved')
+        self.message_user(request, f'Утверждено смет: {updated}')
+
+
+@admin.register(EstimateConcept)
+class EstimateConceptAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'estimate', 'unit', 'quantity', 'unit_price', 'amount', 'task_node']
+    list_filter = ['estimate__contract', 'estimate__status']
+    search_fields = ['name', 'estimate__name', 'task_node__name']
+    autocomplete_fields = ('estimate', 'task_node')
+    readonly_fields = ('amount',)
+    list_per_page = 20

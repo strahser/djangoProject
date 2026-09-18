@@ -1,28 +1,28 @@
-{% load email_filters %}
+{% load email_filters l10n %}
 {% for email in page_obj %}
 {% with back_url=email_list_back_url|default:"/" %}
 <tr class="email-row{% if not email.is_read %} unread{% endif %}"
-    onclick="location.href='{% url 'email_ui:email_detail' email.pk %}?next={{ back_url|urlencode }}'; return false;">
+    onclick="location.href='{% if folder == 'drafts' %}{% url 'email_ui:draft_edit' email.pk %}?next={{ back_url|urlencode }}{% else %}{% url 'email_ui:email_detail' email.pk %}?next={{ back_url|urlencode }}{% endif %}'; return false;">
     <td onclick="event.stopPropagation()">
-        <input type="checkbox" name="selected_emails" value="{{ email.pk }}" form="bulk-form"
+        <input type="checkbox" name="selected_emails" value="{{ email.pk|unlocalize }}" form="bulk-form"
                onchange="if(window.toggleBulkActionBar) toggleBulkActionBar()">
     </td>
     <td onclick="event.stopPropagation()">
         {% if folder == 'sent' or folder == 'drafts' %}
-            {% with who=email.receiver|recipient_name|default:"?" %}
+            {% with who=email.receiver|canon_emails|default:"?" %}
             <span class="email-avatar" style="background-color:{{ who|avatar_color }};">{{ who|avatar_initials }}</span>
             {% endwith %}
         {% else %}
-            {% with who=email.sender_name|default:email.sender|default:"?" %}
+            {% with who=email.sender|canon_email|default:"?" %}
             <span class="email-avatar" style="background-color:{{ who|avatar_color }};">{{ who|avatar_initials }}</span>
             {% endwith %}
         {% endif %}
     </td>
     <td>
         {% if folder == 'sent' or folder == 'drafts' %}
-            {{ email.receiver|recipient_name|default:"—" }}
+            {{ email.receiver|canon_emails|default:"—"|truncatechars:28 }}
         {% else %}
-            {{ email.sender_name|default:email.sender|truncatechars:28|default:"Неизвестно" }}
+            {{ email.sender|canon_email|truncatechars:28|default:"Неизвестно" }}
         {% endif %}
     </td>
     <td>
@@ -31,6 +31,9 @@
                    class="text-decoration-none text-dark">{{ email.subject|truncatechars:70|default:"Без темы" }}</a>
                 {% if email.is_important %}<i class="bi bi-star-fill text-warning ms-1" style="font-size:12px;"></i>{% endif %}
             </div>
+            {% if email_view_settings.show_body_preview and email.body_text %}
+            <div class="email-subject-preview">{{ email|email_preview:email_view_settings.preview_length }}</div>
+            {% endif %}
         {% with atts=email.attachments.all %}
         {% if atts %}
         <div class="att-chips">

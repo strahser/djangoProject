@@ -3,24 +3,42 @@
 <style>
   .cd-num{font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1}
   .cd-stat{background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:12px;padding:16px 20px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
-  .cd-bar{height:9px;border-radius:6px;background:var(--bg-table-header,#f0f2f6);overflow:hidden}
-  .cd-bar>div{height:100%;background:linear-gradient(90deg,#35c26e,#2ba55f);border-radius:6px;transition:width .5s ease}
+  .cd-bar{height:9px;border-radius:6px;background:var(--bg-table-header,#f0f2f6);overflow:hidden;display:flex;}
+  .cd-bar>div{height:100%;}
+  .cd-seg-paid{background:linear-gradient(90deg,#35c26e,#2ba55f);}
+  .cd-seg-guar{background:#2563eb;}
+  .cd-seg-like{background:#d97706;}
+  .cd-seg-plan{background:#9aa3b2;}
   .cd-row{transition:background .12s}
   .cd-row:hover{background:var(--bg-row-hover,#fff6d8)}
   .pay-chip{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border,#e2e6ee);border-radius:10px;background:var(--bg-table-header,#f8f9fb);transition:.15s}
   .pay-chip.paid{border-color:#b7e4c7;background:#effaf3}
   body.dark-mode .pay-chip.paid{background:#1d3226;border-color:#2c5c3f}
+  .st-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;}
+  .st-draft{background:#eef1f6;color:#5b6472;}
+  .st-active{background:#e8f3ff;color:#2563eb;}
+  .st-suspended{background:#fff4e0;color:#b45309;}
+  .st-closed{background:#effaf3;color:#2ba55f;}
+  .st-canceled{background:#fdecec;color:#e5484d;}
+  .st-paid{background:#effaf3;color:#2ba55f;}
+  .st-guaranteed,.st-approved,.st-invoiced{background:#e8f3ff;color:#2563eb;}
+  .st-high_prob,.st-low_prob{background:#fff4e0;color:#b45309;}
+  .st-planned,.st-partially_paid{background:#eef1f6;color:#5b6472;}
+  body.dark-mode .st-badge{filter:brightness(1.15);}
 </style>
 <div class="container-fluid py-3" style="max-width:1250px;">
-  <div class="d-flex align-items-center gap-3 mb-3">
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     <h3 class="mb-0">Договоры и оплаты</h3>
+    <button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#memoModal"><i class="bi bi-question-circle me-1"></i>Как это работает</button>
+    <a href="{% url 'cashflow' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-bar-chart-line me-1"></i>ДДС</a>
     <a href="{% url 'export_contracts_excel' %}?{{ request.GET.urlencode }}" class="btn btn-sm btn-outline-success ms-auto"><i class="bi bi-file-earmark-excel me-1"></i>Excel</a>
   </div>
 
   <div class="row g-3 mb-3">
-    <div class="col-md-4"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase">Сумма договоров</div><div class="cd-num mt-1">{{ totals.price|floatformat:0 }} ₽</div></div></div>
-    <div class="col-md-4"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase" style="color:#2ba55f!important;">Оплачено</div><div class="cd-num mt-1" style="color:#2ba55f;">{{ totals.paid|floatformat:0 }} ₽</div></div></div>
-    <div class="col-md-4"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase" style="color:#e5484d!important;">Не оплачено</div><div class="cd-num mt-1" style="color:#e5484d;">{{ totals.unpaid|floatformat:0 }} ₽</div></div></div>
+    <div class="col-md-3"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase">Сумма договоров</div><div class="cd-num mt-1">{{ totals.price|floatformat:0 }} ₽</div></div></div>
+    <div class="col-md-3"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase" style="color:#2ba55f!important;">Оплачено</div><div class="cd-num mt-1" style="color:#2ba55f;">{{ totals.paid|floatformat:0 }} ₽</div></div></div>
+    <div class="col-md-3"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase" style="color:#2563eb!important;">Прогноз</div><div class="cd-num mt-1" style="color:#2563eb;">{{ totals.forecast|floatformat:0 }} ₽</div><div class="text-muted small">гарантировано и вероятно</div></div></div>
+    <div class="col-md-3"><div class="cd-stat"><div class="text-muted small fw-bold text-uppercase">Запланировано</div><div class="cd-num mt-1">{{ totals.planned|floatformat:0 }} ₽</div></div></div>
   </div>
 
   <form method="get" class="row g-2 mb-3">
@@ -43,14 +61,19 @@
             <a class="fw-bold text-decoration-none" data-bs-toggle="collapse" href="#pays-{{ r.contract.pk }}" role="button">
               {{ r.contract.name|default:"Без названия" }}
             </a>
-            <div class="text-muted small">{{ r.contract.project_site.name }}{% if r.contract.sub_project %} · {{ r.contract.sub_project.name }}{% endif %}</div>
+            <span class="st-badge st-{{ r.contract.status }}">{{ r.contract.get_status_display }}</span>
+            <div class="text-muted small">
+              {{ r.contract.project_site.name }}{% if r.contract.number %} · №{{ r.contract.number }}{% endif %}{% if r.contract.client %} · зак: {{ r.contract.client.name }}{% endif %}
+            </div>
+            {% if r.contract.parent %}<div class="text-muted small">↳ субподряд: {{ r.contract.parent.name }}</div>{% endif %}
+            {% if r.children %}<div class="text-muted small">Субподряды: {{ r.children|length }}</div>{% endif %}
           </td>
           <td>{{ r.contract.contractor.name|default:"—" }}</td>
           <td class="text-end fw-bold">{{ r.contract.price|floatformat:0 }}</td>
           <td>
             <div class="d-flex align-items-center gap-2">
-              <div class="cd-bar flex-grow-1"><div id="bar-{{ r.contract.pk }}" style="width:{{ r.pct }}%;"></div></div>
-              <small class="fw-bold text-nowrap" id="paid-{{ r.contract.pk }}">{{ r.paid|floatformat:0 }} ₽ · {{ r.pct }}%</small>
+              <div class="cd-bar flex-grow-1"><div class="cd-seg-paid" style="width:{{ r.pct_paid }}%;"></div><div class="cd-seg-guar" style="width:{{ r.pct_guar }}%;"></div><div class="cd-seg-like" style="width:{{ r.pct_like }}%;"></div><div class="cd-seg-plan" style="width:{{ r.pct_plan }}%;"></div></div>
+              <small class="fw-bold text-nowrap" id="paid-{{ r.contract.pk }}">{{ r.paid|floatformat:0 }} ₽ · {{ r.pct_paid }}%</small>
             </div>
           </td>
           <td class="text-end {% if r.rest != 0 %}fw-bold{% endif %}" style="{% if r.rest != 0 %}color:#e5484d;{% endif %}">{{ r.rest|floatformat:0 }}</td>
@@ -63,8 +86,8 @@
               <div class="pay-chip {% if p.made_payment %}paid{% endif %}" id="chip-{{ p.pk }}">
                 <input type="checkbox" class="form-check-input pay-toggle m-0" data-id="{{ p.pk }}" data-price="{{ p.price|default:0 }}" data-contract="{{ r.contract.pk }}" {% if p.made_payment %}checked{% endif %}>
                 <div>
-                  <div class="fw-semibold" style="font-size:13.5px;">{{ p.name|default:p.get_payment_type_display }}</div>
-                  <div class="text-muted" style="font-size:12px;">{{ p.price|floatformat:0 }} ₽ · {{ p.due_date|date:"d.m.Y"|default:"без срока" }}</div>
+                  <div class="fw-semibold" style="font-size:13.5px;">{{ p.name|default:p.get_payment_type_display }} <span class="st-badge st-{{ p.status }}">{{ p.get_status_display }}</span></div>
+                  <div class="text-muted" style="font-size:12px;">{{ p.price|floatformat:0 }} ₽ · {{ p.due_date|date:"d.m.Y"|default:"без срока" }}{% if p.paid_date %} · факт {{ p.paid_date|date:"d.m.Y" }}{% endif %}{% if p.invoice_number %} · счёт {{ p.invoice_number }}{% endif %}</div>
                 </div>
               </div>
               {% empty %}<span class="text-muted">Платежи не заведены</span>{% endfor %}
@@ -76,6 +99,24 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+
+<div class="modal fade" id="memoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Как устроены договоры, оплаты и ДДС</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% include 'ProjectContract/memo_body.html' %}
+      </div>
+      <div class="modal-footer">
+        <a href="{% url 'contract_help' %}" class="btn btn-sm btn-outline-secondary" target="_blank">Открыть отдельно</a>
+        <button class="btn btn-sm btn-primary" data-bs-dismiss="modal">Понятно</button>
+      </div>
+    </div>
   </div>
 </div>
 

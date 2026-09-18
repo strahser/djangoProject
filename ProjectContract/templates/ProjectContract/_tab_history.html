@@ -1,0 +1,12 @@
+<ul class="list-group list-group-flush">
+  {% for h in history %}
+  <li class="list-group-item d-flex align-items-center gap-3 px-2">
+    <span class="st-badge st-active" style="min-width:88px;text-align:center;">{{ h.action }}</span>
+    <span class="flex-grow-1">{{ h.details|default:"—" }}</span>
+    <span class="text-muted small text-nowrap">{{ h.creation_stamp|date:"d.m.Y H:i" }}</span>
+    <span class="text-muted small">{{ h.user.username|default:"система" }}</span>
+  </li>
+  {% empty %}
+  <li class="text-muted py-4 text-center">Изменений по договору пока нет</li>
+  {% endfor %}
+</ul>

@@ -1,11 +1,12 @@
-"""Импорт реестра РД из живого М1.accdb в SQL (канон §4, DOC-1/5).
+"""Импорт реестра РД из живого accdb объекта в его таблицы (канон §4).
 
-Порядок (как в исходнике): справочники (Здания 78, Разделы 41, Разработчик 14,
-Согласование 4 → сид подписантов) → [01 Реестр] 368 (коды FK резолвятся в значения) →
+Порядок (как в исходнике): справочники (Здания, Разделы, Разработчик,
+Согласование → сид подписантов) → [01 Реестр] (коды FK резолвятся в значения) →
 история [Замечания к чертежам] (по Код реестра).
 
 Источник — read-only, counts обязаны сойтись, иначе STOP без записи.
-Идемпотентно: update_or_create по кодам accdb (id совпадают со старыми).
+Идемпотентно: update_or_create по кодам accdb.
+Каждый объект пишется только в свои таблицы (--project M1|K1).
 """
 from __future__ import annotations
 
@@ -15,24 +16,26 @@ from django.core.management.base import BaseCommand, CommandError
 
 from DocRegistry import accdb as live
 from DocRegistry.models import (
-    DocBuilding,
-    DocChangeLog,
+    PROJECT_CODES,
     DocDeveloper,
     DocProject,
-    DocRegisterEntry,
-    DocRemark,
     DocSection,
     DocSigner,
+    get_registry_or_404,
 )
+from DocRegistry.services import get_building_type
 
 EXPECTED_COUNTS = {
-    'Здания': 78,
-    'Разделы': 41,
-    'Разработчик': 14,
-    'Согласование': 4,
-    '01 Реестр': 368,
-    '02 Задачи': 92,
-    'Замечания к чертежам': 3,
+    'M1': {
+        'Здания': 78,
+        'Разделы': 41,
+        'Разработчик': 14,
+        'Согласование': 4,
+        '01 Реестр': 368,
+        '02 Задачи': 92,
+        'Замечания к чертежам': 3,
+    },
+    'K1': {},
 }
 
 
@@ -54,16 +57,26 @@ def _to_int(v):
 
 
 class Command(BaseCommand):
-    help = 'Импорт реестра РД из М1.accdb (read-only): справочники → записи → история замечаний'
+    help = 'Импорт реестра РД из accdb объекта в его таблицы: справочники → записи → история замечаний'
 
     def add_arguments(self, parser):
+        parser.add_argument('--project', default='M1', choices=list(PROJECT_CODES),
+                            help='Объект-реестр (default: M1)')
+        parser.add_argument('--accdb', default=None, help='Явный путь к accdb (для К1)')
         parser.add_argument('--dry-run', action='store_true', help='Только сверка counts, без записи')
 
     def handle(self, *args, **options):
-        conn = live.connect()
+        project = options['project']
+        R = get_registry_or_404(project)
+        Building, Entry, Remark, ChangeLog = R['building'], R['entry'], R['remark'], R['changelog']
+        try:
+            accdb_path = live.resolve_path(project, options['accdb'])
+        except ValueError as e:
+            raise CommandError(str(e))
+        conn = live.connect(accdb_path)
         try:
             cur = conn.cursor()
-            for table, expected in EXPECTED_COUNTS.items():
+            for table, expected in EXPECTED_COUNTS[project].items():
                 n = live.table_count(cur, table)
                 self.stdout.write(f'{table}: {n} (ожидалось {expected})')
                 if n != expected:
@@ -80,37 +93,31 @@ class Command(BaseCommand):
         finally:
             conn.close()
 
-        rows = live.read_registry_rows()
+        rows = live.read_registry_rows(accdb_path)
         if options['dry_run']:
             self.stdout.write(self.style.SUCCESS(f'dry-run OK: {len(rows)} строк'))
             return
 
-        # 1. Справочники (id = коды accdb)
-        m1, _ = DocProject.objects.update_or_create(
-            code='M1', defaults={
-                'name': 'Волоколамск',
-                'customer': 'ООО «ТиЭйч-РУС Милк Фуд»',
-                'object_name': '«Комплекс молочного животноводства на 6000 фуражных коров»',
-                'object_address': 'Московская область, Волоколамский район, территория ФГОУ СПО '
-                                  'Волоколамский аграрный техникум “Холмогорка”',
-                'designer': 'ИП РОДИН'})
-        DocProject.objects.update_or_create(
-            code='K1', defaults={'name': 'Калуга'})
+        # 1. Справочники. Здания — в таблицу объекта; разделы/разработчики/подписанты — общие.
+        proj, _ = DocProject.objects.update_or_create(
+            code=project, defaults={'name': {'M1': 'Волоколамск', 'K1': 'Калуга'}[project]})
+        if project == 'M1':
+            DocProject.objects.update_or_create(
+                code='M1',
+                defaults={
+                    'name': 'Волоколамск',
+                    'customer': 'ООО «ТиЭйч-РУС Милк Фуд»',
+                    'object_name': '«Комплекс молочного животноводства на 6000 фуражных коров»',
+                    'object_address': 'Московская область, Волоколамский район, территория ФГОУ СПО '
+                                      'Волоколамский аграрный техникум “Холмогорка”',
+                    'designer': 'ИП РОДИН'})
         for r in ref['Здания']:
-            # здания — в скоупе проекта (номера у М1/К1 разные); legacy-строки без
-            # проекта подтягиваем в М1 in place (id стабильны → FK записей целы)
             code = _to_int(r.get('Код здания'))
             vals = {'number': r.get('№ Здания', ''), 'name': r.get('Наименование здания', '')}
-            b = DocBuilding.objects.filter(code=code, project=m1).first()
-            if b is None:
-                b = DocBuilding.objects.filter(code=code, project__isnull=True).first()
-                if b is None:
-                    DocBuilding.objects.create(code=code, project=m1, **vals)
-                    continue
-                b.project = m1
-            for k, v in vals.items():
-                setattr(b, k, v)
-            b.save()
+            btype = get_building_type(vals['name'])
+            if btype is not None:
+                vals['building_type'] = btype
+            Building.objects.update_or_create(code=code, defaults=vals)
         for r in ref['Разделы']:
             DocSection.objects.update_or_create(
                 code=_to_int(r.get('код раздела')), defaults={
@@ -122,7 +129,7 @@ class Command(BaseCommand):
             for r in ref['Согласование']:
                 person = r.get('ФИО', '')
                 DocSigner.objects.create(
-                    building=None, order=_to_int(r.get('код согласования')) or 0,
+                    order=_to_int(r.get('код согласования')) or 0,
                     position=(r.get('Должность', '') or '').strip(),
                     company=r.get('Компания', ''), person=person,
                     mark=r.get('Отметка о согласовании', ''),
@@ -130,7 +137,7 @@ class Command(BaseCommand):
                     stamp='Страхов' in person)
             self.stdout.write('Подписанты: сид из [Согласование] ({})'.format(len(ref['Согласование'])))
 
-        buildings = {b.code: b for b in DocBuilding.objects.filter(project=m1)}
+        buildings = {b.code: b for b in Building.objects.all()}
         sections = {s.code: s for s in DocSection.objects.all()}
         developers = {d.code: d for d in DocDeveloper.objects.all()}
 
@@ -150,36 +157,29 @@ class Command(BaseCommand):
                 if obj is None and (rv or '').strip():
                     warns.add(f'{label}={rv}')
             values.update(section=sec, building_no=bno, building=bld, developer=dev)
-            _obj, is_new = DocRegisterEntry.objects.update_or_create(
+            _obj, is_new = Entry.objects.update_or_create(
                 code=values['code'], defaults=values)
-            if is_new and _obj.project_id is None:
-                # весь текущий accdb — М1; ручное назначение (напр. К1) реимпорт не трогает
-                _obj.project = m1
-                _obj.save(update_fields=['project'])
             created, updated = created + (1 if is_new else 0), updated + (0 if is_new else 1)
         if warns:
             self.stdout.write(self.style.WARNING(f'Неизвестные коды справочников → None: {sorted(warns)}'))
-        backfill = DocRegisterEntry.objects.filter(project__isnull=True).update(project=m1)
-        if backfill:
-            self.stdout.write(f'Проект М1 проставлен: {backfill}')
 
         # 3. История замечаний (по Код реестра)
         hist = 0
         for r in remarks:
             code = _to_int(r.get('Код реестра'))
-            entry = DocRegisterEntry.objects.filter(code=code).first() if code else None
+            entry = Entry.objects.filter(code=code).first() if code else None
             if entry is None:
                 self.stdout.write(self.style.WARNING(
                     f"Замечание {r.get('Код замечания')}: нет записи {code} — пропущено"))
                 continue
             if not entry.history_remarks.filter(text=r.get('Замечание', '')).exists():
-                DocRemark.objects.create(
+                Remark.objects.create(
                     entry=entry, text=r.get('Замечание', ''),
                     remark_date=r.get('Дата замечания') or None)
                 hist += 1
 
-        DocChangeLog.objects.create(
+        ChangeLog.objects.create(
             field='import', old_value='', new_value=f'{created}+{updated}',
             source='import')
         self.stdout.write(self.style.SUCCESS(
-            f'Импорт: создано {created}, обновлено {updated}, история замечаний +{hist}'))
+            f'Импорт {project}: создано {created}, обновлено {updated}, история замечаний +{hist}'))

@@ -5,36 +5,73 @@
           hx-target="#email-list-container"
           hx-trigger="submit"
           hx-push-url="false">
-        <input type="hidden" name="folder" value="{{ folder }}">
+        <input type="hidden" id="filter-folder-input" name="folder" value="{{ folder }}">
 
-        <div class="row g-2 mb-2">
-            <div class="col-md-4">
-                <label class="form-label small text-muted mb-0">Поиск</label>
-                {{ filter_form.search }}
-            </div>
-            <div class="col-md-3">
-                <label class="form-label small text-muted mb-0">От кого</label>
-                <div class="position-relative">
-                    {{ filter_form.sender }}
-                    <div id="sender-dropdown" class="list-group position-absolute w-100"
-                         style="display:none; z-index:1000; max-height:200px; overflow-y:auto; border:1px solid var(--border-color); border-radius:4px; background:var(--bg-card);"></div>
+        <div class="border rounded p-2 mb-2">
+            <div class="small text-muted mb-2"><i class="bi bi-envelope me-1"></i>Почта: общий поиск — «везде», «только тема» или «тема + тело письма»; остальные поля — строго в своём поле (комбинируются через И)</div>
+            <div class="row g-2 mb-2">
+                <div class="col-md-5">
+                    <label class="form-label small text-muted mb-0" for="{{ filter_form.search.id_for_label }}" title="Ищет везде: тема, отправитель, получатель, копия (в т.ч. скрытая)">Общий поиск</label>
+                    {{ filter_form.search }}
                 </div>
-                <datalist id="sender-datalist">
-                    {% for s in all_senders %}<option value="{{ s }}">{% endfor %}
-                </datalist>
+                <div class="col-md-5">
+                    <label class="form-label small text-muted mb-0" for="{{ filter_form.search_scope.id_for_label }}" title="Где искать введённое: везде, только в теме, или в теме + теле письма">Область поиска</label>
+                    {{ filter_form.search_scope }}
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-primary w-100" type="submit">
+                        <i class="bi bi-search me-1"></i>Найти
+                    </button>
+                </div>
             </div>
-            <div class="col-md-3">
-                <label class="form-label small text-muted mb-0">Кому</label>
-                {{ filter_form.receiver }}
+
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-0" for="{{ filter_form.sender.id_for_label }}" title="Ищет только в поле «Отправитель». Несколько — через запятую (ИЛИ)">От кого</label>
+                    <div class="email-picker" data-picker="sender" data-input-id="id_sender" data-datalist="sender-datalist">
+                        <div class="input-group input-group-sm">
+                            {{ filter_form.sender }}
+                            {% include 'email_ui/partials/email_picker_button.html' %}
+                        </div>
+                        {% include 'email_ui/partials/email_picker_body.html' %}
+                    </div>
+                    <datalist id="sender-datalist">
+                        {% for s in all_senders %}<option value="{{ s }}">{% endfor %}
+                    </datalist>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-0" for="{{ filter_form.receiver.id_for_label }}" title="Ищет только в поле «Получатель». Несколько — через запятую (ИЛИ)">Кому</label>
+                    <div class="email-picker" data-picker="receiver" data-input-id="id_receiver" data-datalist="receiver-datalist">
+                        <div class="input-group input-group-sm">
+                            {{ filter_form.receiver }}
+                            {% include 'email_ui/partials/email_picker_button.html' %}
+                        </div>
+                        {% include 'email_ui/partials/email_picker_body.html' %}
+                    </div>
+                    <datalist id="receiver-datalist">
+                        {% for s in all_receivers %}<option value="{{ s }}">{% endfor %}
+                    </datalist>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-0" for="{{ filter_form.cc.id_for_label }}" title="Ищет только в поле «Копия». Несколько — через запятую (ИЛИ)">Копия</label>
+                    <div class="email-picker" data-picker="cc" data-input-id="id_cc" data-datalist="cc-datalist">
+                        <div class="input-group input-group-sm">
+                            {{ filter_form.cc }}
+                            {% include 'email_ui/partials/email_picker_button.html' %}
+                        </div>
+                        {% include 'email_ui/partials/email_picker_body.html' %}
+                    </div>
+                    <datalist id="cc-datalist">
+                        {% for s in all_cc_addresses %}<option value="{{ s }}">{% endfor %}
+                    </datalist>
+                </div>
             </div>
-            <div class="col-md-2 d-flex align-items-end">
-                <button class="btn btn-primary w-100" type="submit">
-                    <i class="bi bi-search me-1"></i>Найти
-                </button>
-            </div>
+            <div class="small text-muted mt-1">Подсказка: в полях почты можно несколько адресов через запятую — ищет по любому (ИЛИ). Выбор в окне только заполняет поле, поиск — кнопкой «Найти».</div>
         </div>
 
-        <div class="row g-2 mb-2 align-items-end">
+        <div class="border rounded p-2 mb-2">
+            <div class="small text-muted mb-2"><i class="bi bi-calendar3 me-1"></i>Даты и флаги</div>
+            <div class="row g-2 align-items-end">
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-0">Дата с</label>
                 {{ filter_form.date_from }}
@@ -66,6 +103,7 @@
                         <i class="bi bi-envelope"></i> Непрочитанные
                     </label>
                 </div>
+            </div>
             </div>
         </div>
         <div id="filter-hidden-fields">
@@ -165,6 +203,16 @@ function updateSummary() {
     var filterData = JSON.parse(document.getElementById('filter-data').textContent);
     var container = document.getElementById('selected-filters-summary');
     var html = '';
+    // Почтовые поля — читаем прямо из инпутов
+    function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+    var search = val('id_search'), sender = val('id_sender'),
+        receiver = val('id_receiver'), cc = val('id_cc'),
+        dFrom = val('id_date_from'), dTo = val('id_date_to');
+    if (search) html += '<span class="badge bg-info text-dark me-1 mb-1">Поиск: ' + search.replace(/</g, '&lt;') + '</span>';
+    if (sender) html += '<span class="badge bg-info text-dark me-1 mb-1">От кого: ' + sender.replace(/</g, '&lt;') + '</span>';
+    if (receiver) html += '<span class="badge bg-info text-dark me-1 mb-1">Кому: ' + receiver.replace(/</g, '&lt;') + '</span>';
+    if (cc) html += '<span class="badge bg-info text-dark me-1 mb-1">Копия: ' + cc.replace(/</g, '&lt;') + '</span>';
+    if (dFrom || dTo) html += '<span class="badge bg-info text-dark me-1 mb-1">Даты: ' + (dFrom || '…') + ' — ' + (dTo || '…') + '</span>';
     var fields = ['project_site','contractor','building_type','category','info'];
     var labels = {'project_site':'Проекты','contractor':'Подрядчики','building_type':'Здания','category':'Категории','info':'Тип информации'};
     fields.forEach(function(field) {
@@ -179,34 +227,8 @@ function updateSummary() {
 }
 document.addEventListener('DOMContentLoaded', updateSummary);
 
-(function() {
-    var senderInput = document.getElementById('id_sender');
-    var senderDropdown = document.getElementById('sender-dropdown');
-    if (!senderInput || !senderDropdown) return;
-    var allSenders = [];
-    var datalist = document.getElementById('sender-datalist');
-    if (datalist) Array.from(datalist.options).forEach(function(opt) { allSenders.push(opt.value); });
-    function filterSenders(q) { q = q.toLowerCase(); return allSenders.filter(function(s) { return s.toLowerCase().indexOf(q) !== -1; }); }
-    function renderDropdown(items) {
-        if (!items.length) { senderDropdown.style.display = 'none'; return; }
-        senderDropdown.innerHTML = '';
-        items.forEach(function(item) {
-            var el = document.createElement('button');
-            el.type = 'button'; el.className = 'list-group-item list-group-item-action py-1 small';
-            el.textContent = item; el.style.cursor = 'pointer';
-            el.addEventListener('mousedown', function(e) {
-                e.preventDefault(); senderInput.value = item;
-                senderDropdown.style.display = 'none';
-                var form = senderInput.closest('form'); if (form) form.requestSubmit();
-            });
-            senderDropdown.appendChild(el);
-        });
-        senderDropdown.style.display = 'block';
-    }
-    senderInput.addEventListener('input', function() { renderDropdown(filterSenders(this.value)); });
-    senderInput.addEventListener('focus', function() { renderDropdown(filterSenders(this.value)); });
-    document.addEventListener('click', function(e) {
-        if (!senderInput.contains(e.target) && !senderDropdown.contains(e.target)) senderDropdown.style.display = 'none';
-    });
-})();
+/* Пикеры почты: единый компонент из base.html (window.initEmailPickers). */
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.initEmailPickers) window.initEmailPickers(document);
+});
 </script>

@@ -1,4 +1,5 @@
 import hashlib
+import re
 
 from django import template
 
@@ -66,8 +67,7 @@ def truncate_filename(filename, length=18):
 @register.filter
 def recipient_name(recipients):
     """
-    Извлекает имена получателей из raw-строки вида
-    'Name <email>' или 'Name email'. Возвращает только имена через запятую.
+    LEGACY. Оставлен для совместимости, новые места используют canon_email(s).
     """
     if not recipients:
         return ''
@@ -90,3 +90,71 @@ def recipient_name(recipients):
         if name:
             parts.append(name)
     return ', '.join(parts) if parts else recipients[:50]
+
+
+# ==================== SRP-блок показа почты: ТОЛЬКО твёрдая почта ====================
+# Единственное место, решающее как отображать адреса во всех шаблонах
+# (список, деталка, модалка, тред, контакты, подсказки пикера — через views).
+# Битые алиасы вида 'Name <localpart' без @ превращаются в пусто, а не в мусор.
+
+@register.filter
+def canon_email(value):
+    """Одиночное поле (sender): твёрдая bare-почта или пусто."""
+    from email_ui.utils import canonical_email
+    return canonical_email(value or '')
+
+
+@register.filter
+def canon_emails(value):
+    """Список через запятую (receiver/cc): только твёрдые почты."""
+    from email_ui.utils import canonical_address_list
+    return canonical_address_list(value or '')
+
+
+@register.filter
+def body_preview(value, length=120):
+    """Первые символы содержания письма для показа под темой.
+
+    Технические заголовки прелюды («Отправитель:… Вложения:») вырезаются —
+    иначе в списке вместо тела светятся служебные поля. Схлопывает
+    пробелы/переносы, обрезает до length символов (по умолчанию 120 —
+    примерно две строки превью). Границы 40..300, мусор — в ''.
+    """
+    return _truncate_preview(_clean_preview_text(value), length)
+
+
+@register.filter
+def email_preview(email, length=120):
+    """Превью тела письма по объекту: как body_preview, плюс вырезается
+    дубль темы («Re: X» в теме при «X; дата, автор:» в теле), имена вложений
+    и заголовки цитат — начало показывает собственно тело («Добрый день, …»).
+    Вложения уже подгружены списком (prefetch), отдельных запросов нет."""
+    body = getattr(email, 'body_text', '') or ''
+    subject = getattr(email, 'subject', '') or ''
+    try:
+        att_manager = getattr(email, 'attachments', None)
+        attachments = [a.filename for a in att_manager.all()] if att_manager else []
+    except Exception:
+        attachments = []
+    return _truncate_preview(_clean_preview_text(body, subject, attachments), length)
+
+
+def _clean_preview_text(value, subject='', attachments=()):
+    from email_ui.utils import strip_tech_headers
+    text = re.sub(r'\s+', ' ', str(value or '')).strip()
+    return strip_tech_headers(text, subject, attachments)
+
+
+def _truncate_preview(text, length):
+    from email_ui.models import EmailViewSettings
+    try:
+        length = int(length)
+    except (TypeError, ValueError):
+        length = EmailViewSettings.DEFAULT_PREVIEW_LENGTH
+    length = max(
+        EmailViewSettings.MIN_PREVIEW_LENGTH,
+        min(EmailViewSettings.MAX_PREVIEW_LENGTH, length),
+    )
+    if len(text) <= length:
+        return text
+    return text[:length].rstrip() + '…'

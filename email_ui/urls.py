@@ -8,6 +8,7 @@ urlpatterns = [
     path('', views.inbox_view, {'folder': 'inbox'}, name='inbox_default'),
     path('folder/<str:folder>/', views.inbox_view, name='inbox'),
     path('partial/', views.email_list_partial, name='email_list_partial'),
+    path('selection-threads/', views.selection_threads, name='selection_threads'),
     path('unread-count/', views.unread_count, name='unread_count'),
 
     # --- Email detail / body ---
@@ -42,6 +43,9 @@ urlpatterns = [
     path('email/<int:pk>/reply/<str:reply_type>/', views.reply_modal, name='reply_modal'),
     path('send/', views.send_email, name='send_email'),
     path('email/<int:pk>/reply-send/', views.reply_send, name='reply_send'),
+    path('email/<int:pk>/edit-draft/', views.draft_edit, name='draft_edit'),
+    path('email/<int:pk>/draft-send/', views.draft_send, name='draft_send'),
+    path('email/<int:pk>/draft-update/', views.draft_update, name='draft_update'),
     path('save-draft/', views.save_draft, name='save_draft'),
     path('email/<int:pk>/copy-to-draft/', views.copy_to_draft, name='copy_to_draft'),
 
@@ -54,6 +58,19 @@ urlpatterns = [
     path('contacts/<int:pk>/edit/', views.contact_edit, name='contact_edit'),
     path('contacts/<int:pk>/delete/', views.contact_delete, name='contact_delete'),
     path('contacts/search/', views.contact_search, name='contact_search'),
+
+    # --- Contact Groups ---
+    path('groups/', views.group_list, name='group_list'),
+    path('groups/<int:pk>/', views.group_detail, name='group_detail'),
+    path('groups/create-modal/', views.group_create_modal, name='group_create_modal'),
+    path('groups/create/', views.group_create, name='group_create'),
+    path('groups/<int:pk>/edit-modal/', views.group_edit_modal, name='group_edit_modal'),
+    path('groups/<int:pk>/edit/', views.group_edit, name='group_edit'),
+    path('groups/<int:pk>/delete/', views.group_delete, name='group_delete'),
+    path('groups/<int:pk>/add-contact/', views.group_add_contact, name='group_add_contact'),
+    path('groups/<int:pk>/remove-contact/', views.group_remove_contact, name='group_remove_contact'),
+    path('groups/<int:pk>/add-subgroup/', views.group_add_subgroup, name='group_add_subgroup'),
+    path('groups/<int:pk>/remove-subgroup/', views.group_remove_subgroup, name='group_remove_subgroup'),
 
     # --- Phase 3: Tags ---
     path('tags/', views.tag_list, name='tag_list'),
@@ -97,4 +114,8 @@ urlpatterns = [
 
     # --- Fetch emails (existing) ---
     path('fetch-emails/', views.fetch_emails, name='fetch_emails'),
+
+    # --- Настройки отображения почты ---
+    path('settings-modal/', views.email_settings_modal, name='email_settings_modal'),
+    path('settings-save/', views.save_email_settings, name='save_email_settings'),
 ]

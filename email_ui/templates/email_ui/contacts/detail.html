@@ -16,6 +16,10 @@
             <button class="btn btn-sm btn-outline-primary" hx-get="{% url 'email_ui:contact_edit_modal' contact.id %}" hx-target="#modal-container">
                 <i class="bi bi-pencil"></i>
             </button>
+            <a class="btn btn-sm btn-outline-secondary" title="Редактировать в админке (возврат — сюда)"
+               href="/admin/email_ui/contact/{{ contact.id }}/change/?next={{ request.path|urlencode }}">
+                <i class="bi bi-gear"></i>
+            </a>
         </div>
         <div class="card-body">
             <dl class="row mb-0">
@@ -43,7 +47,7 @@
                 <h6 class="mb-1">{{ email.subject|default:'Без темы' }}</h6>
                 <small>{{ email.email_stamp|date:'d.m.Y' }}</small>
             </div>
-            <small class="text-muted">{{ email.sender_name|default:email.sender }} → {{ email.receiver|recipient_name }}</small>
+            <small class="text-muted">{{ email.sender|canon_email|default:'—' }} → {{ email.receiver|canon_emails|default:'—' }}</small>
         </a>
         {% empty %}
         <div class="text-muted text-center py-3">Нет писем</div>

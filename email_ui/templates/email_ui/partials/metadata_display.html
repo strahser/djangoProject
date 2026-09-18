@@ -16,3 +16,16 @@
                 hx-swap="innerHTML">Редактировать</button>
     </div>
 </div>
+{% if email.project_site and email.contractor %}
+<div class="row mt-2">
+    <div class="col">
+        <form method="post" action="{% url 'email_ui:copy_email' email.pk %}">
+            {% csrf_token %}
+            {% if request.GET.next %}<input type="hidden" name="next" value="{{ request.GET.next }}">{% endif %}
+            <button type="submit" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-folder-plus me-1"></i>Скопировать в структуру проекта
+            </button>
+        </form>
+    </div>
+</div>
+{% endif %}

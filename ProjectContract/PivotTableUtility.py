@@ -144,7 +144,8 @@ def get_contract_payments_status(contracts):
 
 
 def create_calendar_list_view(request, response, extra_context):
-    scale = request.POST.get('scale', 'day')
+    # Масштаб — из GET (форма PaymentInclude.html сабмитит GET). Ф2: вынести в БД.
+    scale = request.GET.get('scale', 'day')
     try:
         qs = response.context_data['cl'].queryset
         total_payments = get_contract_payments_status(qs)
@@ -182,7 +183,6 @@ def create_calendar_list_view(request, response, extra_context):
         extra_context['df_total'] = df_total
     except Exception as e:
         logger.error(f"Ошибка Создание get_contract_payments_status  {e}")
-        return response
     payments = create_payment_calendar(extra_context, scale, qs)
     extra_context.update(payments)
     return extra_context

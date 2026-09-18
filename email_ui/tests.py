@@ -54,6 +54,138 @@ class UtilsTest(TestCase):
         cleaned = clean_email_html(html)
         self.assertIn('<strong>Bold</strong>', cleaned)
 
+    def test_clean_email_html_strips_style_block_text(self):
+        html = ('<html><head><style type="text/css" style="display:none;">'
+                ' P {margin-top:0;margin-bottom:0;} </style></head>'
+                '<body><div>Dear Sergey</div></body></html>')
+        cleaned = clean_email_html(html)
+        self.assertNotIn('margin-top', cleaned)
+        self.assertNotIn('P {', cleaned)
+        self.assertIn('Dear Sergey', cleaned)
+
+
+class StripTechHeadersTest(TestCase):
+    """Прелюдия «Отправитель:… Вложения:» не должна утекать в тело/превью."""
+
+    def test_full_parser_prelude(self):
+        from email_ui.utils import strip_tech_headers
+        text = ('Отправитель:info@calendar.yandex.ru Получатель:u@cimrus.com '
+                'Дата:Thu, 17 Sep 2026 06:01:40 +0000 (UTC) '
+                'Тема Письма:Сделать отчет Вложения: '
+                'Напоминание: событие состоится сегодня')
+        self.assertEqual(
+            strip_tech_headers(text), 'Напоминание: событие состоится сегодня')
+
+    def test_db_text_without_attachments_label(self):
+        # body_text из БД (additional_text=None): без «Вложений», с дублем темы.
+        from email_ui.utils import strip_tech_headers
+        text = ('Отправитель:info@calendar.yandex.ru Получатель:u@cimrus.com '
+                'Дата:Thu, 17 Sep 2026 06:01:40 +0000 (UTC) '
+                'Тема Письма:Сделать отчет None Напоминание: событие')
+        self.assertEqual(
+            strip_tech_headers(text, 'Сделать отчет'), 'Напоминание: событие')
+
+    def test_subject_dup_with_re_prefix(self):
+        # «Re: X» в теме при «X; дата, автор:» в теле — дубль режется.
+        from email_ui.utils import strip_tech_headers
+        text = ('Доп. работы сентябрь 2026; 11.09.2026, 12:30, '
+                '"Innokentiy Andreev" < andreev.ia@cimrus.com >: '
+                'Добрый день, Мурат. Прошу подтвердить.')
+        self.assertEqual(
+            strip_tech_headers(text, 'Re: Доп. работы сентябрь 2026'),
+            'Добрый день, Мурат. Прошу подтвердить.')
+        self.assertEqual(
+            strip_tech_headers(text, 'Re: Re: Доп. работы сентябрь 2026'),
+            'Добрый день, Мурат. Прошу подтвердить.')
+
+    def test_body_starting_with_subject_words_untouched(self):
+        # Обычное тело, начинающееся теми же словами, что тема, — не трогаем:
+        # за «дублем» нет разделителя/цитаты.
+        from email_ui.utils import strip_tech_headers
+        self.assertEqual(
+            strip_tech_headers('Отчет о проделанной работе за неделю', 'Отчет'),
+            'Отчет о проделанной работе за неделю')
+        self.assertEqual(
+            strip_tech_headers('11.09.2026, позвонить Ивану', ''),
+            '11.09.2026, позвонить Ивану')
+
+    def test_email_preview_filter_strips_subject_dup(self):
+        from email_ui.templatetags.email_filters import email_preview
+
+        class _Mail:
+            body_text = ('Доп. работы сентябрь 2026; 11.09.2026, 12:30, '
+                         '"Innokentiy Andreev" < andreev.ia@cimrus.com >: '
+                         'Добрый день, Мурат. Прошу подтвердить.')
+            subject = 'Re: Доп. работы сентябрь 2026'
+
+        preview = email_preview(_Mail(), 120)
+        self.assertTrue(preview.startswith('Добрый день, Мурат.'))
+        self.assertNotIn('andreev.ia@cimrus.com', preview)
+
+    def test_no_deep_cut_into_thread(self):
+        # Регрессия pk=9064: прыжок от «Вложений» до «Темы:» в старой цитате
+        # съедал свежее тело («Hi, signed.»). Дальняя метка — не значение:
+        # режется только метка, имя файла — точным совпадением.
+        from email_ui.utils import strip_tech_headers
+        text = ('Вложения:Cim_MO_PP_20260911-file.pdf Hi, signed. -- '
+                'Best regards, Long Mobile: +7 905 000 00 00 '
+                'Доп. работы сентябрь 2026; 11.09.2026, 12:30, '
+                '"Murat Gurtekin" < murat.g@cimrus.com >: '
+                'Тема: Доп. работы сентябрь 2026; 16.09.2026, 11:03, '
+                '"Murat Gurtekin" < murat.g@cimrus.com >: старый текст')
+        cleaned = strip_tech_headers(
+            text, 'Re: Доп. работы сентябрь 2026',
+            ['Cim_MO_PP_20260911-file.pdf'])
+        self.assertTrue(cleaned.startswith('Hi, signed.'), cleaned[:60])
+
+    def test_attachment_filenames_stripped(self):
+        from email_ui.utils import strip_tech_headers
+        text = ('Вложения:Cim_MO_PP_20260911-file.pdf Hi, signed. Тело.')
+        self.assertEqual(
+            strip_tech_headers(
+                text, 'Re: Доп. работы',
+                ['Cim_MO_PP_20260911-file.pdf']),
+            'Hi, signed. Тело.')
+
+    def test_near_quote_labels_still_cut(self):
+        # Ближние одиночные метки («Кому: … Тема: …») режутся как раньше.
+        from email_ui.utils import strip_tech_headers
+        self.assertEqual(
+            strip_tech_headers('Кому: ivan@x.ru Тема: Hi Тело письма тут'),
+            'Hi Тело письма тут')
+
+    def test_plain_body_untouched(self):
+        from email_ui.utils import strip_tech_headers
+        self.assertEqual(
+            strip_tech_headers('Обычное тело без заголовков'),
+            'Обычное тело без заголовков')
+        self.assertEqual(strip_tech_headers(''), '')
+
+    def test_english_headers(self):
+        from email_ui.utils import strip_tech_headers
+        self.assertEqual(
+            strip_tech_headers('From: a@x.ru To: b@y.ru Subject: Hi Текст тут'),
+            'Hi Текст тут')
+
+    def test_html_body_to_text_strips_prelude(self):
+        from Emails.models import html_body_to_text
+        html = ('Отправитель:a@x.ru<br> Получатель:b@y.ru<br> '
+                'Дата:Thu, 17 Sep 2026 06:01:40 +0000 (UTC)<br> '
+                'Тема Письма:Сделать отчет<br><br> Вложения:<br>'
+                '<html><body><table><tr><td>Напоминание: событие</td></tr></table>'
+                '</body></html>')
+        self.assertEqual(html_body_to_text(html), 'Напоминание: событие')
+
+    def test_body_preview_no_headers(self):
+        from email_ui.templatetags.email_filters import body_preview
+        dirty = ('Отправитель:info@calendar.yandex.ru Получатель:u@cimrus.com '
+                 'Дата:Thu, 17 Sep 2026 06:01:40 +0000 (UTC) '
+                 'Тема Письма:Сделать отчет Вложения: '
+                 'Напоминание: событие состоится')
+        preview = body_preview(dirty, 120)
+        self.assertNotIn('Отправитель:', preview)
+        self.assertTrue(preview.startswith('Напоминание:'))
+
 
 class CategoryMixin:
     """Mixin that ensures reference objects with pk=1 exist for FK defaults."""
@@ -264,7 +396,7 @@ class EmailTaskLinkModelTest(CategoryMixin, TestCase):
         from ProjectTDL.models import TaskNode
         from StaticData.models import ProjectSite
         self.project = ProjectSite.objects.create(name='Test Project')
-        self.task = Task.objects.create(
+        self.task = TaskNode.objects.create(
             owner=self.user,
             project_site=self.project,
             name='Test Task',
@@ -276,7 +408,7 @@ class EmailTaskLinkModelTest(CategoryMixin, TestCase):
         )
         self.link = EmailTaskLink.objects.create(
             email=self.email,
-            task=self.task,
+            task_node=self.task,
             link_type='related',
             created_by=self.user,
         )
@@ -289,7 +421,7 @@ class EmailTaskLinkModelTest(CategoryMixin, TestCase):
         with self.assertRaises(Exception):
             EmailTaskLink.objects.create(
                 email=self.email,
-                task=self.task,
+                task_node=self.task,
                 link_type='reference',
             )
 
@@ -398,6 +530,65 @@ class InboxViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
     def test_inbox_view_search(self):
         response = self.client.get(reverse('email_ui:email_list_partial'), {'search': 'Email 1'})
         self.assertEqual(response.status_code, 200)
+
+    def test_inbox_view_search_scope_subject_only(self):
+        self.create_test_email(uid='body-only-uid', subject='Re: отчёт ВКС', body_text='Совещание в пятницу 18.09.2026')
+        self.create_test_email(uid='subject-matching-uid', subject='Совещание по объекту', body_text='')
+        url = reverse('email_ui:email_list_partial')
+        resp = self.client.get(url, {'search': 'Совещание', 'search_scope': 'subject'})
+        pks = [e.pk for e in resp.context['page_obj']]
+        subject_pk = Email.objects.get(uid='subject-matching-uid').pk
+        body_pk = Email.objects.get(uid='body-only-uid').pk
+        self.assertIn(subject_pk, pks)
+        self.assertNotIn(body_pk, pks)
+
+    def test_inbox_view_search_scope_subject_body(self):
+        self.create_test_email(uid='body-only-uid', subject='Re: отчёт ВКС', body_text='Совещание в пятницу 18.09.2026')
+        url = reverse('email_ui:email_list_partial')
+        resp = self.client.get(url, {'search': 'пятницу', 'search_scope': 'subject_body'})
+        pks = [e.pk for e in resp.context['page_obj']]
+        self.assertIn(Email.objects.get(uid='body-only-uid').pk, pks)
+
+    def test_inbox_view_search_scope_body_case_variant(self):
+        self.create_test_email(uid='body-only-uid', subject='Re: отчёт ВКС', body_text='Совещание в пятницу 18.09.2026')
+        url = reverse('email_ui:email_list_partial')
+        resp = self.client.get(url, {'search': 'ПЯТНИЦУ', 'search_scope': 'subject_body'})
+        pks = [e.pk for e in resp.context['page_obj']]
+        self.assertIn(Email.objects.get(uid='body-only-uid').pk, pks)
+
+    def test_inbox_view_search_scope_subject_miss_in_body(self):
+        self.create_test_email(uid='body-only-uid', subject='Re: отчёт ВКС', body_text='Совещание в пятницу 18.09.2026')
+        url = reverse('email_ui:email_list_partial')
+        resp = self.client.get(url, {'search': 'пятницу', 'search_scope': 'subject'})
+        pks = [e.pk for e in resp.context['page_obj']]
+        self.assertNotIn(Email.objects.get(uid='body-only-uid').pk, pks)
+
+    def test_sent_search_finds_sent_messages(self):
+        # Регрессия: поиск из «Отправленных» после htmx-переключения папки
+        # уходил в folder предыдущей страницы (форма хранила старый folder).
+        sent = self.create_test_email(
+            uid='sent-test-uid', subject='Test Subject',
+            receiver='recipient@test.com', folder='sent')
+        other = self.create_test_email(
+            uid='inbox-other-uid', subject='Обычное письмо', folder='inbox')
+        url = reverse('email_ui:email_list_partial')
+        resp = self.client.get(url, {'folder': 'sent', 'search': 'Test'})
+        pks = [e.pk for e in resp.context['page_obj']]
+        self.assertIn(sent.pk, pks)
+        self.assertNotIn(other.pk, pks)
+
+    def test_partial_oob_syncs_folder_inputs(self):
+        # Частичный ответ несёт OOB-подмену скрытых folder/filter_params,
+        # чтобы поиск и массовые действия работали в текущей папке.
+        url = reverse('email_ui:email_list_partial')
+        html = self.client.get(url, {'folder': 'sent'}).content.decode()
+        self.assertInHTML(
+            '<input type="hidden" id="filter-folder-input" '
+            'name="folder" value="sent" hx-swap-oob="true">', html)
+        self.assertInHTML(
+            '<input type="hidden" id="bulk-folder-input" '
+            'name="folder" value="sent" hx-swap-oob="true">', html)
+        self.assertIn('id="bulk-filter-params-input"', html)
 
     def test_inbox_anonymous_redirect(self):
         self.client.logout()
@@ -935,6 +1126,28 @@ class FilterFormTest(TestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class DateFilterFallbackTest(CategoryMixin, TestCase):
+    """Фильтр по дате находит письма и без email_stamp (fallback sent_at/creation_stamp)."""
+
+    def test_date_range_uses_sent_at_and_creation_stamp(self):
+        from email_ui.views import filter_emails
+        aware = timezone.make_aware(datetime(2026, 7, 23, 10, 0))
+        a = Email.objects.create(uid='df-a', subject='A', sender='a@t.co',
+                                 email_stamp=aware)
+        b = Email.objects.create(uid='df-b', subject='B', sender='b@t.co',
+                                 email_stamp=None,
+                                 sent_at=timezone.make_aware(datetime(2026, 7, 23, 12, 0)))
+        c = Email.objects.create(uid='df-c', subject='C', sender='c@t.co',
+                                 email_stamp=None, sent_at=None)
+        Email.objects.filter(pk=c.pk).update(
+            creation_stamp=timezone.make_aware(datetime(2026, 7, 23, 14, 0)))
+        Email.objects.create(uid='df-d', subject='D', sender='d@t.co',
+                             email_stamp=timezone.make_aware(datetime(2026, 7, 24, 10, 0)))
+        day = datetime(2026, 7, 23).date()
+        found = filter_emails(Email.objects.all(), {'date_from': day, 'date_to': day})
+        self.assertEqual(set(found.values_list('id', flat=True)), {a.id, b.id, c.id})
+
+
 class RuleViewTest(TestCase):
     """Tests for rule management views."""
 
@@ -1418,6 +1631,32 @@ class ReplySendViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         self.assertIn('other@test.com', recipients)
 
     @patch('email_ui.services.email_sender.smtplib.SMTP')
+    def test_reply_all_empty_cc_excludes_self_and_sender(self, mock_smtp):
+        # Fallback отправки при пустой Копии = та же логика, что префилл модалки:
+        # себя и отправителя в копию не кладём.
+        self.user.email = 'me@corp.com'
+        self.user.save()
+        self.smtp_account.from_email = 'me@corp.com'
+        self.smtp_account.save()
+        self.email.sender = 'Boss <boss@corp.com>'
+        self.email.receiver = 'me@corp.com, kapitonov@x.ru'
+        self.email.cc = 'murat@x.ru'
+        self.email.save()
+        mock_server = mock_smtp.return_value.__enter__.return_value
+        mock_server.sendmail.return_value = {}
+
+        response = self.client.post(
+            reverse('email_ui:reply_send', args=[self.email.pk]),
+            {'mode': 'reply_all', 'to': '', 'cc': '', 'body': 'Hi', 'subject': 'Re: Test'}
+        )
+        self.assertEqual(response.status_code, 200)
+        recipients = mock_server.sendmail.call_args[0][1]
+        self.assertIn('boss@corp.com', recipients)
+        self.assertIn('kapitonov@x.ru', recipients)
+        self.assertIn('murat@x.ru', recipients)
+        self.assertNotIn('me@corp.com', recipients)
+
+    @patch('email_ui.services.email_sender.smtplib.SMTP')
     def test_forward_send_no_original_body(self, mock_smtp):
         mock_server = mock_smtp.return_value.__enter__.return_value
         mock_server.sendmail.return_value = {}
@@ -1495,10 +1734,11 @@ class SaveDraftViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         self.assertEqual(response.status_code, 405)
 
 
-class AdminTaskCreationLinkTest(TestCase):
+class AdminTaskCreationLinkTest(CategoryMixin, TestCase):
     """Tests that TaskAdmin.save_model links email to task via EmailTaskLink."""
 
     def setUp(self):
+        super().setUp()
         self.user = User.objects.create_user('admin_test', 'admin@test.com', 'password')
         from ProjectTDL.models import TaskNode
         from StaticData.models import ProjectSite
@@ -1510,10 +1750,9 @@ class AdminTaskCreationLinkTest(TestCase):
         )
 
     def test_task_admin_links_email_via_emailtasklink(self):
-        from ProjectTDL.admin import TaskAdmin
         from ProjectTDL.models import TaskNode
 
-        task = Task.objects.create(
+        task = TaskNode.objects.create(
             owner=self.user,
             project_site=self.project,
             name='Linked Task',
@@ -1522,7 +1761,7 @@ class AdminTaskCreationLinkTest(TestCase):
         self.assertEqual(EmailTaskLink.objects.count(), 0)
 
         EmailTaskLink.objects.create(
-            email=self.email, task=task,
+            email=self.email, task_node=task,
             link_type='created_from', created_by=self.user,
         )
 
@@ -1530,7 +1769,7 @@ class AdminTaskCreationLinkTest(TestCase):
 
         link = EmailTaskLink.objects.first()
         self.assertEqual(link.email, self.email)
-        self.assertEqual(link.task, task)
+        self.assertEqual(link.task_node, task)
         self.assertEqual(link.link_type, 'created_from')
         self.assertEqual(link.created_by, self.user)
 
@@ -1551,11 +1790,12 @@ class AdminTaskURLTest(TestCase):
         self.assertEqual(url, '/task/1/')
 
 
-class EmailTaskRelationshipTest(TestCase):
+class EmailTaskRelationshipTest(CategoryMixin, TestCase):
     """Tests the M2M relationship between Email and TaskNode."""
 
     def setUp(self):
-        from ProjectTDL.models import TaskNodeNode
+        super().setUp()
+        from ProjectTDL.models import TaskNode
         from StaticData.models import ProjectSite
         self.project = ProjectSite.objects.create(name='Test Proj')
         self.user = User.objects.create_user('rel_test', 'rel@test.com', 'password')
@@ -1607,7 +1847,7 @@ class EmailTaskRelationshipTest(TestCase):
         """EmailTaskLink is a separate relationship from the M2M."""
         self.email.tasks.add(self.tasknode)
         EmailTaskLink.objects.create(
-            email=self.email, task_id=1,
+            email=self.email, task_node=self.tasknode,
             link_type='created_from', created_by=self.user,
         )
 
@@ -1631,3 +1871,282 @@ class EmailTaskRelationshipTest(TestCase):
         self.email.tasks.add(self.tasknode)
         self.assertEqual(self.email.tasks.count(), 1)
         self.assertEqual(self.email.tasks.first().__class__.__name__, 'TaskNode')
+
+
+class ThreadServiceTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Tests for subject-based thread grouping."""
+
+    def test_normalize_subject_strips_prefixes(self):
+        from email_ui.services.thread_service import ThreadService
+        self.assertEqual(ThreadService.normalize_subject('Re: FW: Смета'), 'смета')
+        self.assertEqual(ThreadService.normalize_subject('  Fwd:  Договор  '), 'договор')
+        self.assertEqual(ThreadService.normalize_subject(''), '')
+
+    def test_build_threads_groups_by_subject(self):
+        from email_ui.services.thread_service import ThreadService
+        self.create_test_email(uid='thr-1', subject='Смета', email_stamp=timezone.now())
+        self.create_test_email(uid='thr-2', subject='Re: Смета', email_stamp=timezone.now())
+        self.create_test_email(uid='thr-3', subject='Договор', email_stamp=timezone.now())
+        threads = ThreadService.build_threads(Email.objects.filter(uid__startswith='thr-'))
+        self.assertEqual(len(threads), 2)
+        sizes = sorted(len(v) for v in threads.values())
+        self.assertEqual(sizes, [1, 2])
+
+
+class BodyHeadTest(TestCase):
+    """Tests for extract_body_head (same heuristics as highlight)."""
+
+    def test_head_skips_headers_signature_quote(self):
+        from email_ui.utils import extract_body_head
+        html = (
+            '<div>Отправитель: Boss &lt;boss@x.ru&gt;</div>'
+            '<div>Дата: 01.09.2026</div>'
+            '<div><p>Добрый день, прошу согласовать смету.</p></div>'
+            '<div>-- </div><div>С уважением, Босс</div>'
+            '<div>--------</div><div>Кому: me@x.ru</div><div>Тема: Re: Смета</div>'
+        )
+        head = extract_body_head(html)
+        self.assertIn('Добрый день', head)
+        self.assertNotIn('Отправитель', head)
+        self.assertNotIn('С уважением', head)
+        self.assertNotIn('Кому', head)
+
+    def test_head_no_nested_duplicates(self):
+        from email_ui.utils import extract_body_head
+        html = '<div><p>Текст тела <span>важная часть</span>.</p></div>'
+        head = extract_body_head(html)
+        self.assertEqual(head.count('важная часть'), 1)
+
+    def test_head_empty_without_file(self):
+        from email_ui.utils import email_body_head
+        email = Email(uid='no-file-uid', subject='No file', link='/nonexistent/path')
+        self.assertEqual(email_body_head(email), '')
+
+
+class LetterStyleAndSegmentsTest(TestCase):
+    """Авторские стили переписки сохраняются, письмо делится на 3 карточки."""
+
+    def test_clean_preserves_author_styles(self):
+        html = (
+            '<p><span style="background-color:#ff0000">Изм 5 приложен</span></p>'
+            '<p><span style="color:#004080;font-family:\'arial\', sans-serif">Ответ синим</span></p>'
+            '<p><span style="text-decoration:underline">Подчёркнуто</span></p>'
+        )
+        cleaned = clean_email_html(html)
+        self.assertIn('#ff0000', cleaned)
+        self.assertIn('#004080', cleaned)
+        self.assertIn('underline', cleaned)
+
+    def test_clean_strips_scripts_and_dangerous_css(self):
+        html = (
+            '<script>alert("xss")</script>'
+            '<p style="position:fixed;left:0">Позиция</p>'
+            '<p style="color:red;background-image:url(javascript:alert(1))">Фон</p>'
+            '<p>Чистый</p>'
+        )
+        cleaned = clean_email_html(html)
+        self.assertNotIn('script', cleaned)
+        self.assertNotIn('position', cleaned)
+        self.assertNotIn('url(', cleaned)
+        self.assertIn('Чистый', cleaned)
+
+    def test_segment_three_cards(self):
+        from email_ui.utils import segment_letter_html
+        html = (
+            'Отправитель:boss@x.ru<br>Дата:01.09.2026<br><br>'
+            '<div>Добрый день, вот ответ по смете.</div>'
+            '<div><span style="background-color:#ff0000">Изм 5 — справочно</span></div>'
+            '<div>----------------</div>'
+            '<div>Кому: me@x.ru</div>'
+            '<blockquote><p>Исходный вопрос</p></blockquote>'
+            '<div>-- </div><div>С уважением, Босс</div>'
+        )
+        out = segment_letter_html(clean_email_html(html))
+        self.assertIn('letter-header', out)
+        self.assertIn('letter-body', out)
+        self.assertIn('letter-footer', out)
+        self.assertIn('letter-signature', out)
+        self.assertIn('Добрый день', out)
+        self.assertIn('#ff0000', out)
+        self.assertNotIn('#0d6efd', out)
+        self.assertNotIn('-- ', out.replace('letter-signature', ''))
+
+    def test_segment_body_only(self):
+        from email_ui.utils import segment_letter_html
+        out = segment_letter_html('<div>Просто текст без шапки</div>')
+        self.assertIn('letter-body', out)
+        self.assertNotIn('letter-header', out)
+        self.assertNotIn('letter-footer', out)
+
+    def test_segment_empty(self):
+        from email_ui.utils import segment_letter_html
+        self.assertEqual(segment_letter_html(''), '')
+
+    def test_highlight_shim_no_blue(self):
+        from email_ui.utils import highlight_email_body
+        html = '<div>Отправитель:a@x.ru</div><div>Текст</div>'
+        out = highlight_email_body(html)
+        self.assertNotIn('#0d6efd', out)
+        self.assertIn('Текст', out)
+
+    def test_fallback_style_filter_keeps_author_styles(self):
+        from email_ui.utils import _filter_style_declarations
+        out = _filter_style_declarations(
+            "background-color:#ff0000; color:#004080; font-family:'arial', sans-serif; position:fixed")
+        self.assertIn('#ff0000', out)
+        self.assertIn('#004080', out)
+        self.assertIn('arial', out)
+        self.assertNotIn('position', out)
+
+    def test_fallback_style_filter_drops_dangerous(self):
+        from email_ui.utils import _filter_style_declarations
+        out = _filter_style_declarations(
+            'color:red; background-image:url(javascript:alert(1)); width:expression(alert(1))')
+        self.assertIn('red', out)
+        self.assertNotIn('url(', out)
+        self.assertNotIn('expression', out)
+
+    def test_clean_without_sanitizer_keeps_styles(self):
+        from email_ui.utils import _clean_without_css_sanitizer
+        html = ('<script>alert("xss")</script>'
+                '<p><span style="background-color:#ff0000">Метка</span></p>'
+                '<p style="position:fixed">Позиция</p>')
+        out = _clean_without_css_sanitizer(html)
+        self.assertNotIn('script', out)
+        self.assertIn('#ff0000', out)
+        self.assertIn('Метка', out)
+        self.assertNotIn('position', out)
+
+
+class SelectionThreadsViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Tests for the contextual 'Цепочка' bulk action (selected + related in/out)."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('threadsel', 'threadsel@test.com', 'password')
+        self.client.login(username='threadsel', password='password')
+        now = timezone.now()
+        self.e_in = self.create_test_email(
+            uid='st-1', subject='Смета', email_type='IN',
+            sender='boss@x.ru', folder='inbox', email_stamp=now)
+        self.e_out = self.create_test_email(
+            uid='st-2', subject='Re: Смета', email_type='OUT',
+            sender='me@x.ru', receiver='boss@x.ru', folder='sent',
+            email_stamp=now)
+        self.e_other = self.create_test_email(
+            uid='st-3', subject='Договор', email_type='IN',
+            sender='boss@x.ru', folder='inbox', email_stamp=now)
+
+    def _post_selection(self, **extra):
+        data = {'folder': 'inbox', 'filter_params': 'folder=inbox'}
+        data.update(extra)
+        return self.client.post(reverse('email_ui:selection_threads'), data)
+
+    def test_selection_threads_pulls_in_and_out(self):
+        response = self._post_selection(selected_emails=[str(self.e_in.pk)])
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'email_ui/partials/email_threads.html')
+        self.assertTrue(response.context['selection_mode'])
+        self.assertEqual(response.context['thread_total'], 1)
+        thread = response.context['thread_page'][0]
+        self.assertEqual(thread['count'], 2)
+        self.assertEqual(thread['in_count'], 1)
+        self.assertEqual(thread['out_count'], 1)
+        content = response.content.decode('utf-8')
+        self.assertIn('Вх.', content)
+        self.assertIn('Исх.', content)
+        self.assertIn('К списку', content)
+
+    def test_selection_threads_excludes_unrelated(self):
+        response = self._post_selection(selected_emails=[str(self.e_in.pk)])
+        pks = {m.pk for t in response.context['thread_page'] for m in t['emails']}
+        self.assertNotIn(self.e_other.pk, pks)
+
+    def test_selection_threads_empty_400(self):
+        response = self._post_selection()
+        self.assertEqual(response.status_code, 400)
+
+    def test_selection_threads_select_all(self):
+        response = self._post_selection(
+            select_all='1', filter_params='folder=inbox&search=Смета')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['thread_total'], 1)
+        thread = response.context['thread_page'][0]
+        self.assertEqual(thread['count'], 2)
+
+    def test_selection_threads_back_url(self):
+        response = self._post_selection(selected_emails=[str(self.e_in.pk)])
+        back_url = response.context['back_url']
+        self.assertIn(reverse('email_ui:email_list_partial'), back_url)
+        self.assertIn('folder=inbox', back_url)
+
+    def test_thread_view_badges_and_context(self):
+        email = Email.objects.get(uid='st-1')
+        response = self.client.get(reverse('email_ui:email_thread', args=[email.pk]))
+        self.assertEqual(response.status_code, 200)
+        msgs = list(response.context['thread'])
+        self.assertTrue(all(hasattr(m, 'direction_label') for m in msgs))
+        content = response.content.decode('utf-8')
+        self.assertIn('Вх.', content)
+
+
+class EmailViewSettingsTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Настройки почты: превью содержания под темой письма."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('mailsettings', 'ms@test.com', 'password')
+        self.client.login(username='mailsettings', password='password')
+        self.create_test_email(
+            uid='preview-uid-1', subject='Subject here',
+            body_text='Первая строка содержания. Вторая строка содержания письма для превью.',
+        )
+
+    def test_defaults_in_context(self):
+        response = self.client.get(reverse('email_ui:inbox_default'))
+        self.assertEqual(response.status_code, 200)
+        ctx = response.context['email_view_settings']
+        self.assertTrue(ctx['show_body_preview'])
+        self.assertEqual(ctx['preview_length'], 120)
+
+    def test_preview_rendered_under_subject(self):
+        response = self.client.get(reverse('email_ui:inbox_default'))
+        self.assertContains(response, '<div class="email-subject-preview">')
+        self.assertContains(response, 'Первая строка содержания.')
+        self.assertContains(response, reverse('email_ui:email_settings_modal'))
+
+    def test_settings_modal(self):
+        response = self.client.get(reverse('email_ui:email_settings_modal'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Показывать начало текста')
+
+    def test_save_settings_and_hide_preview(self):
+        response = self.client.post(
+            reverse('email_ui:save_email_settings'),
+            {'preview_length': '80'},
+        )
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response['HX-Refresh'], 'true')
+        from email_ui.models import EmailViewSettings
+        obj = EmailViewSettings.objects.get(user=self.user)
+        self.assertFalse(obj.show_body_preview)
+        self.assertEqual(obj.preview_length, 80)
+        response = self.client.get(reverse('email_ui:inbox_default'))
+        self.assertNotContains(response, '<div class="email-subject-preview">')
+
+    def test_save_clamps_length(self):
+        self.client.post(reverse('email_ui:save_email_settings'), {'preview_length': '9999'})
+        from email_ui.models import EmailViewSettings
+        obj = EmailViewSettings.objects.get(user=self.user)
+        self.assertEqual(obj.preview_length, EmailViewSettings.MAX_PREVIEW_LENGTH)
+
+    def test_body_preview_filter(self):
+        from email_ui.templatetags.email_filters import body_preview
+        self.assertEqual(body_preview('', 120), '')
+        self.assertEqual(body_preview('коротко', 120), 'коротко')
+        long_text = 'x' * 200
+        self.assertTrue(body_preview(long_text, 120).endswith('…'))
+        self.assertEqual(len(body_preview(long_text, 120)), 121)
+        self.assertEqual(
+            body_preview('  много   пробелов\n\nтут ', 120), 'много пробелов тут',
+        )

@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<!-- ProjectTDL/templates/ProjectTDL/protocol_report.html — протокол совещания по задачам -->
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Протокол совещания — {{ meeting_date }}</title>
+<style>
+:root {
+  --primary: #2563eb; --primary-light: #eff6ff;
+  --danger: #dc2626; --danger-light: #fef2f2;
+  --warning: #d97706; --warning-light: #fffbeb;
+  --success: #16a34a; --success-light: #f0fdf4;
+  --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb;
+  --gray-300: #d1d5db; --gray-400: #9ca3af; --gray-500: #6b7280;
+  --gray-600: #4b5563; --gray-700: #374151; --gray-800: #1f2937; --gray-900: #111827;
+  --radius: 12px; --radius-sm: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.04);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Arial, sans-serif;
+  background: var(--gray-50); color: var(--gray-800); line-height: 1.6; font-size: 14px; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+/* === HEADER === */
+.protocol-header { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white;
+  border-radius: var(--radius); padding: 32px 40px; margin-bottom: 24px; box-shadow: var(--shadow-lg); }
+.protocol-header h1 { font-size: 24px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.02em; }
+.protocol-header .subtitle { opacity: 0.85; font-size: 14px; }
+.header-meta { display: flex; gap: 24px; margin-top: 20px; flex-wrap: wrap; }
+.header-meta .meta-item { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.15);
+  padding: 8px 16px; border-radius: 20px; font-size: 13px; }
+.header-meta .meta-item .num { font-weight: 700; font-size: 16px; }
+/* === TOOLBAR === */
+.toolbar { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; align-items: center; }
+.toolbar .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px;
+  border-radius: var(--radius-sm); border: 1px solid var(--gray-200); background: white;
+  color: var(--gray-700); font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; }
+.toolbar .btn:hover { background: var(--gray-50); border-color: var(--gray-300); box-shadow: var(--shadow); }
+.toolbar .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
+.toolbar .btn-primary:hover { background: #1d4ed8; }
+.toolbar .spacer { flex: 1; }
+.toolbar input[type="date"] { padding: 7px 10px; border: 1px solid var(--gray-200); border-radius: var(--radius-sm); font-size: 13px; }
+/* === SUMMARY CARDS === */
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+.summary-card { background: white; border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); border: 1px solid var(--gray-100); }
+.summary-card .label { font-size: 12px; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.summary-card .value { font-size: 28px; font-weight: 700; color: var(--gray-900); }
+.summary-card .value.danger { color: var(--danger); } .summary-card .value.warning { color: var(--warning); }
+.summary-card .value.success { color: var(--success); } .summary-card .value.primary { color: var(--primary); }
+/* === TABLE === */
+.section-title { font-size: 18px; font-weight: 700; color: var(--gray-900); margin-bottom: 16px;
+  display: flex; align-items: center; gap: 8px; }
+.section-title .icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  background: var(--primary-light); border-radius: 6px; font-size: 14px; }
+.table-wrapper { background: white; border-radius: var(--radius); box-shadow: var(--shadow);
+  border: 1px solid var(--gray-100); overflow: hidden; margin-bottom: 32px; }
+.panel-head { padding: 14px 18px; border-bottom: 1px solid var(--gray-200); display: flex;
+  justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.panel-head h2 { font-size: 16px; margin: 0; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--gray-200); background: white; border-radius: 999px; padding: 6px 12px;
+  color: var(--gray-500); cursor: pointer; font-size: 12px; }
+.chip.active { background: var(--primary-light); color: var(--primary); border-color: #bfdbfe; }
+table.agenda { width: 100%; border-collapse: collapse; }
+table.agenda thead th { background: var(--gray-50); padding: 12px 16px; text-align: left; font-size: 11px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500);
+  border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
+table.agenda tbody tr { border-bottom: 1px solid var(--gray-100); transition: background .1s; cursor: pointer; }
+table.agenda tbody tr:hover { background: var(--primary-light); }
+table.agenda tbody tr:last-child { border-bottom: none; }
+table.agenda tbody tr.subtask { background: var(--gray-50); }
+table.agenda tbody tr.subtask td:first-child { padding-left: 40px; }
+table.agenda td { padding: 12px 16px; vertical-align: top; }
+table.agenda .col-num { width: 40px; color: var(--gray-400); font-weight: 600; font-size: 13px; }
+table.agenda .col-question { font-weight: 500; color: var(--gray-800); }
+table.agenda .col-question .parent-ref { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+table.agenda .col-resp { white-space: nowrap; } table.agenda .col-deadline { white-space: nowrap; }
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+.badge-overdue { background: var(--danger-light); color: var(--danger); }
+.badge-upcoming { background: var(--warning-light); color: var(--warning); }
+.badge-normal { background: var(--gray-100); color: var(--gray-600); }
+.badge-closed { background: var(--success-light); color: var(--success); }
+.badge-count { background: var(--warning-light); color: var(--warning); font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+/* === DETAIL CARDS === */
+.details-section { margin-bottom: 32px; }
+.task-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow);
+  border: 1px solid var(--gray-100); margin-bottom: 16px; overflow: hidden; }
+.task-card-header { display: flex; align-items: flex-start; gap: 16px; padding: 20px 24px; cursor: pointer; transition: background .1s; }
+.task-card-header:hover { background: var(--gray-50); }
+.task-card-header .task-num { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  background: var(--primary-light); color: var(--primary); border-radius: 10px; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.task-card-header .task-num.overdue { background: var(--danger-light); color: var(--danger); }
+.task-card-header .task-info { flex: 1; }
+.task-card-header .task-title { font-size: 15px; font-weight: 600; color: var(--gray-900); margin-bottom: 4px; }
+.task-card-header .task-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--gray-500); }
+.task-card-header .task-meta span { display: flex; align-items: center; gap: 4px; }
+.task-card-header .chevron { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  color: var(--gray-400); transition: transform .2s; flex-shrink: 0; }
+.task-card.open .chevron { transform: rotate(180deg); }
+.task-card-body { display: none; border-top: 1px solid var(--gray-100); padding: 20px 24px; animation: fadeIn .2s ease; }
+.task-card.open .task-card-body { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.detail-item { padding: 12px 16px; background: var(--gray-50); border-radius: var(--radius-sm); }
+.detail-item .dt { font-size: 11px; color: var(--gray-400); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+.detail-item .dd { font-size: 14px; font-weight: 500; color: var(--gray-800); }
+.decision-block { padding: 12px 16px; border-radius: var(--radius-sm); margin-bottom: 16px; font-size: 14px; }
+.decision-block.empty { background: var(--gray-50); color: var(--gray-400); font-style: italic; }
+.decision-block.has-content { background: var(--success-light); border: 1px solid #bbf7d0; color: var(--gray-700); }
+/* Letter attachment */
+.letter-block { background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: var(--radius-sm); padding: 16px; margin-bottom: 16px; }
+.letter-block .letter-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 12px; }
+.letter-block .letter-subject { font-weight: 600; font-size: 13px; color: var(--gray-800); }
+.letter-block .letter-date { font-size: 12px; color: var(--gray-400); white-space: nowrap; }
+.letter-block .letter-from { font-size: 12px; color: var(--gray-500); margin-bottom: 8px; }
+.letter-block .letter-body { font-size: 13px; color: var(--gray-600); line-height: 1.5; max-height: 100px;
+  overflow: hidden; position: relative; }
+.letter-block .letter-body::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 30px;
+  background: linear-gradient(transparent, var(--gray-50)); }
+/* Timeline for deadline changes */
+.timeline { position: relative; padding-left: 24px; }
+.timeline::before { content: ''; position: absolute; left: 8px; top: 4px; bottom: 4px; width: 2px; background: var(--gray-200); }
+.timeline-item { position: relative; padding-bottom: 12px; display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.timeline-item:last-child { padding-bottom: 0; }
+.timeline-item::before { content: ''; position: absolute; left: -20px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--gray-300); border: 2px solid white; }
+.timeline-item .tl-from { color: var(--gray-400); text-decoration: line-through; }
+.timeline-item .tl-arrow { color: var(--gray-300); }
+.timeline-item .tl-to { font-weight: 600; color: var(--gray-700); }
+.timeline-item .tl-date { font-size: 11px; color: var(--gray-400); margin-left: auto; }
+.timeline-more { color: var(--gray-400); font-style: italic; font-size: 13px; margin-top: 4px; }
+/* Subtasks */
+.subtask-list { margin-bottom: 16px; }
+.subtask-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm);
+  margin-bottom: 4px; background: var(--gray-50); font-size: 13px; }
+.subtask-item .st-status { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.subtask-item .st-status.open { background: var(--warning); } .subtask-item .st-status.closed { background: var(--success); }
+.subtask-item .st-title { flex: 1; color: var(--gray-700); }
+.subtask-item .st-deadline { color: var(--gray-400); font-size: 12px; }
+/* === FOOTER === */
+.protocol-footer { margin-top: 40px; padding: 24px; border-top: 2px solid var(--gray-200);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+.signature-line { border-top: 1px solid var(--gray-800); margin-top: 48px; padding-top: 8px; font-size: 12px; color: var(--gray-500); }
+.protocol-footer .gen-info { font-size: 11px; color: var(--gray-400); text-align: center; margin-top: 24px; grid-column: 1 / -1; }
+/* === PRINT === */
+@media print {
+  body { background: white; font-size: 12px; }
+  .toolbar, .filters { display: none; }
+  .container { padding: 0; max-width: 100%; }
+  .protocol-header { background: white !important; color: black !important; box-shadow: none; border: 2px solid black; padding: 16px 24px; }
+  .protocol-header .meta-item { background: none !important; color: black !important; }
+  .task-card-body { display: block !important; }
+  .task-card { break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
+  .summary-card { box-shadow: none; border: 1px solid #ccc; }
+  .table-wrapper { box-shadow: none; border: 1px solid #ccc; }
+}
+@media (max-width: 768px) {
+  .container { padding: 12px; } .protocol-header { padding: 20px; } .header-meta { gap: 8px; }
+  .detail-grid { grid-template-columns: 1fr; } table.agenda { font-size: 12px; }
+  table.agenda td, table.agenda th { padding: 8px; }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="protocol-header">
+    <h1>Протокол совещания</h1>
+    <div class="subtitle">Проект {{ projects|join:", "|default:"—" }}{% if chapters %} · {{ chapters|join:", " }}{% endif %}</div>
+    <div class="header-meta">
+      <div class="meta-item">📅 <span class="num">{{ meeting_date }}</span></div>
+      <div class="meta-item">📋 Вопросы: <span class="num">{{ task_count }}</span></div>
+      <div class="meta-item">✉️ С письмами: <span class="num">{{ with_emails }}</span></div>
+      <div class="meta-item">⏳ Переносы: <span class="num">{{ rescheduled }}</span> (всего {{ total_moves }})</div>
+    </div>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="window.print()">🖨️ Печать</button>
+    <button class="btn" onclick="saveReport()">💾 Сохранить HTML</button>
+    <button class="btn" onclick="toggleAll(true)">📖 Развернуть все</button>
+    <button class="btn" onclick="toggleAll(false)">📕 Свернуть все</button>
+    <div class="spacer"></div>
+    <label style="font-size:13px;color:var(--gray-500)">Дата совещания:
+      <input type="date" value="{{ meeting_date_iso }}" onchange="changeMeetingDate(this.value)">
+    </label>
+    {% if admin_url %}<a class="btn" href="{{ admin_url }}">← К задачам</a>{% endif %}
+  </div>
+
+  <!-- SUMMARY -->
+  <div class="summary-grid">
+    <div class="summary-card"><div class="label">Всего вопросов</div><div class="value primary">{{ task_count }}</div></div>
+    <div class="summary-card"><div class="label">Просрочено</div><div class="value danger">{{ overdue_count }}</div></div>
+    <div class="summary-card"><div class="label">С переносом</div><div class="value warning">{{ rescheduled }}</div></div>
+    <div class="summary-card"><div class="label">Закрыто</div><div class="value success">{{ closed_count }}</div></div>
+    <div class="summary-card"><div class="label">С письмами</div><div class="value">{{ with_emails }}</div></div>
+  </div>
+
+  <!-- AGENDA TABLE -->
+  <div class="section-title"><span class="icon">📋</span> Повестка и решения</div>
+  <div class="table-wrapper">
+    <div class="panel-head">
+      <h2>Вопросы совещания</h2>
+      <div class="filters">
+        <button class="chip active" data-filter="all">Все</button>
+        <button class="chip" data-filter="attention">Требуют внимания</button>
+        <button class="chip" data-filter="moves">Переносы</button>
+        <button class="chip" data-filter="mail">Есть письма</button>
+      </div>
+    </div>
+    <table class="agenda">
+      <thead>
+        <tr><th>№</th><th>Вопрос (задача)</th><th>Ответственный</th><th>Срок</th><th>Решение</th><th>Переносы</th></tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr {% if it.depth %}class="subtask"{% endif %} onclick="scrollToCard({{ forloop.counter }})"
+            data-attention="{% if it.is_overdue %}1{% else %}0{% endif %}"
+            data-moves="{% if it.moves_count %}1{% else %}0{% endif %}"
+            data-mail="{% if it.email_count %}1{% else %}0{% endif %}">
+          <td class="col-num">{% if it.depth %}↳{% endif %}{{ forloop.counter }}</td>
+          <td class="col-question">{{ it.task.name }}
+            {% if it.depth %}<div class="parent-ref">→ {{ it.path|join:" → " }}{% if it.task.design_chapter != '-' %} · {{ it.task.design_chapter }}{% endif %}</div>{% endif %}
+          </td>
+          <td class="col-resp">{{ it.task.contractor }}</td>
+          <td class="col-deadline">
+            {% if it.task.due_date == '-' %}<span class="badge badge-normal">—</span>
+            {% elif it.is_closed %}<span class="badge badge-closed">{{ it.task.due_date }}</span>
+            {% elif it.is_overdue %}<span class="badge badge-overdue">{{ it.task.due_date }}</span>
+            {% else %}<span class="badge badge-upcoming">{{ it.task.due_date }}</span>{% endif %}
+          </td>
+          <td>{% if it.task.description_text %}{{ it.task.description_text|truncatechars:120 }}{% else %}—{% endif %}</td>
+          <td>{% if it.moves_count %}<span class="badge-count">{{ it.moves_count }}</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- DETAIL SECTION -->
+  <div class="details-section">
+    <div class="section-title"><span class="icon">📝</span> Детализация по вопросам</div>
+
+    {% for it in items %}
+    <div class="task-card {% if forloop.first %}open{% endif %}" id="card-{{ forloop.counter }}"
+         data-attention="{% if it.is_overdue %}1{% else %}0{% endif %}"
+         data-moves="{% if it.moves_count %}1{% else %}0{% endif %}"
+         data-mail="{% if it.email_count %}1{% else %}0{% endif %}">
+      <div class="task-card-header" onclick="toggleCard(this)">
+        <div class="task-num {% if it.is_overdue %}overdue{% endif %}">{{ forloop.counter }}</div>
+        <div class="task-info">
+          <div class="task-title">{{ it.task.name }}</div>
+          <div class="task-meta">
+            <span>🏗️ {{ it.task.project }}{% if it.task.design_chapter != '-' %} · {{ it.task.design_chapter }}{% endif %}{% if it.task.building != '-' %} · {{ it.task.building }}{% endif %}</span>
+            <span>👤 {{ it.task.contractor }}</span>
+            <span>📅 {{ it.task.due_date }}</span>
+            {% if it.is_overdue %}<span class="badge badge-overdue">Просрочено</span>{% endif %}
+            {% if it.is_closed %}<span class="badge badge-closed">Закрыто</span>{% endif %}
+            {% if it.moves_count %}<span class="badge-count">{{ it.moves_count }} переносов</span>{% endif %}
+          </div>
+        </div>
+        <div class="chevron">▼</div>
+      </div>
+      <div class="task-card-body">
+        <div class="detail-grid">
+          <div class="detail-item"><div class="dt">Статус</div><div class="dd">{{ it.task.status }}</div></div>
+          <div class="detail-item"><div class="dt">Ответственный</div><div class="dd">{{ it.task.contractor }}</div></div>
+          <div class="detail-item"><div class="dt">Срок</div>
+            <div class="dd" {% if it.is_overdue %}style="color:var(--danger)"{% endif %}>{{ it.task.due_date }}</div></div>
+          <div class="detail-item"><div class="dt">{% if it.task.design_chapter != '-' %}Раздел{% else %}Здание{% endif %}</div>
+            <div class="dd">{% if it.task.design_chapter != '-' %}{{ it.task.design_chapter }}{% else %}{{ it.task.building }}{% endif %}</div></div>
+        </div>
+
+        {% if it.has_decision %}
+        <div class="decision-block has-content">✅ {{ it.task.description_text|linebreaksbr }}</div>
+        {% else %}
+        <div class="decision-block empty">Решение не зафиксировано</div>
+        {% endif %}
+
+        {% if it.subtasks %}
+        <strong style="font-size:13px; color:var(--gray-600); display:block; margin-bottom:8px;">📎 Подзадачи ({{ it.subtasks|length }})</strong>
+        <div class="subtask-list">
+          {% for st in it.subtasks %}
+          <div class="subtask-item">
+            <div class="st-status {% if st.is_closed %}closed{% else %}open{% endif %}"></div>
+            <div class="st-title">{{ st.name }} <span style="color:var(--gray-400)">· {{ st.status }}</span></div>
+            <div class="st-deadline">{{ st.due_date }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% for em in it.emails %}
+        <div class="letter-block">
+          <div class="letter-header">
+            <div class="letter-subject">✉️ {{ em.subject }}</div>
+            <div class="letter-date">{{ em.date }}</div>
+          </div>
+          <div class="letter-from">От: {{ em.sender }}{% if em.receiver != '—' %} → {{ em.receiver }}{% endif %}</div>
+          {% if em.excerpt %}<div class="letter-body">{{ em.excerpt }}</div>{% endif %}
+        </div>
+        {% endfor %}
+
+        {% if it.moves %}
+        <strong style="font-size:13px; color:var(--gray-600); display:block; margin-bottom:12px;">🕐 История переносов сроков ({{ it.moves_count }})</strong>
+        <div class="timeline">
+          {% for m in it.moves|slice:":4" %}
+          <div class="timeline-item">
+            <span class="tl-from">{{ m.old_date }}</span>
+            <span class="tl-arrow">→</span>
+            <span class="tl-to">{{ m.new_date }}</span>
+            <span class="tl-date">{{ m.change_date }} · {{ m.changed_by }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% if it.moves_count > 4 %}
+        {% with oldest=it.moves|last %}
+        <div class="timeline-more">… ещё {{ it.moves_count|add:"-4" }} переносов ({{ oldest.old_date }} → {{ oldest.new_date }})</div>
+        {% endwith %}
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+
+  </div><!-- /details-section -->
+
+  <!-- FOOTER / SIGNATURES -->
+  <div class="protocol-footer">
+    <div><div class="signature-line">Подпись / расшифровка</div></div>
+    <div><div class="signature-line">Подпись / расшифровка</div></div>
+    <div class="gen-info">Сформировано автоматически {{ current_date }} · Система управления задачами</div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+function toggleCard(header) { header.closest('.task-card').classList.toggle('open'); }
+function toggleAll(open) {
+  document.querySelectorAll('.task-card').forEach(function(card) {
+    if (open) card.classList.add('open'); else card.classList.remove('open');
+  });
+}
+function scrollToCard(num) {
+  var card = document.getElementById('card-' + num);
+  if (card) { card.classList.add('open'); card.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+}
+function saveReport() {
+  var blob = new Blob([document.documentElement.outerHTML], { type: 'text/html' });
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'протокол_совещания_{{ download_timestamp }}.html';
+  link.click();
+}
+function changeMeetingDate(v) {
+  if (!v) return;
+  var u = new URL(window.location.href);
+  u.searchParams.set('meeting_date', v);
+  u.searchParams.set('format', 'protocol');
+  window.location.href = u.toString();
+}
+document.querySelectorAll('.chip').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.chip').forEach(function(x) { x.classList.remove('active'); });
+    btn.classList.add('active');
+    var f = btn.dataset.filter;
+    document.querySelectorAll('table.agenda tbody tr').forEach(function(row) {
+      row.style.display = (f === 'all' || (f === 'attention' && row.dataset.attention === '1') ||
+        (f === 'moves' && row.dataset.moves === '1') ||
+        (f === 'mail' && row.dataset.mail === '1')) ? '' : 'none';
+    });
+    document.querySelectorAll('.task-card').forEach(function(card) {
+      card.style.display = (f === 'all' || (f === 'attention' && card.dataset.attention === '1') ||
+        (f === 'moves' && card.dataset.moves === '1') ||
+        (f === 'mail' && card.dataset.mail === '1')) ? '' : 'none';
+    });
+  });
+});
+</script>
+
+</body>
+</html>

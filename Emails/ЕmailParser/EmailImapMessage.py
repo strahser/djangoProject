@@ -12,7 +12,7 @@ class EmailBody:
 		to = f" Получатель:{','.join(self.msg.to)}<br>"
 		date_str = f" Дата:{self.msg.date_str}<br>"
 		subject = f" Тема Письма:{self.msg.subject}<br>"
-		self.created_body = f"{from_}{to}{date_str}{subject}<br>{additional_text}<br>{self.msg.html}"
+		self.created_body = f"{from_}{to}{date_str}{subject}<br>{additional_text or ''}<br>{self.msg.html}"
 
 
 class EmailImapMessage:

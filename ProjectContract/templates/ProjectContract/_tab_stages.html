@@ -1,0 +1,49 @@
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <span class="st-badge" style="background:#eef1f6;color:#5b6472;">{{ contract.get_stage_display }}</span>
+  {% if contract.next_step %}
+  <span class="small text-muted">Следующий шаг: <strong>{{ contract.next_step }}</strong>{% if contract.next_step_date %} · {{ contract.next_step_date|date:"d.m.Y" }}{% endif %}</span>
+  {% endif %}
+</div>
+<div class="p-3 mb-3" style="background:var(--bg-card,#fff);border:1px solid var(--border,#e2e6ee);border-radius:12px;">
+  <form method="post" action="{% url 'contract_reminder_add' contract.pk %}" class="row g-2 align-items-end">
+    {% csrf_token %}
+    <div class="col-md-3"><label class="form-label small text-muted mb-0">Напомнить не позже</label><input type="date" name="due_date" class="form-control form-control-sm" value="{{ contract.next_step_date|date:'Y-m-d' }}" required></div>
+    <div class="col-md-4"><label class="form-label small text-muted mb-0">Текст</label><input type="text" name="message" class="form-control form-control-sm" maxlength="255" placeholder="О чём напомнить" value="{{ contract.next_step|default:'' }}"></div>
+    <div class="col-md-3"><label class="form-label small text-muted mb-0">Кому</label><select name="recipient" class="form-select form-select-sm"><option value="">—</option>{% for u in reminder_users %}<option value="{{ u.pk }}">{{ u.username }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" type="submit"><i class="bi bi-bell me-1"></i>Напомнить</button></div>
+  </form>
+  {% if reminders %}
+  <div class="mt-2 small">
+    {% for r in reminders %}
+    <span class="st-badge" style="background:#fff4e0;color:#b45309;">{{ r.due_date|date:"d.m.Y" }}{% if r.message %} · {{ r.message|truncatechars:60 }}{% endif %}</span>
+    <form method="post" action="{% url 'reminder_toggle' r.pk %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-link p-0 small" type="submit">закрыть</button></form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+<div class="table-responsive">
+  <table class="table cf-table">
+    <thead>
+      <tr>
+        <th>Дата</th>
+        <th>Этап</th>
+        <th>Тип</th>
+        <th>Кто</th>
+        <th>Заметки</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in steps %}
+      <tr>
+        <td class="num">{{ s.date|date:"d.m.Y" }}</td>
+        <td>{{ s.get_stage_display }}</td>
+        <td>{% if s.is_next_step %}<span class="st-badge" style="background:#fff4e0;color:#b45309;">след. шаг</span>{% else %}<span class="small text-muted">факт</span>{% endif %}</td>
+        <td>{{ s.user.get_full_name|default:s.user|default:"—" }}</td>
+        <td>{{ s.notes|default:"" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="text-center text-muted py-4">Записей об этапах нет</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

@@ -1,0 +1,244 @@
+{% extends "email_ui/base.html" %}
+{% load l10n %}
+{% block sidebar_wrapper %}{% endblock %}
+{% block content %}
+<div class="container-fluid p-4">
+    <form method="post" action="{% url 'email_ui:draft_send' draft_email.pk %}"
+          enctype="multipart/form-data" id="compose-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next|default:'' }}">
+
+        <!-- Header — полная панель как в compose_modal -->
+        <div class="modal-header d-flex align-items-center">
+            <h5 class="modal-title">
+                <i class="bi bi-pencil-square me-2"></i>Редактирование черновика
+            </h5>
+            <div class="ms-auto d-flex align-items-center gap-2">
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-send"></i> Отправить
+                </button>
+                <div class="d-flex align-items-center gap-1">
+                    <label class="btn btn-sm btn-warning mb-0" title="Прикрепить файлы">
+                        <i class="bi bi-paperclip"></i>
+                        <input type="file" name="attachment_files" class="d-none" multiple onchange="updateFileList(this)">
+                    </label>
+                    <span id="file-count-compose" class="badge bg-warning text-dark" style="display:none;"></span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" title="Вставить подпись" onclick="insertSignature()">
+                    <i class="bi bi-person-badge"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-success" title="Сохранить черновик" onclick="saveDraftUpdate()">
+                    <i class="bi bi-save"></i>
+                </button>
+                <a class="btn btn-sm btn-outline-secondary" title="Группы адресатов" href="{% url 'email_ui:group_list' %}" target="_blank" rel="noopener">
+                    <i class="bi bi-people"></i>
+                </a>
+                <a class="btn btn-sm btn-outline-secondary" title="Контакты" href="{% url 'email_ui:contact_list' %}" target="_blank" rel="noopener">
+                    <i class="bi bi-person-lines-fill"></i>
+                </a>
+                <button type="button" class="btn btn-sm btn-outline-secondary" title="Закрыть"
+                        onclick="window.location.href='{{ next|default:"/"|escapejs }}'">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
+
+        {% if error %}
+        <div class="alert alert-danger m-3 mb-0" role="alert">
+            {{ error }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endif %}
+        {% if form.errors %}
+        <div class="alert alert-warning m-3 mb-0" role="alert">
+            {% for field, errors in form.errors.items %}
+            <div><strong>{{ field }}:</strong> {{ errors|join:", " }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if draft_attachments %}
+        <div class="px-3 pt-2">
+            <div class="collapsible-section">
+                <div class="section-header" onclick="toggleSection(this)">
+                    <span><i class="bi bi-paperclip"></i> Вложения черновика ({{ draft_attachments|length }})</span>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+                <div class="section-body show">
+                    <ul class="list-unstyled mb-2" id="draft-attachments-list">
+                        {% for att in draft_attachments %}
+                        <li class="d-flex justify-content-between align-items-center py-1 attachment-item" data-att-id="{{ att.pk|unlocalize }}">
+                            <div>
+                                <i class="bi {{ att.icon_class }} me-1"></i>
+                                <span>{{ att.filename }}</span>
+                                <small class="text-muted">({{ att.size|filesizeformat }})</small>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeDraftAttachment(this, {{ att.pk|unlocalize }})" title="Убрать из вложений">
+                                <i class="bi bi-trash"></i> Удалить
+                            </button>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div id="draft-excluded-container"></div>
+        {% endif %}
+
+        <div class="compose-fields" style="max-width:700px;">
+            <div class="mb-2">
+                <label class="form-label small text-muted mb-1">Кому <span class="text-danger">*</span></label>
+                {% include 'email_ui/partials/contact_picker.html' with picker='contacts-to' input_id='compose-to' input_name='to' placeholder='email1@example.com, email2@example.com' value=to %}
+            </div>
+            <div class="mb-2">
+                <label class="form-label small text-muted mb-1">Копия</label>
+                {% include 'email_ui/partials/contact_picker.html' with picker='contacts-cc' input_id='compose-cc' input_name='cc' placeholder='email@example.com' value=cc %}
+            </div>
+            <div class="mb-2">
+                <label class="form-label small text-muted mb-1">Скрытая копия</label>
+                {% include 'email_ui/partials/contact_picker.html' with picker='contacts-bcc' input_id='compose-bcc' input_name='bcc' placeholder='email@example.com' %}
+            </div>
+            {{ contacts_json|json_script:"contacts-data" }}
+            {{ groups_json|json_script:"groups-data" }}
+            <div class="mb-0">
+                <label class="form-label small text-muted mb-1">Тема</label>
+                <input type="text" name="subject" class="form-control form-control-sm" value="{{ subject|default:'' }}"
+                       placeholder="Тема письма">
+            </div>
+        </div>
+
+        <div class="compose-editor flex-fill">
+            <textarea name="body" class="form-control" id="compose-editor" placeholder="Напишите сообщение...">{{ body|default:'' }}</textarea>
+        </div>
+
+        <div id="file-list-compose" class="d-flex align-items-center gap-1 flex-wrap mt-2"></div>
+    </form>
+</div>
+
+<script>
+function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+}
+
+function updateFileList(input) {
+    var span = document.getElementById('file-count-compose');
+    if (input.files.length > 0) {
+        if (span) { span.textContent = input.files.length; span.style.display = ''; }
+    } else {
+        if (span) span.style.display = 'none';
+    }
+    var list = document.getElementById('file-list-compose');
+    if (!list) return;
+    list.innerHTML = '';
+    Array.from(input.files).forEach(function(file, i) {
+        var badge = document.createElement('span');
+        badge.className = 'badge bg-warning text-dark d-inline-flex align-items-center gap-1 py-1 px-2';
+        var ext = file.name.split('.').pop().toLowerCase();
+        var icon = 'bi-file-earmark';
+        if (['pdf'].indexOf(ext) !== -1) icon = 'bi-file-pdf';
+        else if (['doc','docx'].indexOf(ext) !== -1) icon = 'bi-file-word';
+        else if (['xls','xlsx'].indexOf(ext) !== -1) icon = 'bi-file-excel';
+        else if (['jpg','jpeg','png','gif','bmp'].indexOf(ext) !== -1) icon = 'bi-file-image';
+        else if (['zip','rar','7z'].indexOf(ext) !== -1) icon = 'bi-file-zip';
+        badge.innerHTML = '<i class="bi ' + icon + '"></i> ' + file.name + ' <a href="#" class="text-danger text-decoration-none fw-bold" data-idx="' + i + '" onclick="removeAttachment(this); return false;">&times;</a>';
+        list.appendChild(badge);
+    });
+}
+
+function removeAttachment(el) {
+    var idx = parseInt(el.getAttribute('data-idx'));
+    var input = document.querySelector('input[name="attachment_files"]');
+    if (!input || !input.files) return;
+    var dt = new DataTransfer();
+    Array.from(input.files).forEach(function(file, i) {
+        if (i !== idx) dt.items.add(file);
+    });
+    input.files = dt.files;
+    updateFileList(input);
+}
+
+function removeDraftAttachment(btn, attId) {
+    var li = btn.closest('li');
+    if (li) li.remove();
+    var container = document.getElementById('draft-excluded-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'draft-excluded-container';
+        var form = document.getElementById('compose-form');
+        if (form) form.appendChild(container);
+    }
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'exclude_attachments';
+    hidden.value = attId;
+    container.appendChild(hidden);
+    var list = document.getElementById('draft-attachments-list');
+    if (list) {
+        var count = list.querySelectorAll('li').length;
+        var header = list.closest('.collapsible-section').querySelector('.section-header span');
+        if (header) header.innerHTML = '<i class="bi bi-paperclip"></i> Вложения черновика (' + count + ')';
+        if (count === 0) {
+            var section = list.closest('.collapsible-section');
+            if (section) section.style.display = 'none';
+        }
+    }
+}
+
+function toggleSection(header) {
+    header.classList.toggle('collapsed');
+    header.nextElementSibling.classList.toggle('show');
+}
+
+function saveDraftUpdate() {
+    var form = document.getElementById('compose-form');
+    if (!form) return;
+    var params = new FormData(form);
+    fetch(form.action.replace('draft-send', 'draft-update'), {
+        method: 'POST',
+        headers: {'X-CSRFToken': '{{ csrf_token }}'},
+        body: params
+    }).then(r => {
+        if (r.ok || r.status === 204) {
+            window.location.href = '{{ next|default:"/"|escapejs }}';
+        }
+    });
+}
+
+function insertSignature() {
+    var sig = '<br><br><div style="font-family: Arial, sans-serif; font-size: 13px; color: #333; margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">' +
+    '<strong>Страхов Сергей | Strakhov Sergey</strong><br>' +
+    'Строительный департамент | Construction department<br>' +
+    'ООО "ТиЭйч-РУС Милк Фуд" | TH-RUS Milk Food LLC<br>' +
+    '127055, г Москва, Лесная, д. 61, Стр 2, Эт Цок Пом I ком 27<br>' +
+    'Mobile: +7 (966)0351073<br>' +
+    'Website: <a href="http://www.cimrus.com">http://www.cimrus.com</a>' +
+    '</div>';
+    if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
+        tinymce.activeEditor.insertContent(sig);
+    } else {
+        var bodyEl = document.querySelector('textarea[name="body"]');
+        if (bodyEl) {
+            bodyEl.value += sig;
+            autoResize(bodyEl);
+        }
+    }
+}
+
+document.querySelectorAll('#compose-form textarea').forEach(function(ta) { autoResize(ta); });
+
+(function initDraftEditor() {
+    if (typeof window.initTinyMCE !== 'function' || typeof tinymce === 'undefined') {
+        setTimeout(initDraftEditor, 200);
+        return;
+    }
+    window.initTinyMCE();
+    var el = document.getElementById('compose-editor');
+    setTimeout(function() {
+        if (el && tinymce.get(el.id) === undefined && typeof tinymce.init === 'function') {
+            window.initTinyMCE();
+        }
+    }, 600);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,114 @@
+{% load email_filters l10n %}
+<div data-total-count="{{ thread_page.paginator.count|unlocalize }}" data-thread-mode="1">
+{% if selection_mode %}
+<div class="d-flex align-items-center gap-2 px-3 pt-2 pb-1">
+    <a href="#" class="btn btn-outline-secondary btn-sm"
+       hx-get="{{ back_url }}" hx-target="#email-list-container" hx-swap="innerHTML" hx-push-url="false">
+        <i class="bi bi-arrow-left"></i> К списку
+    </a>
+    <span class="text-muted small">
+        <i class="bi bi-chat-left-text me-1"></i>Цепочки выбранных ({{ selected_count }}): {{ thread_total }} — входящие + исходящие по теме
+    </span>
+</div>
+{% else %}
+<p class="text-muted small px-3 pt-2 mb-2">
+    <i class="bi bi-chat-left-text me-1"></i>Цепочек: {{ thread_total }} (группировка по теме переписки)
+</p>
+{% endif %}
+<div class="accordion accordion-flush" id="threads-accordion">
+    {% for t in thread_page %}
+    <div class="accordion-item">
+        <h2 class="accordion-header">
+            <button class="accordion-button collapsed py-2" type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#thread-collapse-{{ thread_page.number }}-{{ forloop.counter }}"
+                    aria-expanded="false">
+                <span class="badge bg-secondary me-2">{{ t.count }}</span>
+                <span class="text-truncate fw-semibold" style="max-width:55%;">{{ t.subject|default:"Без темы" }}</span>
+                <span class="ms-2 small text-nowrap">
+                    {% if t.in_count %}<span class="badge bg-success" title="Входящих">Вх. {{ t.in_count }}</span>{% endif %}
+                    {% if t.out_count %}<span class="badge bg-primary" title="Исходящих">Исх. {{ t.out_count }}</span>{% endif %}
+                </span>
+                <span class="ms-auto text-muted small text-nowrap ps-2">
+                    {% if t.earliest and t.latest and t.earliest|date:"d.m.Y" != t.latest|date:"d.m.Y" %}
+                        {{ t.earliest|date:"d.m.Y" }} — {{ t.latest|date:"d.m.Y" }}
+                    {% elif t.latest %}
+                        {{ t.latest|date:"d.m.Y" }}
+                    {% endif %}
+                </span>
+            </button>
+        </h2>
+        <div id="thread-collapse-{{ thread_page.number }}-{{ forloop.counter }}"
+             class="accordion-collapse collapse" data-bs-parent="#threads-accordion">
+            <div class="accordion-body p-0">
+                <table class="table table-hover mb-0">
+                    <tbody>
+                    {% for email in t.emails %}
+                    <tr class="email-row{% if not email.is_read %} unread{% endif %}"
+                        onclick="location.href='{% url 'email_ui:email_detail' email.pk %}?next={{ email_list_back_url|default:"/"|urlencode }}'; return false;">
+                        <td style="width:92px" onclick="event.stopPropagation()">
+                            {% if email.direction == 'out' %}
+                            <span class="badge bg-primary" title="Исходящее"><i class="bi bi-arrow-up-right"></i> Исх.</span>
+                            {% else %}
+                            <span class="badge bg-success" title="Входящее"><i class="bi bi-arrow-down-left"></i> Вх.</span>
+                            {% endif %}
+                        </td>
+                        <td style="width:200px">
+                            {% if email.direction == 'out' %}
+                                {{ email.receiver|canon_emails|default:"—"|truncatechars:26 }}
+                            {% else %}
+                                {{ email.sender|canon_email|truncatechars:26|default:"Неизвестно" }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div>
+                                <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ email_list_back_url|default:'/'|urlencode }}"
+                                   class="text-decoration-none text-dark">{{ email.subject|truncatechars:70|default:"Без темы" }}</a>
+                                {% if email.is_important %}<i class="bi bi-star-fill text-warning ms-1" style="font-size:12px;"></i>{% endif %}
+                            </div>
+                            {% if email.body_head %}
+                            <div class="text-muted small text-truncate" style="max-width:640px;" title="{{ email.body_head }}">{{ email.body_head }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="text-nowrap text-muted" style="width:100px">{{ email.email_stamp|date:"d.m.Y" }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="text-center text-muted py-5">Нет писем</div>
+    {% endfor %}
+</div>
+
+{% if thread_page.has_other_pages %}
+<nav aria-label="Страницы цепочек">
+    <ul class="pagination pagination-sm justify-content-center mb-0 py-2">
+        {% if thread_page.has_previous %}
+        <li class="page-item">
+            <a class="page-link" href="#"
+               hx-get="{% url 'email_ui:email_list_partial' %}?page={{ thread_page.previous_page_number }}&folder={{ folder }}&{{ thread_params }}"
+               hx-target="#email-list-container" hx-swap="innerHTML" hx-push-url="false">‹ Назад</a>
+        </li>
+        {% endif %}
+        <li class="page-item disabled"><span class="page-link">{{ thread_page.number }} / {{ thread_page.paginator.num_pages }}</span></li>
+        {% if thread_page.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="#"
+               hx-get="{% url 'email_ui:email_list_partial' %}?page={{ thread_page.next_page_number }}&folder={{ folder }}&{{ thread_params }}"
+               hx-target="#email-list-container" hx-swap="innerHTML" hx-push-url="false">Вперёд ›</a>
+        </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+</div>
+
+<script>
+(function(){
+    var c = document.getElementById('email-list-container');
+    if (c) { var tc = c.querySelector('[data-total-count]'); if (tc) window.allFilteredCount = parseInt(tc.dataset.totalCount)||0; }
+})();
+</script>

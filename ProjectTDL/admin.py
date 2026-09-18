@@ -15,7 +15,7 @@ from import_export.fields import Field
 from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
 from Emails.models import Email
 from email_ui.models import EmailTaskLink
-from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar
+from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog
 from ProjectTDL.Tables import StaticFilterSettings
 from mptt.admin import MPTTModelAdmin
 from ProjectTDL.models import TaskDueDateHistory, TaskNode
@@ -113,7 +113,7 @@ class TaskEmailLinkInline(admin.TabularInline):
         pass
 
 
-excluding_list = [TaskNode, Contract, DesignChapter, ContractPayments, PaymentCalendar, ConcretePaymentCalendar]
+excluding_list = [TaskNode, Contract, DesignChapter, ContractPayments, PaymentCalendar, ConcretePaymentCalendar, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog]
 
 
 @admin.register(*get_filtered_registered_models('ProjectContract', excluding_list))
@@ -130,8 +130,8 @@ class UniversalAdmin(admin.ModelAdmin):
 @admin.register(TaskNode)
 class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
     excluding_list = ['description', 'parent', 'owner', 'contract', 'lft', 'rght', 'tree_id', 'level', ]
-    additional_list = ['creation_stamp', 'add_emails_button', 'add_report_button']
-    actions = [duplicate_event, 'html_replace', 'generate_html_report']
+    additional_list = ['creation_stamp', 'add_emails_button', 'add_report_button', 'add_protocol_button']
+    actions = [duplicate_event, 'html_replace', 'generate_html_report', 'generate_protocol_report']
     list_display_links = ('id',)
     list_display = get_standard_display_list(TaskNode, excluding_list=excluding_list, additional_list=additional_list)
     list_editable = ('status', 'category', 'price', 'due_date',)
@@ -187,6 +187,12 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
         return format_html(f'<a href="{url}" class="button" target="_blank" title="Сгенерировать отчет">📊</a>')
 
     add_report_button.short_description = 'Отчет'
+
+    def add_protocol_button(self, obj):
+        url = reverse('generate_custom_report') + f'?format=protocol&task_ids={obj.pk}'
+        return format_html(f'<a href="{url}" class="button" target="_blank" title="Протокол совещания">📝</a>')
+
+    add_protocol_button.short_description = 'Протокол'
 
     def email_list(self, obj):
         email_ids = EmailTaskLink.objects.filter(task_node=obj).values_list('email_id', flat=True)
@@ -296,6 +302,38 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
         except Exception as e:
             logger.error(f'Ошибка при генерации отчета: {str(e)}', exc_info=True)
             self.message_user(request, f'Ошибка при генерации отчета: {str(e)}', level=messages.ERROR)
+            return None
+
+    @admin.action(description='Сгенерировать протокол совещания')
+    def generate_protocol_report(self, request, queryset):
+        try:
+            task_count = queryset.count()
+            if task_count == 0:
+                messages.warning(request, "Не выбрано ни одной задачи для протокола")
+                return None
+
+            tasks = queryset.select_related(
+                'project_site', 'building_number__name',
+                'design_chapter', 'contractor', 'status', 'category', 'contract'
+            ).prefetch_related('due_date_history')
+
+            task_ids = list(queryset.values_list('id', flat=True))
+            admin_url = self._get_admin_return_url(request, task_ids)
+
+            html_report = ReportGenerator.generate_protocol_report(
+                tasks, request, admin_url=admin_url
+            )
+
+            response = HttpResponse(html_report, content_type='text/html')
+            response['Content-Disposition'] = 'inline; filename="protocol_soveshchaniya.html"'
+            response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response['Pragma'] = 'no-cache'
+            response['Expires'] = '0'
+            return response
+
+        except Exception as e:
+            logger.error(f'Ошибка при генерации протокола: {str(e)}', exc_info=True)
+            self.message_user(request, f'Ошибка при генерации протокола: {str(e)}', level=messages.ERROR)
             return None
 
     def changelist_view(self, request, extra_context=None):
