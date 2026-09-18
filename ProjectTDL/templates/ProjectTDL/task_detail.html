@@ -36,7 +36,8 @@
   <div class="td-card p-4 mb-3">
     <div class="d-flex flex-wrap align-items-start gap-3">
       <div class="flex-grow-1">
-        <h3 class="mb-1">{{ task.name }}</h3>
+        <label class="form-label small text-muted mb-0" for="td-name">Наименование</label>
+        <input type="text" id="td-name" class="form-control fw-bold" style="font-size:1.25rem;" value="{{ task.name }}" maxlength="150" required>
         <div class="d-flex flex-wrap gap-2 mt-2">
           <span class="td-chip"><i class="bi bi-building"></i>{{ task.project_site.name }}</span>
           {% if task.sub_project %}<span class="td-chip"><i class="bi bi-diagram-3"></i>{{ task.sub_project.name }}</span>{% endif %}
@@ -80,9 +81,8 @@
   </div>
 
   <ul class="nav td-nav gap-1 mb-3">
-    <li class="nav-item d-flex align-items-center">
+    <li class="nav-item">
       <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-subtasks" type="button"><i class="bi bi-list-task me-1"></i>Подзадачи ({{ subtasks|length }})</button>
-      <button class="btn btn-sm btn-primary ms-2" id="btnNewSubtask" type="button"><i class="bi bi-plus-lg me-1"></i>Новая подзадача</button>
     </li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-emails" type="button"><i class="bi bi-envelope me-1"></i>Письма ({{ linked_emails|length }})</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-desc" type="button"><i class="bi bi-card-text me-1"></i>Описание</button></li>
@@ -94,6 +94,9 @@
 
   <div class="tab-content">
     <div class="tab-pane fade show active" id="tab-subtasks">
+      <div class="d-flex justify-content-end mb-2">
+        <button class="btn btn-sm btn-primary" id="btnNewSubtask" type="button"><i class="bi bi-plus-lg me-1"></i>Новая подзадача</button>
+      </div>
       <div class="td-card p-0 table-responsive">
         <table class="table td-table mb-0">
           <thead><tr><th>#</th><th>Название</th><th>Цена</th><th>Срок</th><th>Обновлена</th><th></th></tr></thead>
@@ -115,6 +118,9 @@
     </div>
 
     <div class="tab-pane fade" id="tab-emails">
+      <div class="d-flex justify-content-end mb-2">
+        <button class="btn btn-sm btn-primary" id="btnAttachEmail" type="button"><i class="bi bi-paperclip me-1"></i>Прикрепить письмо</button>
+      </div>
       <div class="td-card p-0 table-responsive">
         <table class="table td-table mb-0">
           <thead><tr><th>Тема</th><th>Отправитель</th><th>Дата</th><th>Вложения</th><th></th></tr></thead>
@@ -130,9 +136,15 @@
               <td>{{ em.sender_name|default:em.sender|truncatechars:30 }}</td>
               <td class="text-muted text-nowrap">{{ em.email_stamp|date:"d.m.Y" }}</td>
               <td>{% if em.attachments.all %}<span class="td-chip"><i class="bi bi-paperclip"></i>{{ em.attachments.all|length }}</span>{% else %}—{% endif %}</td>
-              <td class="text-end"><a class="btn btn-sm btn-outline-primary py-0" href="{% url 'email_ui:email_detail' em.pk %}?next={{ request.get_full_path|urlencode }}">Открыть</a></td>
+              <td class="text-end text-nowrap">
+                <a class="btn btn-sm btn-outline-primary py-0" href="{% url 'email_ui:email_detail' em.pk %}?next={{ request.get_full_path|urlencode }}">Открыть</a>
+                <form method="post" action="{% url 'task_email_detach' task.pk em.pk %}" class="d-inline" onsubmit="return confirm('Открепить письмо от задачи?');">
+                  {% csrf_token %}
+                  <button class="btn btn-sm btn-outline-danger py-0" type="submit" title="Открепить"><i class="bi bi-x"></i></button>
+                </form>
+              </td>
             </tr>
-            {% empty %}<tr><td colspan="5" class="text-center text-muted py-4">Писем не привязано. Привяжите из карточки письма (кнопка «+» в блоке «Задачи»).</td></tr>
+            {% empty %}<tr><td colspan="5" class="text-center text-muted py-4">Писем не привязано. Нажмите «Прикрепить письмо» выше.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -140,7 +152,14 @@
     </div>
 
     <div class="tab-pane fade" id="tab-desc">
-      <div class="td-card p-4">{{ task.description|safe|default:"<span class='text-muted'>Нет описания</span>" }}</div>
+      <div class="td-card p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="small text-muted">Описание (сохраняется кнопкой «Сохранить» в шапке)</span>
+          <button class="btn btn-sm btn-outline-secondary" type="button" id="td-desc-preview-btn">Предпросмотр</button>
+        </div>
+        <textarea id="td-description" class="form-control" rows="8" placeholder="Описание задачи…">{{ task.description|default:'' }}</textarea>
+        <div id="td-desc-preview" class="border rounded p-3 mt-2" style="display:none;background:var(--bg-table-header,#f5f7fb);"></div>
+      </div>
     </div>
 
     <div class="tab-pane fade" id="tab-history">
@@ -245,6 +264,23 @@
   </div>
 </div>
 
+<div class="modal fade" id="emailAttachModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Прикрепить письмо</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="emailAttachSearch" class="form-control mb-2" placeholder="Тема, отправитель или получатель…" autocomplete="off">
+        <div id="emailAttachResults" class="list-group" style="max-height:320px;overflow-y:auto;">
+          <div class="list-group-item text-muted small">Начните вводить для поиска…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="subtaskModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -292,9 +328,11 @@ document.getElementById('td-save-btn').addEventListener('click', function(){
   var btn = document.getElementById('td-save-btn');
   btn.disabled = true;
   Promise.all([
+    tdSave('name', document.getElementById('td-name').value),
     tdSave('status', document.getElementById('td-status').value),
     tdSave('due_date', document.getElementById('td-due').value),
-    tdSave('price', document.getElementById('td-price').value)
+    tdSave('price', document.getElementById('td-price').value),
+    tdSave('description', document.getElementById('td-description').value)
   ]).then(function(){
     window.location.href = '{% url "custom_task_view" %}';
   }).catch(function(err){
@@ -307,6 +345,61 @@ document.getElementById('td-save-btn').addEventListener('click', function(){
 $(function(){
   $('#btnNewSubtask').on('click', function(){
     bootstrap.Modal.getOrCreateInstance(document.getElementById('subtaskModal')).show();
+  });
+  var TD_CSRF = '{{ csrf_token }}';
+  function tdRenderEmailResults(items){
+    var box = document.getElementById('emailAttachResults');
+    box.innerHTML = '';
+    if (!items.length) {
+      box.innerHTML = '<div class="list-group-item text-muted small">Ничего не найдено</div>';
+      return;
+    }
+    items.forEach(function(em){
+      var form = document.createElement('form');
+      form.method = 'post';
+      form.action = '{% url "task_email_attach" task.pk %}';
+      form.className = 'list-group-item d-flex justify-content-between align-items-center gap-2';
+      var csrf = document.createElement('input');
+      csrf.type = 'hidden'; csrf.name = 'csrfmiddlewaretoken'; csrf.value = TD_CSRF;
+      var hid = document.createElement('input');
+      hid.type = 'hidden'; hid.name = 'email_id'; hid.value = em.id;
+      var info = document.createElement('div');
+      info.className = 'flex-grow-1';
+      var subj = document.createElement('div');
+      subj.className = 'fw-semibold'; subj.textContent = em.subject;
+      var meta = document.createElement('div');
+      meta.className = 'small text-muted'; meta.textContent = em.sender + (em.date ? ' · ' + em.date : '');
+      info.appendChild(subj); info.appendChild(meta);
+      var btn = document.createElement('button');
+      btn.type = 'submit'; btn.className = 'btn btn-sm btn-primary text-nowrap';
+      btn.textContent = 'Прикрепить';
+      form.appendChild(csrf); form.appendChild(hid); form.appendChild(info); form.appendChild(btn);
+      box.appendChild(form);
+    });
+  }
+  var tdEmailTimer = null;
+  function tdEmailSearch(){
+    var q = document.getElementById('emailAttachSearch').value;
+    fetch('{% url "task_email_candidates" task.pk %}?q=' + encodeURIComponent(q), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function(r){ return r.json(); })
+      .then(function(data){ tdRenderEmailResults(data.emails || []); })
+      .catch(function(){ document.getElementById('emailAttachResults').innerHTML = '<div class="list-group-item text-danger small">Ошибка поиска</div>'; });
+  }
+  $('#btnAttachEmail').on('click', function(){
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('emailAttachModal')).show();
+    tdEmailSearch();
+    setTimeout(function(){ document.getElementById('emailAttachSearch').focus(); }, 300);
+  });
+  $('#emailAttachSearch').on('input', function(){
+    clearTimeout(tdEmailTimer);
+    tdEmailTimer = setTimeout(tdEmailSearch, 300);
+  });
+  $('#td-desc-preview-btn').on('click', function(){
+    var p = document.getElementById('td-desc-preview');
+    if (p.style.display === 'none') {
+      p.innerHTML = document.getElementById('td-description').value || '<span class="text-muted">Нет описания</span>';
+      p.style.display = 'block';
+    } else { p.style.display = 'none'; }
   });
 });
 </script>

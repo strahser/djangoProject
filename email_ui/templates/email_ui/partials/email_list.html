@@ -1,9 +1,6 @@
 {% load email_filters l10n %}
 {% if oob_sync %}
-{# Синхронизация форм после htmx-переключения папки: шапка/сайдбар меняют
-   только #email-list-container, а скрытые folder/filter_params в формах
-   фильтра и массовых действий иначе остаются от прошлой папки — и поиск /
-   «выбрать всё» работают не в той папке. OOB-подмена по id. #}
+{# OOB: синхронизация скрытых folder/filter_params после htmx-смены папки. #}
 <input type="hidden" id="filter-folder-input" name="folder" value="{{ folder }}" hx-swap-oob="true">
 <input type="hidden" id="bulk-folder-input" name="folder" value="{{ folder }}" hx-swap-oob="true">
 <input type="hidden" id="bulk-filter-params-input" name="filter_params" value="{{ clean_params }}" hx-swap-oob="true">

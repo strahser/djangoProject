@@ -319,6 +319,13 @@ def update_task_field(request):
         if field == 'contractor':
             contractor = get_object_or_404(Contractor, pk=value)
             task.contractor = contractor
+        elif field == 'name':
+            name = (value or '').strip()
+            if not name:
+                return JsonResponse({'status': 'error', 'message': 'Укажите название задачи'})
+            task.name = name
+        elif field == 'description':
+            task.description = value or ''
         elif field == 'status':
             status = get_object_or_404(Status, pk=value)
             task.status = status
@@ -597,6 +604,56 @@ def task_attachment_add(request, pk):
     log_change(task=task, action='task:attach',
                details=f.name, user=request.user)
     messages.success(request, f'Файл «{f.name}» загружен')
+    return redirect('task_detail', pk=pk)
+
+
+@login_required
+def task_email_candidates(request, pk):
+    """JSON-поиск писем для модалки «Прикрепить письмо» (DMX-5)."""
+    from Emails.models import Email
+    task = get_object_or_404(TaskNode, pk=pk)
+    q = (request.GET.get('q') or '').strip()
+    emails = Email.objects.exclude(pk__in=task.emails.values('pk'))
+    if q:
+        emails = emails.filter(
+            Q(subject__icontains=q) | Q(sender__icontains=q)
+            | Q(sender_name__icontains=q) | Q(receiver__icontains=q))
+    rows = emails.order_by('-email_stamp', '-id')[:30].values(
+        'id', 'subject', 'sender', 'sender_name', 'email_stamp')
+    return JsonResponse({'emails': [
+        {'id': r['id'], 'subject': r['subject'] or 'Без темы',
+         'sender': r['sender_name'] or r['sender'] or '',
+         'date': r['email_stamp'].strftime('%d.%m.%Y') if r['email_stamp'] else ''}
+        for r in rows]})
+
+
+@login_required
+@require_POST
+def task_email_attach(request, pk):
+    """Прикрепить письмо к задаче из вкладки «Письма» (DMX-5)."""
+    from Emails.models import Email
+    task = get_object_or_404(TaskNode, pk=pk)
+    email = get_object_or_404(Email, pk=request.POST.get('email_id') or 0)
+    task.emails.add(email)
+    log_change(task=task, action='task:email_attach',
+               details=f'письмо «{(email.subject or "Без темы")[:80]}»',
+               user=request.user)
+    messages.success(request, 'Письмо прикреплено к задаче')
+    return redirect('task_detail', pk=pk)
+
+
+@login_required
+@require_POST
+def task_email_detach(request, pk, email_id):
+    """Открепить письмо от задачи."""
+    from Emails.models import Email
+    task = get_object_or_404(TaskNode, pk=pk)
+    email = get_object_or_404(Email, pk=email_id)
+    task.emails.remove(email)
+    log_change(task=task, action='task:email_detach',
+               details=f'письмо «{(email.subject or "Без темы")[:80]}»',
+               user=request.user)
+    messages.success(request, 'Письмо откреплено от задачи')
     return redirect('task_detail', pk=pk)
 
 

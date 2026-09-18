@@ -6,6 +6,7 @@ import django_tables2 as tables
 from django.db.models import QuerySet
 from django.http import HttpResponse
 from django.urls import reverse_lazy, reverse
+from django.utils.html import strip_tags
 from django.utils.safestring import mark_safe
 from django_tables2 import LazyPaginator
 from pretty_html_table import pretty_html_table
@@ -217,9 +218,11 @@ class TaskNodeTable(tables.Table):
         return record.owner.username if record.owner else ''
 
     def render_description(self, record):
+        # В описании бывает rich-HTML (CKEditor/почта) — в списке показываем
+        # plain-text выжимку, иначе теги видны буквально (<p>…</p>).
         if not record.description:
             return ''
-        text = str(record.description)
+        text = re.sub(r'\s+', ' ', strip_tags(str(record.description))).strip()
         return text[:80] + ('…' if len(text) > 80 else '')
 
     def render_creation_stamp(self, record):

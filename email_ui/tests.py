@@ -582,6 +582,9 @@ class InboxViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         # чтобы поиск и массовые действия работали в текущей папке.
         url = reverse('email_ui:email_list_partial')
         html = self.client.get(url, {'folder': 'sent'}).content.decode()
+        # Django-комментарии только однострочные: многострочный {# #}
+        # просочился бы в ответ буквально (регрессия видимого мусора).
+        self.assertNotIn('{#', html)
         self.assertInHTML(
             '<input type="hidden" id="filter-folder-input" '
             'name="folder" value="sent" hx-swap-oob="true">', html)
