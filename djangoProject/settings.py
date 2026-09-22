@@ -88,7 +88,6 @@ INSTALLED_APPS = [
     'ProjectTDL',
     'StaticData',
     'ProjectContract',
-    'PersonalData',
     'Emails',
     'email_ui',
     'TelegramParser',
@@ -103,7 +102,7 @@ EMAIL_FETCH_INTERVAL_MINUTES = 30  # minutes (автозагрузка почт�
 BACKUP_KEEP_VERSIONS = 2
 MEDIA_ROOT =r"e:\Проекты Симрус\Переписка"
 MEDIA_URL = '/media/'
-BACKUP_PATH = folder = os.path.join('e:\\','Проекты Симрус', 'backup')
+BACKUP_PATH = folder = r'c:\Users\Strakhov\Yandex.Disk\djangoDb'
 
 # Движок валидации РД (DesignBase FastAPI, M1 DOC-2/DOC-3)
 DESIGNBASE_URL = os.environ.get('DESIGNBASE_URL', 'http://127.0.0.1:8010')
@@ -126,7 +125,6 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_htmx.middleware.HtmxMiddleware',
-    'djangoProject.db_switch.middleware.DatabaseSwitchMiddleware',
 ]
 CRISPY_ALLOWED_TEMPLATE_PACKS = ('Bootstrap5',)
 CRISPY_TEMPLATE_PACK = "Bootstrap5"
@@ -143,7 +141,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'djangoProject.db_switch.context_processors.db_mode',
             ],
         },
     },
@@ -182,13 +179,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.path.join(DB_DIR, 'db.sqlite3'),  # Полный путь к базе данных по умолчанию
     },
-    'personal_db': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(DB_DIR, 'personal_db.sqlite3'),  # Полный путь к personal_db
-    }
 }
-
-DATABASE_ROUTERS = ['djangoProject.db_switch.DbRouter.DatabaseSwitchRouter']
 
 
 AUTH_PASSWORD_VALIDATORS = [

@@ -9,7 +9,6 @@ import adminactions.actions as actions
 from django.views.static import serve
 
 from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
-from djangoProject.db_switch import views as db_switch_views
 from DocRegistry.admin_sites import k1_site, m1_site
 
 # register all adminactions
@@ -42,6 +41,5 @@ urlpatterns = [
     re_path(r'^media/(?P<path>.*)$', serve, {
         'document_root': r"e:\Проекты Симрус\Переписка"
     }),
-    path('switch-db/', db_switch_views.switch_db, name='switch_db'),
 ]
 

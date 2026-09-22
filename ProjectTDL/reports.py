@@ -53,31 +53,122 @@ def format_currency(value, decimal_places=2):
         return f"0.{'0' * decimal_places}"
 
 
+def _days_word(n):
+    """Склонение «день» для русского языка: 1 день, 2 дня, 5 дней."""
+    n = abs(int(n)) % 100
+    if 11 <= n <= 14:
+        return 'дней'
+    n %= 10
+    if n == 1:
+        return 'день'
+    if 2 <= n <= 4:
+        return 'дня'
+    return 'дней'
+
+
 class ReportGenerator:
     """Генератор отчетов по задачам"""
 
     @staticmethod
-    def _task_info(task):
+    def _due_state(due_raw, is_closed, today):
+        """Состояние срока относительно даты отчёта.
+
+        Возвращает (due_class, due_label, overdue_days, days_left):
+        - срок < даты отчёта и задача не завершена → просрочено;
+        - срок = сегодня → сегодня; срок в ближайшие 3 дня → скоро;
+        - срок не задан → без срока.
+        """
+        if not due_raw:
+            return 'deadline-empty', 'без срока', 0, None
+        delta = (due_raw - today).days
+        if delta < 0:
+            if is_closed:
+                return 'deadline-normal', due_raw.strftime('%d.%m.%Y'), 0, None
+            n = -delta
+            return 'deadline-overdue', f'просрочено на {n} {_days_word(n)}', n, delta
+        if delta == 0:
+            return 'deadline-today', 'сегодня', 0, 0
+        if delta <= 3:
+            return 'deadline-soon', f'через {delta} {_days_word(delta)}', 0, delta
+        return 'deadline-normal', f'через {delta} {_days_word(delta)}', 0, delta
+
+    @staticmethod
+    def _due_filter_value(due_class):
+        """Значение срока для JS-фильтра: overdue/today/soon/normal/nodate."""
+        return {
+            'deadline-overdue': 'overdue',
+            'deadline-today': 'today',
+            'deadline-soon': 'soon',
+            'deadline-normal': 'normal',
+            'deadline-empty': 'nodate',
+        }.get(due_class, 'nodate')
+
+    @staticmethod
+    def _due_sort_key(due_raw, today, days_left):
+        """Числовой ключ сортировки по сроку: сначала просроченные,
+        потом ближайшие, потом без срока."""
+        if not due_raw:
+            return 10 ** 9
+        return days_left if days_left is not None else 10 ** 9
+
+    @staticmethod
+    def _task_info(task, today=None):
         """Основная информация о задаче — единый словарь для всех форматов."""
+        from datetime import date as _date
+        if today is None:
+            today = _date.today()
+        status_name = task.status.name if task.status else '-'
+        lowered = status_name.lower()
+        is_closed = 'выполнена' in lowered or 'завершена' in lowered
         status_class = 'active'
-        if task.status and ('выполнена' in task.status.name.lower() or 'завершена' in task.status.name.lower()):
+        if is_closed:
             status_class = 'completed'
-        elif task.status and 'просроч' in task.status.name.lower():
+        elif 'просроч' in lowered:
             status_class = 'overdue'
+        due_class, due_label, overdue_days, days_left = ReportGenerator._due_state(
+            task.due_date, is_closed, today)
+        status_display = status_name
+        if due_class == 'deadline-overdue' and status_class != 'overdue':
+            # Срок меньше даты отчёта, задача не завершена → «Просрочено»,
+            # даже если в карточке стоит «Открыто». Исходный статус — в status_orig.
+            status_display = 'Просрочено'
+            status_class = 'overdue'
+        import re as _re
+        info_project = task.project_site.name if task.project_site else '-'
+        info_building = (f"{task.building_number.name.name} ({task.building_number.building_number})"
+                         if task.building_number and task.building_number.name else '-')
+        info_chapter = task.design_chapter.name if task.design_chapter else '-'
+        info_contractor = task.contractor.name if task.contractor else '-'
+        info_category = task.category.name if task.category else '-'
+        search_blob = ' '.join([
+            str(task.id), task.name or '', info_project, info_building,
+            status_name, status_display,
+            info_contractor, info_chapter, info_category,
+            html_convert(task.description or ''),
+        ])
+        search_blob = _re.sub(r'\s+', ' ', search_blob).strip().lower()[:2000]
         return {
             'id': task.id,
             'name': task.name,
-            'project': task.project_site.name if task.project_site else '-',
-            'building': f"{task.building_number.name.name} ({task.building_number.building_number})"
-            if task.building_number and task.building_number.name else '-',
-            'design_chapter': task.design_chapter.name if task.design_chapter else '-',
-            'contractor': task.contractor.name if task.contractor else '-',
-            'status': task.status.name if task.status else '-',
+            'project': info_project,
+            'building': info_building,
+            'design_chapter': info_chapter,
+            'contractor': info_contractor,
+            'status': status_display,
+            'status_orig': status_name,
             'status_class': status_class,
-            'category': task.category.name if task.category else '-',
+            'category': info_category,
             'price': float(task.price) if task.price else 0.0,
             'price_display': format_currency(task.price, 2) if task.price else '0,00',
             'due_date': task.due_date.strftime('%d.%m.%Y') if task.due_date else '-',
+            'due_class': due_class,
+            'due_filter': ReportGenerator._due_filter_value(due_class),
+            'due_order': ReportGenerator._due_sort_key(task.due_date, today, days_left),
+            'due_label': due_label,
+            'overdue_days': overdue_days,
+            'days_left': days_left,
+            'has_due_date': bool(task.due_date),
+            'search_blob': search_blob,
             'description': mark_safe(task.description) if task.description else mark_safe(
                 '<span class="no-data">Нет описания</span>'),
             'description_text': html_convert(task.description or ''),
@@ -219,6 +310,8 @@ class ReportGenerator:
         total_price_all = 0
         total_subtasks_all = 0
         total_history_all = 0
+        overdue_count = 0
+        no_due_count = 0
 
         # Статусы для подсчета
         status_counts = {
@@ -272,6 +365,10 @@ class ReportGenerator:
             total_price_all += task_info['price']
             total_subtasks_all += len(subtasks)
             total_history_all += len(history)
+            if task_info['due_class'] == 'deadline-overdue':
+                overdue_count += 1
+            if not task_info['has_due_date']:
+                no_due_count += 1
 
             html_content.append({
                 'task': task_info,
@@ -322,6 +419,16 @@ class ReportGenerator:
             'total_price_all_formatted': total_price_all_formatted,
             'total_subtasks_all': total_subtasks_all,
             'total_history_all': total_history_all,
+            'overdue_count': overdue_count,
+            'no_due_count': no_due_count,
+            'filter_contractors': sorted(
+                {c['task']['contractor'] for c in html_content if c['task']['contractor'] != '-'}),
+            'filter_statuses': sorted({c['task']['status'] for c in html_content}),
+            'filter_buildings': sorted(
+                {c['task']['building'] for c in html_content if c['task']['building'] != '-'}),
+            'filter_chapters': sorted(
+                {c['task']['design_chapter'] for c in html_content
+                 if c['task']['design_chapter'] != '-'}),
             'status_counts': status_counts,
             'html_content': html_content,
             'download_timestamp': timezone.now().strftime("%Y%m%d_%H%M"),

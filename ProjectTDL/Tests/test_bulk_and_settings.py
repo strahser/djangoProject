@@ -139,6 +139,7 @@ class UserSettingsRoundTripTest(TestCase):
             'column_widths': json.dumps({'name': 300}),
             'column_order': json.dumps(['name', 'price']),
             'panel_fields': json.dumps({'name': True}),
+            'table_sort': '-id',
         }
         payload.update(overrides)
         return payload
@@ -163,6 +164,7 @@ class UserSettingsRoundTripTest(TestCase):
         self.assertEqual(settings.column_widths, {'name': 300})
         self.assertEqual(settings.column_order, ['name', 'price'])
         self.assertEqual(settings.panel_fields, {'name': True})
+        self.assertEqual(settings.table_sort, '-id')
 
     def test_active_project_id_persisted(self):
         resp = post(self.client, 'save_user_settings',
@@ -170,3 +172,94 @@ class UserSettingsRoundTripTest(TestCase):
         self.assertEqual(resp['status'], 'ok')
         settings = UserSettings.objects.get(user=self.user)
         self.assertEqual(settings.active_project_id, self.site.pk)
+
+
+class TableSortPersistenceTest(TestCase):
+    """Сортировка строк — часть структуры таблицы (сохраняется в настройках).
+
+    1) без ?sort= и без настроек — дефолт «свежие вперёд» (-id);
+    2) сохранённый table_sort применяется при загрузке без ?sort=;
+    3) явный ?sort= запоминается в UserSettings.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='sort_tester', password='x')
+        cls.site = ProjectSite.objects.create(name='Объект-сортировка')
+        cls.status = Status.objects.create(name='Открыто')
+        cls.category = Category.objects.create(name='Проектная')
+        cls.first = TaskNode.objects.create(
+            owner=cls.user, project_site=cls.site, name='БББ вторая',
+            status=cls.status, category=cls.category)
+        cls.second = TaskNode.objects.create(
+            owner=cls.user, project_site=cls.site, name='ААА первая',
+            status=cls.status, category=cls.category)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def _row_ids(self, response):
+        import re
+        return [int(v) for v in re.findall(r'data-id="(\d+)"', response.content.decode())]
+
+    def test_default_sort_is_fresh_first(self):
+        r = self.client.get(reverse('custom_task_view'))
+        self.assertEqual(r.status_code, 200)
+        ids = self._row_ids(r)
+        self.assertTrue(ids)
+        self.assertEqual(ids[0], max(self.first.pk, self.second.pk))
+
+    def test_saved_sort_applied(self):
+        UserSettings.objects.create(user=self.user, table_sort='name')
+        r = self.client.get(reverse('custom_task_view'))
+        html = r.content.decode()
+        self.assertLess(html.find('ААА первая'), html.find('БББ вторая'))
+
+    def test_explicit_sort_persisted(self):
+        r = self.client.get(reverse('custom_task_view'), {'sort': 'id'})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(
+            UserSettings.objects.get(user=self.user).table_sort, 'id')
+
+    def test_hierarchical_sort_keeps_child_under_parent(self):
+        # Плоский order_by -id ставил дочернюю (больший id) выше родителя —
+        # подзадача выглядела «отдельной задачей». Иерархия: корни по ключу,
+        # поддерево MPTT-порядком (родитель всегда перед детьми).
+        from ProjectTDL.Tables import order_qs_hierarchical
+        parent = TaskNode.objects.create(
+            owner=self.user, project_site=self.site, name='Родитель',
+            status=self.status, category=self.category)
+        child = TaskNode.objects.create(
+            owner=self.user, project_site=self.site, name='Дочерняя',
+            status=self.status, category=self.category, parent=parent)
+        qs = TaskNode.objects.filter(pk__in=[parent.pk, child.pk])
+        ordered = [t.pk for t in order_qs_hierarchical(qs, ['-id'])]
+        self.assertEqual(ordered, [parent.pk, child.pk])
+
+    def test_view_renders_child_after_parent(self):
+        parent = TaskNode.objects.create(
+            owner=self.user, project_site=self.site, name='РодительВид',
+            status=self.status, category=self.category)
+        child = TaskNode.objects.create(
+            owner=self.user, project_site=self.site, name='ДочерняяВид',
+            status=self.status, category=self.category, parent=parent)
+        r = self.client.get(reverse('custom_task_view'), {'sort': '-id'})
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        self.assertLess(html.find(f'data-id="{parent.pk}"'),
+                        html.find(f'data-id="{child.pk}"'))
+
+    def test_filter_ajax_renders_child_after_parent(self):
+        parent = TaskNode.objects.create(
+            owner=self.user, project_site=self.site, name='РодительАякс',
+            status=self.status, category=self.category)
+        child = TaskNode.objects.create(
+            owner=self.user, project_site=self.site, name='ДочерняяАякс',
+            status=self.status, category=self.category, parent=parent)
+        r = self.client.get(reverse('filter_tasks_ajax'),
+                            {'view': 'tree', 'sort': '-id'})
+        self.assertEqual(r.status_code, 200)
+        html = json.loads(r.content)['table']
+        self.assertLess(html.find(f'data-id="{parent.pk}"'),
+                        html.find(f'data-id="{child.pk}"'))

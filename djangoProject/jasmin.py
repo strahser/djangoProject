@@ -57,7 +57,6 @@ JAZZMIN_SETTINGS = {
         # App with dropdown menu to all its models pages (Permissions checked against models)
         {"app": "StaticData"},
         {'app': 'ProjectTDL'},
-        {'app': 'PersonalData'},
         {'app': 'TelegramParser'},
     ],
 
@@ -82,7 +81,7 @@ JAZZMIN_SETTINGS = {
     "navigation_expanded": False,
 
     # Hide these apps when generating side menu e.g (auth)
-    "hide_apps": ['StaticData','PersonalData'],
+    "hide_apps": ['StaticData'],
 
     # Hide these models when generating side menu (e.g auth.user)
     "hide_models": ["auth.user", "auth.Group", 'ProjectTDL.SubTask',

@@ -30,6 +30,7 @@ urlpatterns = [
     path('save_settings/', views.save_user_settings, name='save_user_settings'),
     path('save_filter_state/', views.save_filter_state, name='save_filter_state'),
     path('filter_ajax/', views.filter_tasks_ajax, name='filter_tasks_ajax'),
+    path('filter_task_ids/', views.filter_task_ids, name='filter_task_ids'),
     path('pinned/list/', views.list_pinned_projects, name='list_pinned_projects'),
     path('pinned/add/', views.add_pinned_project, name='add_pinned_project'),
     path('pinned/remove/', views.remove_pinned_project, name='remove_pinned_project'),

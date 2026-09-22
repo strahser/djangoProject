@@ -6,7 +6,7 @@
         <p><strong>Проект:</strong> {{ task.project }} |
         <strong>Здание:</strong> {{ task.building }} |
         <strong>Статус:</strong> <span class="status-{{ task.status_class }}">{{ task.status }}</span> |
-        <strong>Срок:</strong> {{ task.due_date }}</p>
+        <strong>Срок:</strong> {{ task.due_date }} <span class="{{ task.due_class }}">({{ task.due_label }})</span></p>
 
         <div class="task-nav">
             <button onclick="toggleThisTask({{ task.id|unlocalize }})" class="nav-button" id="toggle-btn-{{ task.id|unlocalize }}">▼ Развернуть</button>
@@ -82,6 +82,7 @@
         <div class="section">
             <h4 class="section-title">🕐 История изменений сроков ({{ content.history_count }})</h4>
             {% if content.history %}
+            <div class="history-list">
             <table>
                 <thead>
                     <tr>
@@ -94,6 +95,7 @@
                 </thead>
                 <tbody>
                     {% for record in content.history %}
+                    {% if forloop.counter <= 5 %}
                     <tr>
                         <td>{{ forloop.counter }}</td>
                         <td>{{ record.old_date }}</td>
@@ -101,9 +103,29 @@
                         <td>{{ record.change_date }}</td>
                         <td>{{ record.changed_by }}</td>
                     </tr>
+                    {% endif %}
                     {% endfor %}
                 </tbody>
+                {% if content.history_count > 5 %}
+                <tbody id="history-extra-{{ task.id|unlocalize }}" style="display: none;">
+                    {% for record in content.history %}
+                    {% if forloop.counter > 5 %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ record.old_date }}</td>
+                        <td>{{ record.new_date }}</td>
+                        <td>{{ record.change_date }}</td>
+                        <td>{{ record.changed_by }}</td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+                {% endif %}
             </table>
+            </div>
+            {% if content.history_count > 5 %}
+            <button onclick="toggleHistory({{ task.id|unlocalize }}, event)" class="nav-button" id="history-btn-{{ task.id|unlocalize }}">Показать все {{ content.history_count }} изменений</button>
+            {% endif %}
             {% else %}
             <p class="no-data">Нет изменений сроков</p>
             {% endif %}

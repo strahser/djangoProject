@@ -140,6 +140,8 @@ class UserSettings(models.Model):
     column_order = models.JSONField(default=list, verbose_name='Порядок колонок')
     panel_fields = models.JSONField(default=dict, verbose_name='Поля панели свойств')
     page_length = models.IntegerField(null=True, blank=True, verbose_name='Записей на страницу')
+    table_sort = models.CharField(max_length=32, default='', blank=True,
+                                  verbose_name='Сортировка строк таблицы (?sort=)')
     auto_save = models.BooleanField(default=True, verbose_name='Сохранять состояние фильтров')
     active_project = models.ForeignKey('StaticData.ProjectSite', null=True, blank=True, on_delete=models.SET_NULL,
                                        verbose_name='Активный проект')

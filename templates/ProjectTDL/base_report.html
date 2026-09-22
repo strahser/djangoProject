@@ -34,6 +34,146 @@
         .stat-number { font-size: 24px; font-weight: bold; color: #2c3e50; }
         .stat-label { color: #7f8c8d; font-size: 14px; }
         .jump-to-task { margin-left: 10px; font-size: 12px; color: #3498db; cursor: pointer; text-decoration: underline; }
+        /* Master-detail: раскрывающаяся строка под строкой задачи */
+        .inline-row > td {
+            background: #f7fafc;
+            border-left: 4px solid #3498db;
+            padding: 20px 25px;
+        }
+        .inline-details {
+            border: none;
+            margin: 0;
+            padding: 0;
+            background: transparent;
+        }
+        .inline-details .task-header {
+            display: none;
+        }
+        .inline-details .task-details {
+            display: block;
+        }
+        #summary-table tbody tr.opened {
+            background-color: #e8f4fc;
+        }
+        .details-toggle {
+            min-width: 110px;
+        }
+        /* Цветовая индикация сроков */
+        .deadline-overdue { color: #e74c3c; font-weight: bold; }
+        .deadline-today { color: #e67e22; font-weight: bold; }
+        .deadline-soon { color: #f39c12; font-weight: bold; }
+        .deadline-normal { color: #27ae60; }
+        .deadline-empty { color: #7f8c8d; }
+        /* Длинная история сроков — скролл внутри блока */
+        .history-list {
+            max-height: 250px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            background: white;
+        }
+        /* Этапы 3–4: тулбар поиска/фильтров, чипы, сортировка, пейджер */
+        .report-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .toolbar-search {
+            flex: 2 1 260px;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        .toolbar-select {
+            flex: 1 1 150px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-size: 14px;
+            background: white;
+        }
+        .toolbar-reset {
+            padding: 8px 15px;
+            background-color: #95a5a6;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .toolbar-reset:hover { background-color: #7f8c8d; }
+        .quick-filters {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .chip {
+            padding: 5px 14px;
+            border: 1px solid #3498db;
+            background: white;
+            color: #2980b9;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .chip:hover { background: #e8f4fc; }
+        .chip.active {
+            background: #3498db;
+            color: white;
+        }
+        .filter-counter {
+            margin-left: auto;
+            color: #7f8c8d;
+            font-size: 13px;
+        }
+        #summary-table th[data-sort-key] {
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+        #summary-table th[data-sort-key]:hover {
+            background-color: #e0e0e0;
+        }
+        #summary-table th.sorted-asc::after { content: ' ▲'; }
+        #summary-table th.sorted-desc::after { content: ' ▼'; }
+        .report-pager {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin: 15px 0;
+        }
+        .pager-info { color: #2c3e50; }
+        .nav-button:disabled {
+            background-color: #bdc3c7;
+            cursor: default;
+        }
+        @media print {
+            .controls-container,
+            .report-toolbar,
+            .quick-filters,
+            .report-pager,
+            .nav-button,
+            .expand-button,
+            .collapse-button,
+            .details-toggle,
+            .back-to-top {
+                display: none !important;
+            }
+            .inline-row {
+                display: table-row !important;
+            }
+            body {
+                margin: 0;
+            }
+            .task-details {
+                display: block !important;
+            }
+        }
         .back-to-top { position: fixed; bottom: 20px; right: 20px; background-color: #3498db; color: white; padding: 10px; border-radius: 50%; text-decoration: none; display: none; }
         .controls-container { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 10px; }
         .control-button { padding: 10px 15px; color: white; border: none; border-radius: 3px; cursor: pointer; display: flex; align-items: center; gap: 5px; }

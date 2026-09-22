@@ -375,8 +375,6 @@
     </div>
   </div>
 
-  <input type="hidden" id="currentDbMode" value="{{ db_mode }}">
-
   <div class="mb-2 collapse show" id="filterCollapse">
     <div class="card card-body py-3 px-4 bg-light" style="border-color: var(--border-color, #dee2e6); border-radius:8px;">
       <div class="filter-row">
@@ -465,6 +463,8 @@
     <a class="btn btn-sm btn-outline-warning" id="act-add-subtask" href="#"><i class="bi bi-diagram-2 me-1"></i>Подзадачу</a>
     <a class="btn btn-sm btn-outline-primary" id="act-report" href="#" target="_blank" title="Сформировать HTML отчет по выбранным задачам"><i class="bi bi-file-earmark-text me-1"></i>Отчет</a>
   </div>
+
+  <div id="settings-toast" class="alert alert-warning d-none py-2 my-2" role="alert"></div>
 
   <div id="flat-view-container" class="view-container">
     <form id="main-table-form">
@@ -783,6 +783,7 @@
 <script src="{% static 'DataTables/dataTables.colReorder.js' %}"></script>
 <script>
 const FILTER_AJAX_URL = '{% url "filter_tasks_ajax" %}';
+const FILTER_IDS_URL = '{% url "filter_task_ids" %}';
 const BULK_UPDATE_URL = '{% url "bulk_update_tasks" %}';
 const BULK_DELETE_URL = '{% url "bulk_delete_tasks" %}';
 const MANAGE_REF_URL = '{% url "manage_reference" %}';
@@ -814,13 +815,90 @@ $(document).ready(function() {
     if (userSettingsEl) {
         try { serverSettings = JSON.parse(userSettingsEl.textContent); } catch (e) {}
     }
+    // === Сохранение настроек: сервер + localStorage-fallback ===
+    // save_user_settings требует логина; анонимный POST молча редиректит на /login
+    // и раньше выглядел «успешным» — раскладка слетала при перезагрузке.
+    // Теперь: проверяем ответ, показываем тост, а раскладку всегда дублируем
+    // в localStorage, чтобы и без логина ничего не терялось.
+    const LS_KEY = 'taskTableSettings.v1';
+    function _readLocal() {
+        try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return {}; }
+    }
+    function _writeLocal(patch) {
+        try {
+            const cur = _readLocal();
+            Object.keys(patch || {}).forEach(function(k) { cur[k] = patch[k]; });
+            localStorage.setItem(LS_KEY, JSON.stringify(cur));
+        } catch (e) {}
+    }
+    // Если на сервере пусто (аноним или настроек ещё нет), а локально есть — берём локальные.
+    // Сервер (БД) при непустом значении всегда приоритетнее.
+    (function _mergeLocalSettings() {
+        try {
+            const local = _readLocal();
+            if ((!serverSettings.column_order || !serverSettings.column_order.length) && local.column_order && local.column_order.length) {
+                serverSettings.column_order = local.column_order;
+            }
+            if ((!serverSettings.column_visibility || !Object.keys(serverSettings.column_visibility).length) && local.column_visibility) {
+                serverSettings.column_visibility = local.column_visibility;
+            }
+            if ((!serverSettings.column_widths || !Object.keys(serverSettings.column_widths).length) && local.column_widths) {
+                serverSettings.column_widths = local.column_widths;
+            }
+            // Сортировка строк — часть структуры таблицы: сервер (БД) при
+            // непустом значении приоритетнее, иначе локальная.
+            window.__sortFromLocal = false;
+            if (!serverSettings.table_sort && local.table_sort) {
+                serverSettings.table_sort = local.table_sort;
+                window.__sortFromLocal = true;
+            }
+        } catch (e) {}
+    })();
+    let _settingsMsgAt = 0;
+    function showSettingsMsg(text) {
+        // троттлинг: не чаще раза в 4 сек
+        const now = Date.now();
+        if (now - _settingsMsgAt < 4000) return;
+        _settingsMsgAt = now;
+        const box = document.getElementById('settings-toast');
+        if (!box) return;
+        box.textContent = text;
+        box.classList.remove('d-none');
+        clearTimeout(box._t);
+        box._t = setTimeout(function() { box.classList.add('d-none'); }, 6000);
+    }
+    function postSettings(data) {
+        data = data || {};
+        data.csrfmiddlewaretoken = CSRF_TOKEN;
+        // локальная копия — всегда, даже если сервер откажет
+        try {
+            const patch = {};
+            if (data.column_order) patch.column_order = JSON.parse(data.column_order);
+            if (data.column_visibility) patch.column_visibility = JSON.parse(data.column_visibility);
+            if (data.column_widths) patch.column_widths = JSON.parse(data.column_widths);
+            if (typeof data.table_sort === 'string') patch.table_sort = data.table_sort;
+            if (Object.keys(patch).length) _writeLocal(patch);
+        } catch (e) {}
+        return $.post(SAVE_SETTINGS_URL, data).done(function(resp) {
+            if (!resp || resp.status !== 'ok') {
+                showSettingsMsg('Настройки таблицы сохранены только в этом браузере — войдите, чтобы синхронизировать их.');
+            }
+        }).fail(function() {
+            showSettingsMsg('Не удалось сохранить настройки на сервере — раскладка сохранена локально в браузере.');
+        });
+    }
+    function currentSort() {
+        try { return new URL(window.location.href).searchParams.get('sort') || ''; }
+        catch (e) { return ''; }
+    }
     let dt = null; // инициализация ниже, после объявления PANEL_FIELDS/SETTINGS_FIELDS
     function applyColumnVisibility(dt) {
         const colVis = (serverSettings && serverSettings.column_visibility) || {};
         dt.columns().every(function() {
-            const idx = this.index();
+            // NB: this.index() здесь — ТЕКУЩАЯ позиция (см. _toOriginalIndex),
+            // поэтому чекбокс опознаём по пустому заголовку, а не по индексу.
             const header = $(this.header()).text().trim();
-            if (!header || idx === 0) return;
+            if (!header) return;
             if (Object.prototype.hasOwnProperty.call(colVis, header)) {
                 this.visible(colVis[header]);
             }
@@ -874,11 +952,12 @@ $(document).ready(function() {
         const widths = (serverSettings && serverSettings.column_widths) || {};
         const byCol = {};
         SETTINGS_FIELDS.forEach(function(f) { byCol[f.col] = f; });
-        // Порядок строк — текущий порядок колонок таблицы (единый thead)
+        // Порядок строк — текущий порядок колонок таблицы: ВСЕ, включая скрытые
+        // (скрытые th вынуты из DOM — имена берём через DT API, иначе скрытые
+        // колонки после любого drag'а в модалке уезжали бы в конец порядка).
         const ordered = [];
         const seen = {};
-        _tableHeaders().forEach(function(th) {
-            const h = th.textContent.trim();
+        _columnNames().forEach(function(h) {
             if (!h) return;
             const f = byCol[h];
             if (f && !seen[h]) { ordered.push(f); seen[h] = true; }
@@ -907,29 +986,24 @@ $(document).ready(function() {
         });
         $('.settings-col-toggle').off('change').on('change', function() {
             const colName = $(this).attr('data-col');
-            const colIdx = _headerToIndex(colName);
-            if (window.__taskDt && colIdx >= 0) {
-                try { window.__taskDt.column(colIdx).visible($(this).is(':checked')); } catch (e) {}
-            } else {
+            const vis = $(this).is(':checked');
+            // NB: скрытые колонки вынуты из DOM — переключаем через DT API
+            // (this.visible на найденной колонке), целочисленные позиции
+            // и DOM-поиск при скрытых колонках указывают не туда.
+            if (!_setColumnVisibleByName(colName, vis)) {
                 // fallback без DT API: скрыть колонку в DOM напрямую
-                _setDomColumnVisible(colName, $(this).is(':checked'));
+                _setDomColumnVisible(colName, vis);
             }
             colVis[colName] = $(this).is(':checked');
             serverSettings.column_visibility = colVis;
-            $.post(SAVE_SETTINGS_URL, {
-                column_visibility: JSON.stringify(colVis),
-                csrfmiddlewaretoken: CSRF_TOKEN
-            });
+            postSettings({ column_visibility: JSON.stringify(colVis) });
         });
         $('.settings-panel-toggle').off('change').on('change', function() {
             const field = $(this).attr('data-panel');
             pf[field] = $(this).is(':checked');
             serverSettings.panel_fields = pf;
             syncPanelWithSettings();
-            $.post(SAVE_SETTINGS_URL, {
-                panel_fields: JSON.stringify(pf),
-                csrfmiddlewaretoken: CSRF_TOKEN
-            });
+            postSettings({ panel_fields: JSON.stringify(pf) });
         });
         $('.settings-width-input').off('change').on('change', function() {
             const colName = $(this).attr('data-col');
@@ -962,6 +1036,18 @@ $(document).ready(function() {
     let lastClickedId = null;
     let activeProjectSite = String(serverSettings.active_project_id || '');
 
+    // Сохранённая сортировка есть только локально (БД пуста, в URL sort нет):
+    // сервер отдал дефолт (-id) — дотягиваем выбор пользователя через AJAX.
+    // Если сортировка из БД — сервер уже применил её при рендере, делать нечего.
+    try {
+        if (!currentSort() && window.__sortFromLocal && serverSettings.table_sort && serverSettings.table_sort !== '-id') {
+            const _u = new URL(window.location.href);
+            _u.searchParams.set('sort', serverSettings.table_sort);
+            window.history.replaceState(null, '', _u.toString());
+            applyFilters(serverSettings.table_sort);
+        }
+    } catch (e) {}
+
     if ($('.filter-select[name="project_site"]').val() || $('.filter-select[name="building_number"]').val()) {
         triggerCascade();
     }
@@ -982,9 +1068,27 @@ $(document).ready(function() {
             colReorder: true,
             layout: { topStart: 'info' },
             lengthMenu: [[10, 15, 20, 50, -1], [10, 15, 20, 50, 'Все']],
+            // page_length из настроек (иначе сохранённые 50 игнорировались и всегда было 10)
+            pageLength: (function() {
+                const v = parseInt(serverSettings.page_length, 10);
+                return (v === -1 || v === 10 || v === 15 || v === 20 || v === 50) ? v : 10;
+            })(),
             autoWidth: false,
             scrollX: false,
             ordering: true,
+            order: [], // строки сортирует сервер (?sort=); клиентский дефолт [[0,asc]] гасим,
+                       // иначе DataTables пересортировывает серверную выдачу при инициализации
+            // NB: language.url грузится AJAX — инициализация (и preInit colReorder)
+            // завершается АСИНХРОННО. Поэтому сохранённый порядок применяем
+            // в initComplete, а не сразу: в момент возврата из new DataTable
+            // инстанса плагина (settings._colReorder) ещё нет и прямое
+            // применение молча пропускается (симптом: порядок «сбрасывается»
+            // при любой перезагрузке/сортировке).
+            initComplete: function() {
+                try { applyColumnOrder(dt); } catch (e) { console.error('[taskTable] order:', e); }
+                // Порядок мог сдвинуть колонку «Наименование» — обновить подсветку.
+                try { markNameColumn(); } catch (e) {}
+            },
         });
         if (dt.colReorder) {
             // Чекбокс (колонка 0) закрепляем — его нельзя перетаскивать
@@ -994,15 +1098,20 @@ $(document).ready(function() {
             } catch (e) {}
         }
         window.__taskDt = dt;
+        // page_length может отсутствовать в настройках (null) — фиксируем факт,
+        // чтобы length.dt при инициализации не слал лишний POST.
+        if (serverSettings.page_length == null) {
+            try { serverSettings.page_length = dt.page.len(); } catch (e) {}
+        }
         // Порядок применения важен: сначала порядок, затем видимость и ширины
         // (ширины и видимость keyed by NAME — устойчивы к перестановке).
-        try { applyColumnOrder(dt); } catch (e) { console.error('[taskTable] order:', e); }
+        // Порядок колонок здесь НЕ применяем — он применяется в initComplete
+        // (см. комментарий в конфиге выше).
         try { applyColumnVisibility(dt); } catch (e) { console.error('[taskTable] vis:', e); }
         try { syncPanelWithSettings(); } catch (e) { console.error('[taskTable] panel:', e); }
         try { ensureColgroup(); } catch (e) {}
         try { applyColumnWidths(dt); } catch (e) { console.error('[taskTable] widths:', e); }
         try { addColumnResizers(); } catch (e) {}
-        try { initSelectAllCheckbox(); } catch (e) {}
         try { initTreeView(); } catch (e) {}
         try { markNameColumn(); } catch (e) {}
         dt.on('draw.dt', function() {
@@ -1012,13 +1121,25 @@ $(document).ready(function() {
             try { applyColumnWidths(dt); } catch (e) {}
             try { markNameColumn(); } catch (e) {}
             try { initTreeView(); } catch (e) {}
+            // Пагинация/сортировка пересоздают чекбоксы — восстанавливаем выбор
+            // (в т.ч. «выбрать все» по бэкенду на других страницах).
+            try { syncCheckboxes(); } catch (e) {}
         });
-        dt.on('columns-reordered', function() {
+        // NB: ColReorder 1.x стреляет 'column-reorder.dt' (не 'columns-reordered'):
+        // единый хук на ЛЮБУЮ перестановку — drag шапки, модалка, программное
+        // применение порядка. Здесь же чиним colgroup (см. syncColgroupToHead).
+        dt.on('column-reorder.dt', function() {
             saveColumnOrder();
-            try { ensureColgroup(); } catch (e) {}
+            try { syncColgroupToHead(); } catch (e) {}
             applyColumnWidths(window.__taskDt);
             markNameColumn();
             if ($('#settingsModal').hasClass('show')) buildSettingsTable();
+        });
+        // Смена «Показать N записей» — часть структуры таблицы: сохраняем.
+        dt.on('length.dt', function(e, settings, len) {
+            if (len === serverSettings.page_length) return;
+            serverSettings.page_length = len;
+            postSettings({ page_length: len });
         });
         return dt;
     }
@@ -1027,54 +1148,112 @@ $(document).ready(function() {
         return Array.from(document.querySelectorAll('#TaskTable thead th'));
     }
 
-    function _columnNames() {
-        // Имена в ТЕКУЩЕМ порядке (через DT API — корректно при colReorder)
-        const dt = window.__taskDt;
+    // Имена ВСЕХ колонок в ТЕКУЩЕМ порядке отображения (через DT API).
+    // Важно: скрытые колонки DataTables вынимает из DOM (th detached),
+    // поэтому document.querySelectorAll их НЕ видит — только DT API
+    // (this.header() работает и для скрытых). Со списком только из DOM
+    // при любой скрытой колонке имён меньше, чем колонок, и сохранённый
+    // порядок молча отбрасывался guard'ом в applyColumnOrder.
+    function _columnNames(dtArg) {
+        const dt = dtArg || window.__taskDt;
         if (dt && $.fn.DataTable.isDataTable('#TaskTable')) {
             const names = [];
             try {
-                dt.columns().every(function() { names.push($(this.header()).text().trim()); });
+                dt.columns().every(function() { names.push(($(this.header()).text() || '').trim()); });
                 if (names.length) return names;
             } catch (e) {}
         }
         return _tableHeaders().map(function(th) { return th.textContent.trim(); });
     }
 
-    function applyColumnOrder(dt) {
-        const order = serverSettings.column_order;
-        if (!order || !Array.isArray(order) || !order.length) return;
-        if (!dt.colReorder) return;
-        const idxByName = {};
-        dt.columns().every(function() { idxByName[$(this.header()).text().trim()] = this.index(); });
-        // Чекбокс (колонка 0, пустой заголовок) всегда первая.
-        const idxs = [0];
-        const seen = { 0: true };
-        order.forEach(function(name) {
-            if (!name) return;
-            const i = idxByName[name];
-            if (typeof i === 'number' && !seen[i]) { idxs.push(i); seen[i] = true; }
-        });
-        dt.columns().every(function() {
-            const i = this.index();
-            if (!seen[i]) { idxs.push(i); seen[i] = true; }
-        });
-        if (idxs.length === dt.columns().count()) {
-            dt.colReorder.order(idxs, false);
-        }
-    }
-
-    function saveColumnOrder() {
+    // Порядок колонок как массив имён: чекбокс (пустой заголовок) — всегда первый.
+    function readColumnOrder() {
         const names = _columnNames();
         const cb = names.indexOf('');
         if (cb > 0) {
             names.splice(cb, 1);
             names.unshift('');
         }
-        serverSettings.column_order = names;
-        $.post(SAVE_SETTINGS_URL, {
-            column_order: JSON.stringify(names),
-            csrfmiddlewaretoken: CSRF_TOKEN
+        return names;
+    }
+
+    // === colReorder: позиции vs исходные индексы ===
+    // DataTables 1.x + ColReorder физически переставляет aoColumns и DOM:
+    // columns().every() идёт в порядке ОТОБРАЖЕНИЯ, а this.index() возвращает
+    // ТЕКУЩУЮ позицию колонки, а не исходный индекс. При этом
+    // dt.colReorder.order(idxs, true) ждёт ИСХОДНЫЕ индексы в желаемом порядке,
+    // а dt.colReorder.order(idxs, false) — ТЕКУЩИЕ позиции (корректно только
+    // на свежей таблице). Целочисленный селектор dt.column(i) тоже считает
+    // по текущим позициям. Смешивать системы координат нельзя — иначе
+    // порядок/видимость применяются не к тем колонкам, а ломаный порядок
+    // сохраняется в БД (симптом: «порядок колонок изменился после
+    // сортировки/перезагрузки»). Перевод позиций в исходные — через transpose().
+    // NB: имена колонок берём ТОЛЬКО через DT API (_columnNames): скрытые колонки
+    // DataTables вынимает из DOM, любой document.querySelectorAll по thead их
+    // не видит и даёт неполный список. DOM-обходы thead для имён запрещены.
+    function _toOriginalIndex(dt, displayPos) {
+        try {
+            if (dt && dt.colReorder && dt.colReorder.transpose) {
+                const v = dt.colReorder.transpose(displayPos, 'toOriginal');
+                if (typeof v === 'number' && v >= 0) return v;
+            }
+        } catch (e) {}
+        return displayPos;
+    }
+    // desiredNames — имена в желаемом порядке отображения.
+    // Возвращает массив ИСХОДНЫХ индексов для dt.colReorder.order(idxs, true).
+    // Имена берём через DT API (_columnNames), а не из DOM: скрытые колонки
+    // вынуты из DOM, и по DOM-списку часть имён не находилась бы.
+    function _orderIndexesForNames(dt, desiredNames) {
+        const names = _columnNames(dt);
+        const used = {};
+        const idxs = [];
+        function take(displayPos) {
+            if (used[displayPos]) return;
+            used[displayPos] = true;
+            idxs.push(_toOriginalIndex(dt, displayPos));
+        }
+        // Чекбокс (пустой заголовок) — всегда первый.
+        for (let p = 0; p < names.length; p++) {
+            if (names[p] === '') { take(p); break; }
+        }
+        (desiredNames || []).forEach(function(nm) {
+            if (!nm) return;
+            for (let p = 0; p < names.length; p++) {
+                if (!used[p] && names[p] === nm) { take(p); break; }
+            }
         });
+        for (let p = 0; p < names.length; p++) take(p);
+        return idxs;
+    }
+
+    function applyColumnOrder(dt) {
+        const order = serverSettings.column_order;
+        if (!order || !Array.isArray(order) || !order.length) return;
+        if (!dt.colReorder) return;
+        // Инстанс плагина может отсутствовать (битый state после destroy,
+        // рассинхрон вендора) — тогда порядок не применяем, без исключений.
+        try {
+            if (!dt.settings()[0]._colReorder) return;
+        } catch (e) { return; }
+        const idxs = _orderIndexesForNames(dt, order);
+        if (idxs.length === dt.columns().count()) {
+            // true = массив из ИСХОДНЫХ индексов (корректно из любого состояния;
+            // с false массив трактуется как текущие позиции и работает только
+            // на свежей таблице).
+            dt.colReorder.order(idxs, true);
+        }
+    }
+
+    function saveColumnOrder() {
+        const names = readColumnOrder();
+        // Программное применение порядка при загрузке (initComplete) тоже
+        // стреляет column-reorder.dt: если порядок не изменился — на сервер
+        // не шлём (иначе аноним получал бы тост при каждой загрузке).
+        const same = (serverSettings.column_order || []).join('|') === names.join('|');
+        serverSettings.column_order = names;
+        try { _writeLocal({ column_order: names }); } catch (e) {}
+        if (!same) postSettings({ column_order: JSON.stringify(names) });
     }
 
     function markNameColumn() {
@@ -1104,7 +1283,8 @@ $(document).ready(function() {
         const table = document.querySelector('#TaskTable');
         if (!table) return;
         const n = table.querySelectorAll('thead th').length;
-        // colReorder сам переставляет <col> вместе с th — только синхронизируем количество
+        // NB: colReorder <col> НЕ двигает (двигает только th/td) — здесь лишь
+        // синхронизируем количество; порядок чинит syncColgroupToHead().
         let cg = table.querySelector('colgroup');
         if (!cg) {
             cg = document.createElement('colgroup');
@@ -1114,6 +1294,21 @@ $(document).ready(function() {
             while (cg.children.length < n) cg.appendChild(document.createElement('col'));
             while (cg.children.length > n) cg.removeChild(cg.lastChild);
         }
+    }
+    // Пересоздать <col> под ТЕКУЩИЙ порядок thead. Нужно после любой
+    // перестановки: _renderWidths красит cols[i] по имени th[i], а старые
+    // <col> после colReorder остаются в прежнем порядке — ширины уезжали
+    // не на те колонки (симптом: «ширина ID=80 не держится до Save в модалке»,
+    // модальный Save чинил это побочно через _renderWidths по свежему thead).
+    function syncColgroupToHead() {
+        const table = document.querySelector('#TaskTable');
+        if (!table) return;
+        const n = table.querySelectorAll('thead th').length;
+        const old = table.querySelector('colgroup');
+        if (old) old.remove();
+        const cg = document.createElement('colgroup');
+        for (let i = 0; i < n; i++) cg.appendChild(document.createElement('col'));
+        table.insertBefore(cg, table.firstChild);
     }
     function _setColumnWidth(idx, w) {
         const table = document.querySelector('#TaskTable');
@@ -1228,10 +1423,7 @@ $(document).ready(function() {
     function saveColumnWidths() {
         const widths = _getColWidths();
         serverSettings.column_widths = widths;
-        $.post(SAVE_SETTINGS_URL, {
-            column_widths: JSON.stringify(widths),
-            csrfmiddlewaretoken: CSRF_TOKEN
-        });
+        postSettings({ column_widths: JSON.stringify(widths) });
     }
 
     // Клик по ручке — выпадающее окно с точной шириной колонки
@@ -1398,12 +1590,6 @@ $(document).ready(function() {
         syncCheckboxes();
     }
 
-    function initSelectAllCheckbox() {
-        document.querySelectorAll('#TaskTable thead th:first-child input[type="checkbox"]').forEach(function(cb) {
-            cb.classList.add('header-select-all');
-        });
-    }
-
     function syncCheckboxes() {
         $('.task-checkbox').each(function() {
             const id = $(this).val();
@@ -1415,7 +1601,7 @@ $(document).ready(function() {
         // «Выбрать все» отражает видимые строки (в дереве скрытые подзадачи не считаем)
         const visibleBoxes = $('.task-checkbox:visible');
         const allVisible = visibleBoxes.length > 0 && visibleBoxes.filter(':checked').length === visibleBoxes.length;
-        $('.header-select-all').prop('checked', allVisible);
+        $('#TaskTable thead input[type="checkbox"]').prop('checked', allVisible);
         updateCounters();
     }
 
@@ -1446,14 +1632,34 @@ $(document).ready(function() {
         syncCheckboxes();
     });
 
-    // Чекбокс «выбрать все» в шапке: выбирает видимые задачи (в дереве — только развёрнутые)
-    $(document).on('click', '.header-select-all', function() {
-        const checked = this.checked;
-        selectedTasks.clear();
-        if (checked) {
-            $('.task-checkbox:visible').each(function() { selectedTasks.add($(this).val()); });
+    // Чекбокс «выбрать все» в шапке: все ID под текущим фильтром с бэкенда.
+    // Пагинацию игнорируем — выбираются все задачи под фильтром, а не только видимые.
+    // Селектор структурный (без JS-навешивания класса): работает всегда, когда чекбокс есть в thead.
+    $(document).on('click', '#TaskTable thead input[type="checkbox"]', function() {
+        const cb = this;
+        const checked = cb.checked;
+        if (!checked) {
+            selectedTasks.clear();
+            syncCheckboxes();
+            return;
         }
-        syncCheckboxes();
+        const params = {};
+        $('.filter-select').each(function() {
+            const v = $(this).val();
+            if (v) params[$(this).attr('name')] = v;
+        });
+        params.view = 'tree';
+        cb.disabled = true;
+        $.getJSON(FILTER_IDS_URL, params).done(function(data) {
+            selectedTasks.clear();
+            (data.ids || []).forEach(function(id) { selectedTasks.add(String(id)); });
+            syncCheckboxes();
+        }).fail(function() {
+            // fallback: видимые, как раньше
+            selectedTasks.clear();
+            $('.task-checkbox:visible').each(function() { selectedTasks.add($(this).val()); });
+            syncCheckboxes();
+        }).always(function() { cb.disabled = false; });
     });
 
     $('#clear-selection').on('click', function() {
@@ -1529,7 +1735,7 @@ $(document).ready(function() {
         });
     }
 
-    function applyFilters() {
+    function applyFilters(sortOverride) {
         const params = {};
         $('.filter-select').each(function() {
             const v = $(this).val();
@@ -1537,6 +1743,12 @@ $(document).ready(function() {
         });
         // Дерево: все узлы (родители+подзадачи) по MPTT
         params.view = 'tree';
+        // Сортировка строк — часть структуры таблицы: не терять её при фильтрации.
+        // filter_tasks_ajax через RequestConfig уже умеет ?sort= — просто пробрасываем.
+        // Приоритет: явный выбор > URL > сохранённая (БД/localStorage) > дефолт «свежие вперёд».
+        const _sort = (typeof sortOverride !== 'undefined' && sortOverride !== null) ? sortOverride
+            : (currentSort() || serverSettings.table_sort || (function() { try { return _readLocal().table_sort || ''; } catch (e) { return ''; } })() || '-id');
+        if (_sort) params.sort = _sort;
         $.getJSON(FILTER_AJAX_URL, params, function(data) {
             $('#table-wrapper').html(data.table);
             $('#filter-count').text(data.count);
@@ -1546,6 +1758,28 @@ $(document).ready(function() {
             saveFilterState();
         });
     }
+
+    // Клик по заголовку сортировки — без полной перезагрузки страницы (AJAX + history).
+    // Полная перезагрузка роняла клиентское состояние (выбор строк, раскрытые узлы)
+    // и давала видимый «прыжок» колонок: сервер отдаёт дефолтный порядок thead,
+    // а сохранённый применяется асинхронно в initComplete (после загрузки ru.json).
+    $(document).on('click', '#TaskTable thead a[href*="sort"]', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const href = $(this).attr('href') || '';
+        const m = href.match(/[?&]sort=([^&]*)/);
+        const sort = m ? decodeURIComponent(m[1]) : '';
+        try {
+            const url = new URL(window.location.href);
+            if (sort) url.searchParams.set('sort', sort);
+            else url.searchParams.delete('sort');
+            window.history.replaceState(null, '', url.toString());
+        } catch (err) {}
+        // Выбор сортировки запоминаем (БД + localStorage) — переживёт перезагрузку.
+        try { serverSettings.table_sort = sort; } catch (err) {}
+        postSettings({ table_sort: sort || '' });
+        applyFilters(sort);
+    });
 
     // ==== Дерево в стиле DataTable: скрытие/раскрытие подзадач ====
     function initTreeView() {
@@ -1831,43 +2065,41 @@ $(document).ready(function() {
         });
     });
 
-    function _headerToIndex(name) {
-        // Индекс ВНУТРИ DataTables (корректен при colReorder) — для dt.column()
+    // Показать/скрыть колонку по ИМЕНИ через DT API. Возвращает true, если
+    // колонка найдена (включая скрытые — их th detached из DOM, позиционные
+    // методы их не находят). this.visible действует ровно на свою колонку
+    // вне зависимости от систем координат colReorder.
+    function _setColumnVisibleByName(name, vis) {
         const dt = window.__taskDt;
         if (dt && $.fn.DataTable.isDataTable('#TaskTable')) {
-            let found = -1;
             try {
+                let done = false;
                 dt.columns().every(function() {
-                    if ($(this.header()).text().trim() === name) found = this.index();
+                    if ((($(this.header()).text()) || '').trim() === name) {
+                        this.visible(vis);
+                        done = true;
+                    }
                 });
+                if (done) return true;
             } catch (e) {}
-            if (found >= 0) return found;
         }
-        const ths = _tableHeaders();
-        for (let i = 0; i < ths.length; i++) {
-            if (ths[i].textContent.trim() === name) return i;
-        }
-        return -1;
+        return false;
     }
 
     function applySettingsColumnOrder() {
         // Порядок берут из строк модалки настроек; двигаем через colReorder API,
         // чтобы tbody при redraw оставался согласован с thead.
+        // Имена модалки -> ИСХОДНЫЕ индексы (позиции экрана переводим через transpose).
         const dt = window.__taskDt;
         if (!dt || !dt.colReorder) return;
-        const idxByName = {};
-        try {
-            dt.columns().every(function() { idxByName[$(this.header()).text().trim()] = this.index(); });
-        } catch (e) { return; }
-        const order = [];
+        const desired = [];
         $('#settings-fields-body .settings-field-row').each(function() {
-            const colName = $(this).attr('data-col');
-            if (Object.prototype.hasOwnProperty.call(idxByName, colName)) order.push(idxByName[colName]);
+            desired.push($(this).attr('data-col'));
         });
-        const i0 = order.indexOf(0);
-        if (i0 > 0) order.splice(i0, 1);
-        if (order[0] !== 0) order.unshift(0);
-        dt.colReorder.order(order, false);
+        const order = _orderIndexesForNames(dt, desired);
+        if (order.length !== dt.columns().count()) return;
+        // true = исходные индексы (см. комментарий в applyColumnOrder).
+        dt.colReorder.order(order, true);
         saveColumnOrder();
     }
 
@@ -1933,7 +2165,7 @@ $(document).ready(function() {
         if (!window.__baseByName) window.__baseByName = {};
         Object.keys(colWidths).forEach(function(k) { window.__baseByName[k] = colWidths[k]; });
         _renderWidths();
-        $.post(SAVE_SETTINGS_URL, {
+        postSettings({
             inherit_props: serverSettings.inherit_props,
             new_task_position: serverSettings.new_task_position,
             default_tree_view: serverSettings.default_tree_view,
@@ -1946,7 +2178,6 @@ $(document).ready(function() {
             column_order: JSON.stringify(curOrder),
             panel_fields: JSON.stringify(panelFields),
             column_widths: JSON.stringify(colWidths),
-            csrfmiddlewaretoken: CSRF_TOKEN,
         });
         $('#settingsModal').modal('hide');
     });

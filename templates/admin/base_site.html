@@ -1,27 +1,6 @@
 {% extends 'admin/base.html' %}
 {% load i18n static jazzmin admin_urls %}
 
-{% block extrahead %}
-{{ block.super }}
-<style>
-.db-switch-btn {
-    display: inline-flex; align-items: center; gap: 4px;
-    margin: auto 4px; padding: 2px 8px; border-radius: 4px;
-    font-size: 11px; font-weight: 600; line-height: 1.6;
-    text-decoration: none; border: 1px solid rgba(255,255,255,0.15);
-    background: transparent; color: #cbd5e1; cursor: pointer;
-    transition: background .2s;
-}
-.db-switch-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
-.db-switch-btn .dot {
-    display: inline-block; width: 8px; height: 8px;
-    border-radius: 50%;
-}
-.db-switch-btn .dot.work { background: #28a745; }
-.db-switch-btn .dot.personal { background: #dc3545; }
-</style>
-{% endblock %}
-
 {% block sidebar %}
 {% if jazzmin_settings.show_sidebar %}
     {% get_side_menu as side_menu_list %}
@@ -63,9 +42,9 @@
                     </li>
 
                     {% if jazzmin_settings.navigation_expanded %}
-                        <li class="nav-header">{% if db_mode == "personal" %}{% trans 'Личные' %}{% else %}{% trans 'Рабочие/Симрус' %}{% endif %}</li>
+                        <li class="nav-header">{% trans 'Рабочие/Симрус' %}</li>
                         {% for app in side_menu_list %}
-                            {% if app.app_label == "ProjectTDL" or app.app_label == "PersonalData" and db_mode == "personal" %}
+                            {% if app.app_label == "ProjectTDL" %}
                                 {% for model in app.models %}
                                     <li class="nav-item">
                                         {% if model.url %}
@@ -82,7 +61,7 @@
                             {% endif %}
                         {% endfor %}
                         {% for app in side_menu_list %}
-                            {% if app.app_label != "ProjectTDL" and app.app_label != "PersonalData" %}
+                            {% if app.app_label != "ProjectTDL" %}
                                 <li class="nav-header">{{ app.name }}</li>
                                 {% for model in app.models %}
                                     <li class="nav-item">
@@ -103,11 +82,11 @@
                         <li class="nav-item has-treeview">
                             <a href="#" class="nav-link">
                                 <i class="nav-icon fas fa-folder"></i>
-                                <p>{% if db_mode == "personal" %}{% trans 'Личные' %}{% else %}{% trans 'Рабочие/Симрус' %}{% endif %} <i class="nav-arrow fas fa-chevron-right" aria-hidden="true"></i></p>
+                                <p>{% trans 'Рабочие/Симрус' %} <i class="nav-arrow fas fa-chevron-right" aria-hidden="true"></i></p>
                             </a>
                             <ul class="nav nav-treeview">
                                 {% for app in side_menu_list %}
-                                    {% if app.app_label == "ProjectTDL" or app.app_label == "PersonalData" and db_mode == "personal" %}
+                                    {% if app.app_label == "ProjectTDL" %}
                                         {% for model in app.models %}
                                             <li class="nav-item">
                                                 <a href="{% if model.url %}{{ model.url }}{% else %}javascript:void(0){% endif %}" class="nav-link">
@@ -121,7 +100,7 @@
                             </ul>
                         </li>
                         {% for app in side_menu_list %}
-                            {% if app.app_label != "ProjectTDL" and app.app_label != "PersonalData" %}
+                            {% if app.app_label != "ProjectTDL" %}
                                 <li class="nav-item has-treeview">
                                     <a href="#" class="nav-link">
                                         <i class="nav-icon {{ app.icon }}"></i>
@@ -146,20 +125,4 @@
         </div>
     </aside>
 {% endif %}
-{% endblock %}
-
-{% block extrajs %}
-{{ block.super }}
-<script>
-(function() {
-    var nav = document.querySelector('#jazzy-navbar .navbar-nav.ms-auto');
-    if (!nav) return;
-    var a = document.createElement('a');
-    a.href = '{% url "switch_db" %}?next={{ request.get_full_path|urlencode }}';
-    a.className = 'db-switch-btn';
-    a.title = '{% if db_mode == "personal" %}Переключиться на рабочую БД{% else %}Переключиться на личную БД{% endif %}';
-    a.innerHTML = '<span class="dot {{ db_mode }}"></span> {{ db_mode }}';
-    nav.prepend(a);
-})();
-</script>
 {% endblock %}

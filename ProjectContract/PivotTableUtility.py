@@ -36,6 +36,10 @@ def get_pivot_table_all_contracts(qs: ContractPayments.objects = None):
     )
 
     df = pd.DataFrame(payments_data)
+    if df.empty:
+        # Пустая выборка (например, личная БД без платежей): пивот строить
+        # не из чего — возвращаем пустой фрейм, вызывающий код покажет заглушку.
+        return pd.DataFrame()
     payment_type_mapping = dict(ContractPayments.PAYMENT_TYPES)  # Получаем значения из модели
     df['payment_type'] = df['payment_type'].map(payment_type_mapping)
     pivot_table = pd.pivot_table(
@@ -113,12 +117,29 @@ def create_payment_calendar(extra_context: dict, scale, all_contracts=None,
         schedule_data = pd.concat([schedule_data, generated_payment_schedule], ignore_index=True)
     # Добавьте код для отображения таблицы в шаблоне admin
 
-    pivot_html = get_pivot_table_all_contracts(contract_payment_filter)\
-                  .to_html(**PivotTableConfig.html_data)
+    # Пустая выборка (личная БД без договоров/платежей): вместо падения
+    # с KeyError показываем заглушки.
+    try:
+        pivot_table = get_pivot_table_all_contracts(contract_payment_filter)
+        pivot_html = pivot_table.to_html(**PivotTableConfig.html_data) \
+            if not pivot_table.empty else '<p>Нет данных для сводной таблицы.</p>'
+    except Exception as e:
+        logger.error(f"Ошибка сводной таблицы платежей: {e}")
+        pivot_html = '<p>Нет данных для сводной таблицы.</p>'
     for k, v in PivotTableConfig.pivot_column_names.items():
         pivot_html = pivot_html.replace(k, v)
-    extra_context['calendar_table'] = mark_safe(PivotTableConfig.create_pivot_html_table(calendar_data))
-    extra_context['schedule_table'] = mark_safe(PivotTableConfig.create_pivot_html_table(schedule_data))
+    try:
+        extra_context['calendar_table'] = mark_safe(
+            PivotTableConfig.create_pivot_html_table(calendar_data))
+    except Exception as e:
+        logger.error(f"Ошибка таблицы календаря: {e}")
+        extra_context['calendar_table'] = '<p>Нет данных календаря.</p>'
+    try:
+        extra_context['schedule_table'] = mark_safe(
+            PivotTableConfig.create_pivot_html_table(schedule_data))
+    except Exception as e:
+        logger.error(f"Ошибка таблицы графика: {e}")
+        extra_context['schedule_table'] = '<p>Нет данных графика платежей.</p>'
     extra_context['pivot_table'] = mark_safe(pivot_html)
     return extra_context
 

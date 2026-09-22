@@ -3,6 +3,7 @@ from pprint import pprint
 import pandas as pd
 import datetime
 import django_tables2 as tables
+from django.db.models import Case, IntegerField, When
 from django.db.models import QuerySet
 from django.http import HttpResponse
 from django.urls import reverse_lazy, reverse
@@ -54,6 +55,46 @@ def data_filter_qs(request, datefield, data=None):
         if get_date == 'past':
             res_dict[f'{datefield}__lt'] = _today
     return res_dict
+
+
+def order_qs_hierarchical(qs, order_fields):
+    """Иерархическая сортировка дерева задач для табличного вида.
+
+    Плоский order_by (напр. ``-id``) рвёт поддеревья: дочерние уезжают далеко
+    от родителей, и дерево/пагинация рассыпаются (подзадача выглядит
+    «отдельной задачей»). Здесь заданным ключом сортируются только КОРНИ
+    выборки (узлы, чей parent вне выборки), а внутри каждого поддерева
+    сохраняется MPTT-порядок (tree_id, lft) — родитель всегда перед детьми.
+
+    :param qs: queryset TaskNode (обычно из _task_subtree_qs).
+    :param order_fields: список ORM-полей, напр. ['-id'] (уже провалидированы
+        django-tables2 через table.order_by).
+    :return: новый queryset с аннотацией _hier_pos.
+    """
+    nodes = list(qs.values('pk', 'parent_id', 'tree_id', 'lft', 'rght'))
+    if not nodes:
+        return qs.none()
+    in_ids = {n['pk'] for n in nodes}
+    roots = [n for n in nodes if n['parent_id'] not in in_ids]
+    if not roots:
+        return qs
+    root_order = list(
+        TaskNode.objects.filter(pk__in=[r['pk'] for r in roots])
+        .order_by(*order_fields).values_list('pk', flat=True)
+    )
+    pos = {pk: i for i, pk in enumerate(root_order)}
+    fallback = len(pos)
+    # Вложенные корни (цепочка разорвана фильтром): глубокие вперёд, чтобы
+    # узел лёг к ближайшему своему корню, а не к дальнему предку.
+    ordered_roots = sorted(roots, key=lambda r: (r['tree_id'], -r['lft']))
+    whens = [
+        When(tree_id=r['tree_id'], lft__gte=r['lft'], lft__lte=r['rght'],
+             then=pos.get(r['pk'], fallback))
+        for r in ordered_roots
+    ]
+    return qs.annotate(
+        _hier_pos=Case(*whens, default=fallback, output_field=IntegerField())
+    ).order_by('_hier_pos', 'tree_id', 'lft')
 
 
 def add_period_data_to_column(df_cash_flow: pd.DataFrame, freq='d'):
@@ -162,6 +203,12 @@ class CheckBoxColumnWithName(tables.CheckBoxColumn):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.attrs = {"td__input": {"class": "form-check-input task-checkbox"}}
+
+    @property
+    def header(self):
+        # CheckBoxColumn рисует шапку из attrs, verbose_name игнорирует —
+        # без явного header чекбокс «выбрать все» в thead отсутствует.
+        return mark_safe('<input type="checkbox" class="form-check-input" id="checkAll">')
 
 
 class TaskNodeTable(tables.Table):

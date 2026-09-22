@@ -13,6 +13,12 @@
         <button onclick="printReport()" class="control-button" style="background-color: #3498db;">
             🖨️ Печать
         </button>
+        <button onclick="printReportWithDetails()" class="control-button" style="background-color: #2980b9;">
+            🖨️ Печать с деталями
+        </button>
+        <button onclick="exportReportCsv()" class="control-button" style="background-color: #16a085;">
+            📥 Excel (CSV)
+        </button>
         <button onclick="saveReport()" class="control-button" style="background-color: #2ecc71;">
             💾 Сохранить HTML
         </button>
@@ -51,6 +57,22 @@
         <div class="stat-number">{{ total_history_all }}</div>
         <div class="stat-label">Изменений сроков</div>
     </div>
+    <div class="stat-box">
+        <div class="stat-number">{{ status_counts.active }}</div>
+        <div class="stat-label">Активные</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-number" style="color: #27ae60;">{{ status_counts.completed }}</div>
+        <div class="stat-label">Завершенные</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-number" style="color: #e74c3c;">{{ overdue_count }}</div>
+        <div class="stat-label">Просрочено</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-number" style="color: #7f8c8d;">{{ no_due_count }}</div>
+        <div class="stat-label">Без срока</div>
+    </div>
 </div>
 
 {% include "ProjectTDL/summary_table.html" %}
@@ -62,77 +84,175 @@
 {% include "ProjectTDL/task_details.html" %}
 {% endwith %}
 {% endfor %}
-
-<div class="total">
-    <h3>📊 Итоговый отчет</h3>
-    <div style="display: flex; justify-content: space-between;">
-        <div>
-            <p><strong>Общая статистика:</strong></p>
-            <p>• Всего задач: {{ task_count }}</p>
-            <p>• Общая стоимость: {{ total_price_all|floatformat:2|intcomma }} руб.</p>
-            <p>• Всего подзадач: {{ total_subtasks_all }}</p>
-            <p>• Изменений сроков: {{ total_history_all }}</p>
-        </div>
-        <div>
-            <p><strong>Распределение по статусам:</strong></p>
-            <p>• Активные: {{ status_counts.active }}</p>
-            <p>• Завершенные: {{ status_counts.completed }}</p>
-            <p>• Просроченные: {{ status_counts.overdue }}</p>
-        </div>
-    </div>
-    <p style="margin-top: 15px; font-style: italic;">Отчет сгенерирован автоматически системой управления задачами</p>
-</div>
 {% endblock %}
 
 {% block javascript %}
-// Функция для переключения деталей задачи
-function toggleTaskDetails(taskId, event) {
-    if (event) event.stopPropagation();
-    const details = document.getElementById('details-' + taskId);
-    const toggleBtn = document.getElementById('toggle-btn-' + taskId);
+// Master-detail: детали задачи раскрываются строкой под строкой сводной
+// таблицы (inline-row), а не прокруткой вниз к блоку в конце страницы.
+// Несколько задач можно держать открытыми одновременно для сравнения.
+function initInlineTaskDetails() {
+    const table = document.getElementById('summary-table');
+    if (!table) return;
 
-    if (details.classList.contains('expanded')) {
-        details.classList.remove('expanded');
-        toggleBtn.textContent = '▼ Развернуть';
-    } else {
-        details.classList.add('expanded');
-        toggleBtn.textContent = '▲ Свернуть';
-        // Прокручиваем к задаче
-        setTimeout(() => {
-            document.getElementById('task-details-' + taskId).scrollIntoView({
-                behavior: 'smooth',
-                block: 'start'
-            });
-        }, 100);
+    const rows = table.querySelectorAll('tbody tr[data-task-id]');
+
+    rows.forEach(row => {
+        const taskId = row.dataset.taskId;
+        const detailsBlock = document.getElementById('task-details-' + taskId);
+
+        if (!detailsBlock) return;
+
+        // Создаем строку для деталей
+        const detailRow = document.createElement('tr');
+        detailRow.id = 'inline-row-' + taskId;
+        detailRow.className = 'inline-row';
+        detailRow.style.display = 'none';
+
+        const td = document.createElement('td');
+        td.colSpan = row.cells.length;
+
+        // Подготавливаем блок деталей
+        detailsBlock.classList.add('inline-details');
+
+        const detailsContent = detailsBlock.querySelector('.task-details');
+        if (detailsContent) {
+            detailsContent.classList.add('expanded');
+        }
+
+        td.appendChild(detailsBlock);
+        detailRow.appendChild(td);
+
+        // Вставляем строку деталей сразу после строки задачи
+        row.after(detailRow);
+
+        // Отключаем старое поведение прокрутки вниз
+        row.removeAttribute('onclick');
+
+        // Клик по строке тоже открывает детали
+        row.addEventListener('click', function (event) {
+            toggleInlineTaskDetails(taskId, event);
+        });
+    });
+
+    // Скрываем старый заголовок деталей внизу страницы
+    const detailsSectionTitle = document.getElementById('details-section');
+    if (detailsSectionTitle) {
+        detailsSectionTitle.style.display = 'none';
     }
+
+    // Если где-то остались старые блоки вне таблицы — тоже скрываем
+    document.querySelectorAll('.task-block').forEach(block => {
+        if (!block.closest('.inline-row')) {
+            block.style.display = 'none';
+        }
+    });
+}
+
+function toggleInlineTaskDetails(taskId, event) {
+    if (event) event.stopPropagation();
+    const detailRow = document.getElementById('inline-row-' + taskId);
+    const summaryRow = document.getElementById('summary-row-' + taskId);
+
+    if (!detailRow || !summaryRow) return;
+
+    const isOpen = detailRow.style.display !== 'none';
+    const toggleButton = document.getElementById('details-btn-' + taskId);
+
+    if (isOpen) {
+        detailRow.style.display = 'none';
+        summaryRow.classList.remove('opened');
+
+        if (toggleButton) {
+            toggleButton.textContent = 'Детали';
+        }
+    } else {
+        detailRow.style.display = 'table-row';
+        summaryRow.classList.add('opened');
+
+        if (toggleButton) {
+            toggleButton.textContent = 'Свернуть';
+        }
+    }
+
+    if (typeof reportOpenChanged === 'function') reportOpenChanged();
+}
+
+function expandAllInlineDetails(onlyVisible) {
+    document.querySelectorAll('.inline-row').forEach(row => {
+        if (onlyVisible) {
+            const summary = row.previousElementSibling;
+            if (!summary || summary.style.display === 'none') return;
+        }
+        row.style.display = 'table-row';
+    });
+    document.querySelectorAll('#summary-table tbody tr[data-task-id]').forEach(row => {
+        if (onlyVisible && row.style.display === 'none') return;
+        row.classList.add('opened');
+    });
+    document.querySelectorAll('.details-toggle').forEach(btn => {
+        const row = btn.closest('tr');
+        if (onlyVisible && row && row.style.display === 'none') return;
+        btn.textContent = 'Свернуть';
+    });
+}
+
+function collapseAllInlineDetails() {
+    document.querySelectorAll('.inline-row').forEach(row => {
+        row.style.display = 'none';
+    });
+    document.querySelectorAll('#summary-table tbody tr[data-task-id]').forEach(row => {
+        row.classList.remove('opened');
+    });
+    document.querySelectorAll('.details-toggle').forEach(btn => {
+        btn.textContent = 'Детали';
+    });
+}
+
+// Старые имена кнопок («Развернуть все» / «Свернуть все») — работают через новый механизм
+function expandAll() {
+    expandAllInlineDetails();
+}
+
+function collapseAll() {
+    collapseAllInlineDetails();
+}
+
+// Старые обработчики из блоков деталей — делегируем в раскрытие под строкой
+function toggleTaskDetails(taskId, event) {
+    toggleInlineTaskDetails(taskId, event || null);
 }
 
 // Функция для переключения текущей задачи
 function toggleThisTask(taskId) {
-    toggleTaskDetails(taskId, null);
+    toggleInlineTaskDetails(taskId, null);
 }
 
-// Функция прокрутки к деталям задачи
+// Старая прокрутка вниз больше не нужна: детали теперь под строкой
 function scrollToTaskDetails(taskId, event) {
-    if (event) event.stopPropagation();
-    document.getElementById('task-details-' + taskId).scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
-    });
-    // Раскрываем детали
-    setTimeout(() => {
-        const details = document.getElementById('details-' + taskId);
-        const toggleBtn = document.getElementById('toggle-btn-' + taskId);
-        if (!details.classList.contains('expanded')) {
-            details.classList.add('expanded');
-            toggleBtn.textContent = '▲ Свернуть';
-        }
-    }, 300);
+    toggleInlineTaskDetails(taskId, event || null);
 }
 
 // Функция прокрутки к задаче (из сводной таблицы)
 function scrollToTask(taskId) {
-    scrollToTaskDetails(taskId, null);
+    toggleInlineTaskDetails(taskId, null);
+}
+
+// Длинная история сроков: первые 5 записей видны, остальные — по кнопке
+function toggleHistory(taskId, event) {
+    if (event) event.stopPropagation();
+    const extra = document.getElementById('history-extra-' + taskId);
+    const btn = document.getElementById('history-btn-' + taskId);
+    if (!extra) return;
+    const isHidden = extra.style.display === 'none';
+    extra.style.display = isHidden ? '' : 'none';
+    if (btn) {
+        if (isHidden) {
+            if (!btn.dataset.fullText) btn.dataset.fullText = btn.textContent;
+            btn.textContent = 'Скрыть';
+        } else {
+            btn.textContent = btn.dataset.fullText || btn.textContent;
+        }
+    }
 }
 
 // Функция прокрутки к сводной таблице
@@ -143,29 +263,22 @@ function scrollToSummary() {
     });
 }
 
-// Функция развернуть все задачи
-function expandAll() {
-    document.querySelectorAll('.task-details').forEach(details => {
-        details.classList.add('expanded');
-    });
-    document.querySelectorAll('.task-nav button.nav-button').forEach(btn => {
-        if (btn.textContent.includes('Развернуть')) {
-            btn.textContent = '▲ Свернуть';
-        }
-    });
+// Печать: раскрываем детали видимых строк, печатаем, возвращаем как было
+let reportPrintRestore = null;
+function printReportWithDetails() {
+    if (typeof reportGetOpenIds === 'function') {
+        reportPrintRestore = reportGetOpenIds();
+    }
+    expandAllInlineDetails(true);
+    window.print();
 }
-
-// Функция свернуть все задачи
-function collapseAll() {
-    document.querySelectorAll('.task-details').forEach(details => {
-        details.classList.remove('expanded');
-    });
-    document.querySelectorAll('.task-nav button.nav-button').forEach(btn => {
-        if (btn.textContent.includes('Свернуть')) {
-            btn.textContent = '▼ Развернуть';
-        }
-    });
-}
+window.addEventListener('afterprint', function() {
+    if (reportPrintRestore && typeof toggleInlineTaskDetails === 'function') {
+        collapseAllInlineDetails();
+        reportPrintRestore.forEach(id => toggleInlineTaskDetails(id));
+        reportPrintRestore = null;
+    }
+});
 
 // Функция для печати отчета
 function printReport() {
@@ -182,6 +295,386 @@ function saveReport() {
     link.click();
 }
 
+// ─── Этапы 3–4: поиск, фильтры, сортировка, пагинация, состояние, экспорт ───
+const REPORT_STATE_KEY = 'taskReportV1';
+const reportState = {
+    search: '',
+    contractor: '',
+    status: '',
+    building: '',
+    chapter: '',
+    due: '',
+    chip: 'all',
+    subtaskFlag: false,
+    historyFlag: false,
+    sortKey: 'due',
+    sortDir: 'asc',
+    pageSize: 'all',
+    page: 1
+};
+
+function reportSummaryRows() {
+    return Array.from(document.querySelectorAll('#summary-table tbody tr[data-task-id]'));
+}
+
+function reportRowPair(summaryRow) {
+    const next = summaryRow.nextElementSibling;
+    if (next && next.classList.contains('inline-row')) return [summaryRow, next];
+    return [summaryRow];
+}
+
+function reportMatchesFilters(row) {
+    const q = reportState.search.trim().toLowerCase();
+    if (q && (row.dataset.search || '').indexOf(q) === -1) return false;
+    if (reportState.contractor) {
+        if (reportState.contractor === '__none') {
+            if (row.dataset.contractor !== '-') return false;
+        } else if (row.dataset.contractor !== reportState.contractor) return false;
+    }
+    if (reportState.status && row.dataset.status !== reportState.status) return false;
+    if (reportState.building && row.dataset.building !== reportState.building) return false;
+    if (reportState.chapter && row.dataset.chapter !== reportState.chapter) return false;
+    if (reportState.due === 'overdue' && row.dataset.due !== 'overdue') return false;
+    if (reportState.due === 'today' && row.dataset.due !== 'today') return false;
+    if (reportState.due === 'nodate' && row.dataset.due !== 'nodate') return false;
+    if (reportState.due === 'week') {
+        const order = parseFloat(row.dataset.dueOrder);
+        if (!(order >= 0 && order <= 7)) return false;
+    }
+    if (reportState.subtaskFlag && !(parseInt(row.dataset.subtaskCount, 10) > 0)) return false;
+    if (reportState.historyFlag && !(parseInt(row.dataset.historyCount, 10) > 0)) return false;
+    return true;
+}
+
+function reportSortValue(row, key) {
+    const cells = row.cells;
+    switch (key) {
+        case 'id': return parseInt(row.dataset.taskId, 10) || 0;
+        case 'name': return (cells[1].textContent || '').trim().toLowerCase();
+        case 'status': return (cells[4].textContent || '').trim().toLowerCase();
+        case 'contractor': return (cells[5].textContent || '').trim().toLowerCase();
+        case 'due': return parseFloat(row.dataset.dueOrder);
+        case 'price': return parseFloat(row.dataset.price) || 0;
+        case 'subtasks': return parseInt(row.dataset.subtaskCount, 10) || 0;
+        case 'history': return parseInt(row.dataset.historyCount, 10) || 0;
+        default: return 0;
+    }
+}
+
+function sortSummaryBy(key, event) {
+    if (event) event.stopPropagation();
+    if (reportState.sortKey === key) {
+        reportState.sortDir = reportState.sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        reportState.sortKey = key;
+        reportState.sortDir = 'asc';
+    }
+    reportState.page = 1;
+    applyReportView();
+}
+
+function applyReportView() {
+    const tbody = document.querySelector('#summary-table tbody');
+    if (!tbody) return;
+
+    // 1. Фильтр
+    const filtered = reportSummaryRows().filter(reportMatchesFilters);
+
+    // 2. Сортировка (пары «строка + детали» двигаются вместе)
+    const dir = reportState.sortDir === 'asc' ? 1 : -1;
+    const key = reportState.sortKey;
+    filtered.sort((a, b) => {
+        const va = reportSortValue(a, key);
+        const vb = reportSortValue(b, key);
+        if (va < vb) return -dir;
+        if (va > vb) return dir;
+        return (parseInt(a.dataset.taskId, 10) - parseInt(b.dataset.taskId, 10)) * dir;
+    });
+    filtered.forEach(row => {
+        reportRowPair(row).forEach(node => tbody.appendChild(node));
+    });
+
+    // 3. Пагинация
+    const total = filtered.length;
+    const all = reportSummaryRows();
+    let pageItems = filtered;
+    let pageCount = 1;
+    if (reportState.pageSize !== 'all') {
+        const size = parseInt(reportState.pageSize, 10) || 25;
+        pageCount = Math.max(1, Math.ceil(total / size));
+        if (reportState.page > pageCount) reportState.page = pageCount;
+        const start = (reportState.page - 1) * size;
+        pageItems = filtered.slice(start, start + size);
+    } else {
+        reportState.page = 1;
+    }
+    const visibleIds = new Set(pageItems.map(r => r.dataset.taskId));
+    all.forEach(row => {
+        const show = visibleIds.has(row.dataset.taskId);
+        reportRowPair(row).forEach(node => {
+            // inline-строку показываем только если её задача открыта
+            if (node.classList.contains('inline-row')) {
+                node.style.display = (show && row.classList.contains('opened')) ? 'table-row' : 'none';
+            } else {
+                node.style.display = show ? '' : 'none';
+            }
+        });
+    });
+
+    // 4. Счётчик и пейджер
+    const counter = document.getElementById('filter-counter');
+    if (counter) {
+        counter.textContent = total === all.length
+            ? 'Показано: ' + total
+            : 'Показано ' + total + ' из ' + all.length;
+    }
+    const pager = document.getElementById('report-pager');
+    if (pager) {
+        pager.style.display = (reportState.pageSize !== 'all' && pageCount > 1) ? '' : 'none';
+        const info = document.getElementById('pager-info');
+        if (info) info.textContent = 'Страница ' + reportState.page + ' из ' + pageCount + ' (всего ' + total + ')';
+        const prev = document.getElementById('pager-prev');
+        const next = document.getElementById('pager-next');
+        if (prev) prev.disabled = reportState.page <= 1;
+        if (next) next.disabled = reportState.page >= pageCount;
+    }
+
+    // 5. Стрелки сортировки
+    document.querySelectorAll('#summary-table th[data-sort-key]').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        if (th.dataset.sortKey === reportState.sortKey) {
+            th.classList.add(reportState.sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        }
+    });
+
+    saveReportState();
+}
+
+function reportGotoPage(where, event) {
+    if (event) event.stopPropagation();
+    if (where === 'prev' && reportState.page > 1) reportState.page -= 1;
+    if (where === 'next') reportState.page += 1;
+    applyReportView();
+}
+
+function resetReportFilters() {
+    reportState.search = '';
+    reportState.contractor = '';
+    reportState.status = '';
+    reportState.building = '';
+    reportState.chapter = '';
+    reportState.due = '';
+    reportState.chip = 'all';
+    reportState.subtaskFlag = false;
+    reportState.historyFlag = false;
+    reportState.sortKey = 'due';
+    reportState.sortDir = 'asc';
+    reportState.pageSize = 'all';
+    reportState.page = 1;
+    const search = document.getElementById('report-search');
+    if (search) search.value = '';
+    ['filter-contractor', 'filter-status', 'filter-building', 'filter-chapter', 'filter-due'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const ps = document.getElementById('page-size');
+    if (ps) ps.value = 'all';
+    reportMarkChips();
+    applyReportView();
+}
+
+function reportMarkChips() {
+    document.querySelectorAll('.quick-filters .chip').forEach(chip => {
+        chip.classList.toggle('active', chip.dataset.chip === reportState.chip);
+    });
+}
+
+function reportApplyChip(chip, event) {
+    if (event) event.stopPropagation();
+    resetReportFiltersSilent();
+    reportState.chip = chip;
+    if (chip === 'overdue') reportState.due = 'overdue';
+    else if (chip === 'nodate') reportState.due = 'nodate';
+    else if (chip === 'noresp') reportState.contractor = '__none';
+    else if (chip === 'subtasks') reportState.subtaskFlag = true;
+    else if (chip === 'history') reportState.historyFlag = true;
+    reportState.page = 1;
+    reportSyncControls();
+    reportMarkChips();
+    applyReportView();
+}
+
+function resetReportFiltersSilent() {
+    reportState.search = '';
+    reportState.contractor = '';
+    reportState.status = '';
+    reportState.building = '';
+    reportState.chapter = '';
+    reportState.due = '';
+    reportState.chip = 'all';
+    reportState.subtaskFlag = false;
+    reportState.historyFlag = false;
+}
+
+function reportSyncControls() {
+    const map = {
+        'report-search': 'search',
+        'filter-contractor': 'contractor',
+        'filter-status': 'status',
+        'filter-building': 'building',
+        'filter-chapter': 'chapter',
+        'filter-due': 'due',
+        'page-size': 'pageSize'
+    };
+    Object.keys(map).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = reportState[map[id]];
+    });
+}
+
+// ─── Сохранение состояния (раздел 23 задания) ───
+function saveReportState() {
+    try {
+        const data = Object.assign({}, reportState, { open: reportGetOpenIds() });
+        localStorage.setItem(REPORT_STATE_KEY, JSON.stringify(data));
+    } catch (e) {}
+}
+
+function loadReportState() {
+    try {
+        const raw = localStorage.getItem(REPORT_STATE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch (e) { return null; }
+}
+
+function reportGetOpenIds() {
+    return reportSummaryRows()
+        .filter(row => row.classList.contains('opened'))
+        .map(row => row.dataset.taskId);
+}
+
+function reportOpenChanged() {
+    saveReportState();
+    // Шаримая ссылка на открытые задачи: ?open=255,249 (без спама в историю)
+    try {
+        const ids = reportGetOpenIds();
+        const url = new URL(window.location.href);
+        if (ids.length) url.searchParams.set('open', ids.join(','));
+        else url.searchParams.delete('open');
+        window.history.replaceState(null, '', url.toString());
+    } catch (e) {}
+}
+
+function reportRestoreOpen(ids) {
+    (ids || []).forEach(id => {
+        const row = document.getElementById('summary-row-' + id);
+        if (row && !row.classList.contains('opened')) toggleInlineTaskDetails(id);
+    });
+}
+
+function reportOpenFromUrl() {
+    try {
+        const url = new URL(window.location.href);
+        const openParam = url.searchParams.get('open');
+        if (openParam) return openParam.split(',').map(s => s.trim()).filter(Boolean);
+        const hash = window.location.hash.match(/task-(\d+)/);
+        if (hash) return [hash[1]];
+    } catch (e) {}
+    return null;
+}
+
+// ─── Экспорт в Excel/CSV (раздел «Масштабирование») ───
+function exportReportCsv() {
+    const rows = reportSummaryRows().filter(reportMatchesFilters);
+    const head = ['ID', 'Название', 'Проект', 'Здание', 'Статус', 'Ответственный',
+        'Срок', 'Осталось', 'Стоимость', 'Подзадачи', 'Изменений сроков'];
+    const esc = v => '"' + String(v === undefined || v === null ? '' : v).replace(/"/g, '""') + '"';
+    const lines = [head.map(esc).join(';')];
+    rows.forEach(row => {
+        const c = row.cells;
+        lines.push([
+            row.dataset.taskId,
+            c[1].textContent.trim(),
+            c[2].textContent.trim(),
+            c[3].textContent.trim(),
+            c[4].textContent.trim(),
+            c[5].textContent.trim(),
+            c[6].textContent.trim(),
+            c[7].textContent.trim(),
+            c[8].textContent.trim(),
+            row.dataset.subtaskCount,
+            row.dataset.historyCount
+        ].map(esc).join(';'));
+    });
+    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'отчет_задачи_{{ download_timestamp }}.csv';
+    link.click();
+}
+
+let reportSearchTimer = null;
+function initReportView() {
+    // Восстанавливаем состояние: URL важнее localStorage для открытых задач
+    const stored = loadReportState();
+    if (stored) {
+        ['search', 'contractor', 'status', 'building', 'chapter', 'due',
+         'chip', 'sortKey', 'sortDir', 'pageSize'].forEach(k => {
+            if (stored[k] !== undefined) reportState[k] = stored[k];
+        });
+    }
+    const urlOpen = reportOpenFromUrl();
+    reportSyncControls();
+    reportMarkChips();
+
+    // Поиск
+    const search = document.getElementById('report-search');
+    if (search) {
+        search.addEventListener('input', function() {
+            clearTimeout(reportSearchTimer);
+            reportSearchTimer = setTimeout(function() {
+                reportState.search = search.value;
+                reportState.page = 1;
+                applyReportView();
+            }, 150);
+        });
+    }
+    // Селекты фильтров и размер страницы
+    const selects = {
+        'filter-contractor': 'contractor',
+        'filter-status': 'status',
+        'filter-building': 'building',
+        'filter-chapter': 'chapter',
+        'filter-due': 'due',
+        'page-size': 'pageSize'
+    };
+    Object.keys(selects).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', function() {
+                reportState[selects[id]] = el.value;
+                if (selects[id] !== 'pageSize') reportState.chip = 'custom';
+                reportState.page = 1;
+                reportMarkChips();
+                applyReportView();
+            });
+        }
+    });
+    // Чипы быстрых фильтров
+    document.querySelectorAll('.quick-filters .chip').forEach(chip => {
+        chip.addEventListener('click', function(event) {
+            reportApplyChip(chip.dataset.chip, event);
+        });
+    });
+
+    // Применяем вид (включая сортировку по сроку по умолчанию) и открываем задачи
+    applyReportView();
+    if (urlOpen) reportRestoreOpen(urlOpen);
+    else if (stored && stored.open) reportRestoreOpen(stored.open);
+    saveReportState();
+}
+
 // Добавляем подсветку строк сводной таблицы при наведении
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('#summary-table tbody tr').forEach(row => {
@@ -193,7 +686,9 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // По умолчанию сворачиваем все детали задач
-    collapseAll();
+    // Переносим блоки деталей под строки таблицы; по умолчанию все свернуто
+    initInlineTaskDetails();
+    // Поиск, фильтры, сортировка, пагинация, восстановление состояния
+    initReportView();
 });
 {% endblock %}

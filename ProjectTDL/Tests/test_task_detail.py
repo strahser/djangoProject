@@ -60,6 +60,16 @@ class TaskDetailTest(TestCase):
         self.task.refresh_from_db()
         self.assertEqual(self.task.name, 'Задача')
 
+    def test_list_header_has_select_all_checkbox(self):
+        # Регрессия «отвалился чекбокс выбрать все»: CheckBoxColumn рисует
+        # шапку из attrs и игнорирует verbose_name — header задан явно.
+        r = self.client.get(reverse('custom_task_view'))
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        self.assertEqual(html.count('id="checkAll"'), 1)
+        # Чекбокс — в шапке (до первого tbody), а не в строках.
+        self.assertLess(html.find('id="checkAll"'), html.find('<tbody'))
+
     def test_task_detail_renders(self):
         r = self.client.get(reverse('task_detail', args=[self.task.pk]))
         self.assertEqual(r.status_code, 200)
@@ -90,3 +100,37 @@ class TaskDetailTest(TestCase):
         r = self.client.post(detach_url)
         self.assertEqual(r.status_code, 302)
         self.assertNotIn(self.email, list(self.task.emails.all()))
+
+    def test_filter_ajax_respects_sort(self):
+        # Сортировка строк — часть структуры таблицы: filter_ajax обязан
+        # учитывать ?sort= (иначе любая смена фильтра сбрасывала сортировку).
+        TaskNode.objects.create(
+            owner=self.user, project_site=self.site,
+            name='БББ вторая', status=self.status, category=self.category)
+        TaskNode.objects.create(
+            owner=self.user, project_site=self.site,
+            name='ААА первая', status=self.status, category=self.category)
+        url = reverse('filter_tasks_ajax')
+        r = self.client.get(url, {'view': 'tree', 'sort': 'name'})
+        self.assertEqual(r.status_code, 200)
+        html = json.loads(r.content)['table']
+        self.assertLess(html.find('ААА первая'), html.find('БББ вторая'))
+
+    def test_filter_task_ids_matches_subtree_qs(self):
+        # «Выбрать все»: endpoint отдаёт все pk под фильтром без пагинации.
+        from ProjectTDL.views import _task_subtree_qs
+        other_status = Status.objects.create(name='Закрыто')
+        other = TaskNode.objects.create(
+            owner=self.user, project_site=self.site,
+            name='Чужая', status=other_status, category=self.category)
+        url = reverse('filter_task_ids')
+        r = self.client.get(url, {'status': str(self.status.pk)})
+        data = json.loads(r.content)
+        self.assertEqual(
+            set(data['ids']),
+            set(_task_subtree_qs(
+                {'status__id__in': [str(self.status.pk)]}, {}
+            ).values_list('pk', flat=True)))
+        self.assertIn(self.task.pk, data['ids'])
+        self.assertNotIn(other.pk, data['ids'])
+        self.assertEqual(data['count'], len(data['ids']))

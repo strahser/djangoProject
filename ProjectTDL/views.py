@@ -16,7 +16,8 @@ from django_tables2 import RequestConfig
 from AdminUtils import get_standard_display_list
 from ProjectContract.models import Contractor
 from ProjectContract.services import log_change
-from ProjectTDL.Tables import TaskNodeTable, create_filter_qs, data_filter_qs, StaticFilterSettings
+from ProjectTDL.Tables import TaskNodeTable, create_filter_qs, data_filter_qs, StaticFilterSettings, \
+    order_qs_hierarchical
 from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, TaskNodeQuickForm
 from ProjectTDL.models import TaskNode, UserSettings, TaskFilterState
 from ProjectTDL.reports import ReportGenerator
@@ -141,9 +142,45 @@ def custom_task_view(request):
     qs = _task_subtree_qs(filter_dict, date_filter)
 
     _form = TaskFilterForm(request.POST or None, initial=initial)
+
+    # Сортировка строк — часть структуры таблицы (сохраняется в UserSettings):
+    # 1) явный ?sort= в URL — побеждает и запоминается;
+    # 2) иначе сохранённый table_sort пользователя;
+    # 3) иначе дефолт: свежие (большие id) вперёд.
+    _url_sort = request.GET.get('sort', '')
+    _us = UserSettings.objects.filter(user=request.user).first() \
+        if request.user.is_authenticated else None
+    if request.user.is_authenticated:
+        if _url_sort:
+            if _us is None:
+                _us = UserSettings.objects.create(
+                    user=request.user, table_sort=_url_sort[:32])
+            elif _us.table_sort != _url_sort:
+                _us.table_sort = _url_sort[:32]
+                _us.save()
+        else:
+            _eff_sort = (_us.table_sort if _us else '') or '-id'
+            _q = request.GET.copy()
+            _q['sort'] = _eff_sort
+            request.GET = _q
+    elif not _url_sort:
+        _q = request.GET.copy()
+        _q['sort'] = '-id'
+        request.GET = _q
+
     table = TaskNodeTable(qs)
     table.view_mode = 'tree'
     RequestConfig(request, paginate=False).configure(table)
+    if table.order_by:
+        # Плоская сортировка рвёт дерево (дочерние отрываются от родителей,
+        # подзадача выглядит «отдельной задачей»): сортируем только корни
+        # выборки, поддеревья идут MPTT-порядком. Состояние заголовков
+        # сохраняем напрямую в _order_by, чтобы не пересортировать строки.
+        _sort_by = table.order_by
+        qs = order_qs_hierarchical(qs, [str(o) for o in _sort_by])
+        table = TaskNodeTable(qs)
+        table.view_mode = 'tree'
+        table._order_by = _sort_by
 
     tree_roots = TaskNode.objects.filter(parent__isnull=True, node_type='task').select_related(
         'project_site', 'status', 'contractor'
@@ -203,6 +240,7 @@ def custom_task_view(request):
         'column_order': [],
         'panel_fields': {},
         'page_length': None,
+        'table_sort': '',
         'auto_save': True,
         'active_project_id': '',
     }
@@ -223,6 +261,7 @@ def custom_task_view(request):
                 'column_order': _us.column_order or [],
                 'panel_fields': _us.panel_fields or {},
                 'page_length': _us.page_length,
+                'table_sort': _us.table_sort or '',
                 'auto_save': _us.auto_save,
                 'active_project_id': _us.active_project_id or '',
             }
@@ -755,6 +794,9 @@ def save_user_settings(request):
         except (TypeError, ValueError):
             pass
 
+    if 'table_sort' in request.POST:
+        settings.table_sort = (request.POST.get('table_sort') or '')[:32]
+
     if 'page_length' in request.POST:
         try:
             value = int(request.POST['page_length'])
@@ -804,6 +846,14 @@ def filter_tasks_ajax(request):
     table = TaskNodeTable(qs)
     table.view_mode = 'tree'
     RequestConfig(request, paginate=False).configure(table)
+    if table.order_by:
+        # Та же иерархическая сортировка, что в custom_task_view: корни по
+        # ключу, поддеревья MPTT-порядком (иначе смена фильтра рвала дерево).
+        _sort_by = table.order_by
+        qs = order_qs_hierarchical(qs, [str(o) for o in _sort_by])
+        table = TaskNodeTable(qs)
+        table.view_mode = 'tree'
+        table._order_by = _sort_by
     table_html = render_to_string('django_tables2/bootstrap_no_pag.html', {'table': table}, request)
 
     tree_roots = TaskNode.objects.filter(parent__isnull=True, node_type='task').select_related(
@@ -816,6 +866,19 @@ def filter_tasks_ajax(request):
         'tree': tree_html,
         'count': qs.count(),
     })
+
+
+def filter_task_ids(request):
+    """ID всех задач под текущим фильтром — «выбрать все» без пагинации.
+
+    Тот же разбор фильтров, что у filter_tasks_ajax: пагинация игнорируется,
+    отдаются все pk поддерева под фильтром.
+    """
+    filter_dict = create_filter_qs(request, StaticFilterSettings.filtered_value_list, data=request.GET)
+    date_filter = data_filter_qs(request, 'due_date', data=request.GET)
+    qs = _task_subtree_qs(filter_dict, date_filter)
+    ids = list(qs.values_list('pk', flat=True))
+    return JsonResponse({'ids': ids, 'count': len(ids)})
 
 
 @login_required

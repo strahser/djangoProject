@@ -1,8 +1,9 @@
+import imaplib
 import os
 from typing import List, Optional
 
 from loguru import logger
-from imap_tools import MailBox
+from imap_tools import AND, MailBox
 
 from Emails.models import Email, Attachment
 from Emails.ЕmailParser.EmailImapMessage import EmailImapMessage
@@ -104,36 +105,139 @@ class ParsingImapEmailToDB:
                 except Exception as e:
                     logger.error(f"Ошибка создания записи вложения {attach.filename}: {e}")
 
-    def main(self, email_type: str, folder: str, limit: Optional[int] = None) -> None:
-        """Основной метод: подключается к IMAP и обрабатывает письма."""
-        existing_uids = self._get_existing_uids()
+    # Ошибки разорванного соединения: сервер (Яндекс) отвечает
+    # `BYE problems with connection` посреди FETCH больших писем (~30 МБ)
+    # и рвёт TCP-соединение. Такие письма обрабатываем отдельно.
+    _CONN_ERRORS = (
+        imaplib.IMAP4.abort,
+        imaplib.IMAP4.error,
+        ConnectionError,
+        TimeoutError,
+        OSError,
+    )
+
+    IMAP_TIMEOUT = 60
+
+    def _login(self, folder: str) -> MailBox:
+        """Подключается к IMAP (без with — чтобы можно было переподключаться)."""
+        return MailBox(YA_HOST, timeout=self.IMAP_TIMEOUT).login(
+            YA_USER, YA_PASSWORD, initial_folder=folder
+        )
+
+    @staticmethod
+    def _logout_quietly(mailbox) -> None:
+        try:
+            mailbox.logout()
+        except Exception:
+            pass
+
+    def _process_message(self, msg, email_type: str) -> None:
+        """Сохраняет одно уже скачанное письмо в БД и на диск."""
+        self.create_action_list.append(msg.uid)
 
         try:
-            with MailBox(YA_HOST).login(YA_USER, YA_PASSWORD, initial_folder=folder) as mailbox:
-                for msg in mailbox.fetch(reverse=True, limit=limit):
-                    if msg.uid in existing_uids:
-                        self.skip_action_list.append(msg.uid)
-                        continue
+            message = EmailImapMessage(self.root_folder_path, msg)
+            self._create_folder(message.folder_path_name)
 
-                    self.create_action_list.append(msg.uid)
+            message.save_e_mail_to_html()
 
+            serializer = DbEmailImapMessageSerializer(
+                email_type, message.folder_path_name, msg
+            )
+            email_obj = serializer.create_record()
+
+            self._process_attachments(msg, email_obj, message.folder_path_name)
+
+        except Exception as e:
+            logger.exception(f"Ошибка обработки письма {msg.uid}: {e}")
+            self.error_list.append(msg.uid)
+
+    def _save_headers_only(self, mailbox, email_type: str, uid: str) -> None:
+        """Сохраняет письмо-«тяжеловес» только по заголовкам.
+
+        Тело таких писем сервер не отдаёт (рвёт соединение), но UID нужно
+        зафиксировать в БД — иначе письмо будет ронять каждый запуск
+        и блокировать обработку более старых писем.
+        """
+        try:
+            msgs = list(mailbox.fetch(AND(uid=uid), headers_only=True))
+        except Exception as e:
+            logger.error(f"Не удалось получить даже заголовки письма {uid}: {e}")
+            self.error_list.append(uid)
+            return
+        if not msgs:
+            logger.error(f"Письмо {uid} не найдено на сервере")
+            self.error_list.append(uid)
+            return
+
+        msg = msgs[0]
+        self.create_action_list.append(msg.uid)
+        try:
+            message = EmailImapMessage(self.root_folder_path, msg)
+            self._create_folder(message.folder_path_name)
+            message.save_e_mail_to_html()
+
+            serializer = DbEmailImapMessageSerializer(
+                email_type, message.folder_path_name, msg
+            )
+            email_obj = serializer.create_record()
+            note = (
+                "[Служебная пометка: тело письма не загружено — сервер "
+                "разрывает соединение при скачивании "
+                f"(размер ~{msg.size or 0} байт). Сохранены только заголовки.]"
+            )
+            email_obj.body_text = f"{note}\n\n{email_obj.body_text or ''}".strip()
+            email_obj.save(update_fields=['body_text'])
+        except Exception as e:
+            logger.exception(f"Ошибка сохранения заголовков письма {msg.uid}: {e}")
+            self.error_list.append(msg.uid)
+
+    def main(self, email_type: str, folder: str, limit: Optional[int] = None) -> None:
+        """Основной метод: подключается к IMAP и обрабатывает письма.
+
+        Устойчив к обрывам соединения: сначала получает лёгкий список UID
+        и качает только новые письма, по одному. При обрыве — переподключение
+        и повтор; письмо, которое сервер не отдаёт целиком, сохраняется
+        по заголовкам и больше не блокирует очередь.
+        """
+        existing_uids = self._get_existing_uids()
+
+        mailbox = None
+        try:
+            mailbox = self._login(folder)
+            all_uids = mailbox.uids()
+            if limit is not None:
+                all_uids = all_uids[-limit:]
+            new_uids = [uid for uid in all_uids if uid not in existing_uids]
+            logger.info(
+                f"IMAP ({folder}): всего {len(all_uids)}, новых {len(new_uids)}"
+            )
+
+            for uid in new_uids:
+                try:
+                    msgs = list(mailbox.fetch(AND(uid=uid)))
+                except self._CONN_ERRORS:
+                    logger.warning(
+                        f"Обрыв соединения на письме {uid}, переподключаюсь..."
+                    )
+                    self._logout_quietly(mailbox)
                     try:
-                        message = EmailImapMessage(self.root_folder_path, msg)
-                        self._create_folder(message.folder_path_name)
-
-                        message.save_e_mail_to_html()
-
-                        serializer = DbEmailImapMessageSerializer(
-                            email_type, message.folder_path_name, msg
+                        mailbox = self._login(folder)
+                        msgs = list(mailbox.fetch(AND(uid=uid)))
+                    except self._CONN_ERRORS as e2:
+                        logger.warning(
+                            f"Письмо {uid} не отдаётся целиком ({e2}), "
+                            "сохраняю заголовки"
                         )
-                        email_obj = serializer.create_record()
-
-                        self._process_attachments(msg, email_obj, message.folder_path_name)
-
-                    except Exception as e:
-                        logger.exception(f"Ошибка обработки письма {msg.uid}: {e}")
-                        self.error_list.append(msg.uid)
+                        self._save_headers_only(mailbox, email_type, uid)
+                        continue
+                if not msgs:
+                    continue
+                self._process_message(msgs[0], email_type)
 
         except Exception as e:
             logger.exception(f"Ошибка подключения к IMAP ({folder}): {e}")
             self.error_list.append(f'IMAP connection: {e}')
+        finally:
+            if mailbox is not None:
+                self._logout_quietly(mailbox)
