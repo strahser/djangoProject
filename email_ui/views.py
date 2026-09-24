@@ -1658,22 +1658,27 @@ def draft_edit(request, pk):
                 body_text = f.read()
         except Exception:
             pass
+    # Черновики, созданные через API (реестр М1 и др.), хранят тело в body_text
+    # и не имеют HTML-файла — без фолбэка редактор открывался пустым.
+    if not body_text:
+        body_text = email.body_text or ''
 
     contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
 
     context = {
         'form': ComposeEmailForm(initial={
-            'to': email.receiver or '',
-            'cc': email.cc or '',
-            'bcc': email.bcc or '',
-            'subject': email.subject or '',
-            'body': body_text,
-        }),
+        'to': email.receiver or '',
+        'cc': email.cc or '',
+        'bcc': email.bcc or '',
+        'subject': email.subject or '',
+        'body': body_text,
+    }),
         'mode': 'edit_draft',
         'draft_email': email,
         'draft_attachments': list(email.attachments.all()),
         'to': email.receiver or '',
         'cc': email.cc or '',
+        'bcc': email.bcc or '',
         'subject': email.subject or '',
         'body': body_text,
         'contacts': contacts,
@@ -1697,7 +1702,8 @@ def draft_send(request, pk):
             'form': form, 'mode': 'edit_draft', 'draft_email': draft,
             'draft_attachments': list(draft.attachments.all()),
             'to': draft.receiver or '', 'cc': draft.cc or '',
-            'subject': draft.subject or '', 'body': '',
+            'subject': draft.subject or '',
+            'body': request.POST.get('body', ''),
             'contacts': contacts,
             'contacts_json': _contacts_picker_json(contacts),
             'groups_json': _groups_picker_json(),
@@ -1710,7 +1716,8 @@ def draft_send(request, pk):
             'form': form, 'mode': 'edit_draft', 'draft_email': draft,
             'draft_attachments': list(draft.attachments.all()),
             'to': draft.receiver or '', 'cc': draft.cc or '',
-            'subject': draft.subject or '', 'body': '',
+            'subject': draft.subject or '',
+            'body': request.POST.get('body', ''),
             'contacts': contacts,
             'contacts_json': _contacts_picker_json(contacts),
             'groups_json': _groups_picker_json(),
@@ -1834,7 +1841,8 @@ def draft_send(request, pk):
             'form': form, 'mode': 'edit_draft', 'draft_email': draft,
             'draft_attachments': list(draft.attachments.all()),
             'to': draft.receiver or '', 'cc': draft.cc or '',
-            'subject': draft.subject or '', 'body': '',
+            'subject': draft.subject or '',
+            'body': request.POST.get('body', ''),
             'contacts': contacts, 'error': str(e),
             'contacts_json': _contacts_picker_json(contacts),
             'groups_json': _groups_picker_json(),
@@ -1888,28 +1896,49 @@ def save_draft(request):
 
 @login_required
 @require_http_methods(['POST'])
+@login_required
+@require_http_methods(['POST'])
 def draft_update(request, pk):
     """Обновить существующий черновик (без отправки)."""
     draft = get_object_or_404(Email, pk=pk, folder='drafts')
-    to_val = request.POST.get('to', '')
-    cc_val = request.POST.get('cc', '')
-    bcc_val = request.POST.get('bcc', '')
-    subject_val = request.POST.get('subject', '')
-    body_val = request.POST.get('body', '')
 
-    draft.receiver = to_val
-    draft.cc = cc_val
-    draft.bcc = bcc_val
-    draft.subject = subject_val
-    draft.save(update_fields=['receiver', 'cc', 'bcc', 'subject'])
+    # Полей to/cc/bcc в форме draft_edit нет — обновляем только те поля,
+    # что реально пришли в POST, иначе каждое сохранение затирало бы
+    # получателей пустыми строками.
+    updated = []
+    for field, key in (('receiver', 'to'), ('cc', 'cc'), ('bcc', 'bcc'), ('subject', 'subject')):
+        if key in request.POST:
+            setattr(draft, field, request.POST.get(key, ''))
+            updated.append(field)
 
-    # Обновляем HTML тело
-    if draft.link:
-        html_path = draft.get_html_file_path()
-        if html_path:
-            os.makedirs(os.path.dirname(html_path), exist_ok=True)
-            with open(html_path, 'w', encoding='utf-8') as f:
-                f.write(body_val or '')
+    # Тело — всегда в body_text БД; в HTML-файл — если есть куда писать.
+    # Раньше тело писалось только в HTML (которого у API-черновиков нет),
+    # и правки молча терялись.
+    if 'body' in request.POST:
+        draft.body_text = request.POST.get('body', '')
+        updated.append('body_text')
+
+    # У черновика может не быть link-каталога (старые/копированные черновики) —
+    # создаём, иначе тело письма негде хранить и оно молча теряется.
+    if not draft.link:
+        from django.conf import settings
+        draft_dir = os.path.join(settings.DRAFT_DIRECTORY)
+        os.makedirs(draft_dir, exist_ok=True)
+        from datetime import datetime
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        subject_clean = (draft.subject or '')[:50] or 'no_subject'
+        safe_subject = ''.join(c if c.isalnum() or c in ' -_.,()' else '_' for c in subject_clean).strip()
+        draft.link = os.path.join(draft_dir, f'{ts}_{safe_subject}')
+        updated.append('link')
+    if updated:
+        draft.save(update_fields=updated)
+
+    # Обновляем HTML тело (если есть куда писать)
+    html_path = draft.get_html_file_path()
+    if html_path:
+        os.makedirs(os.path.dirname(html_path), exist_ok=True)
+        with open(html_path, 'w', encoding='utf-8') as f:
+            f.write(draft.body_text or '')
 
     return HttpResponse(status=204)
 
