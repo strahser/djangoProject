@@ -95,6 +95,9 @@ INSTALLED_APPS = [
 ]
 LOGIN_URL = '/login'
 LOGIN_REDIRECT_URL = '/'
+# DEV: единственный пользователь — вход без пароля (только при DEBUG=True).
+# Переопределить: set DEV_AUTOLOGIN_USERNAME=<login>. Пусто = первый superuser.
+DEV_AUTOLOGIN_USERNAME = os.environ.get('DEV_AUTOLOGIN_USERNAME', '')
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 AUTOSAVE_PERIOD =1440 #minutes (1 раз в сутки)
 
@@ -121,6 +124,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'djangoProject.dev_autologin.DevAutoLoginMiddleware',
     'ProjectContract.middleware.CurrentUserMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
