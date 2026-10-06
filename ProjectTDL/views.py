@@ -29,12 +29,6 @@ from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord
 FILTER_FIELDS = ('project_site', 'building_number', 'status', 'category', 'contractor', 'due_date')
 
 
-def get_filter_state_for_request(request):
-    """Состояние фильтров для текущего пользователя (тонкая обёртка)."""
-    from ProjectTDL.services.task_filters import get_filter_state
-    return get_filter_state(getattr(request, 'user', None))
-
-
 def task_action(request):
     if request.method == "POST":
         pks = request.POST.getlist("selection")
@@ -83,143 +77,32 @@ def _task_subtree_qs(filter_dict, date_filter):
 
 
 def custom_task_view(request):
-    initial = {}
-    filter_state = None
-    if request.method == 'GET':
-        filter_state = get_filter_state_for_request(request)
-        if filter_state:
-            initial = {k: v for k, v in (filter_state.params or {}).items() if v}
+    from ProjectTDL.services.task_view import (
+        apply_table_sort, build_pivot_tables, build_task_table,
+        export_tasks_xlsx, filter_dropdowns, list_tree_roots,
+        resolve_list_request, user_settings_dict,
+    )
+    resolved = resolve_list_request(request)
+    qs, _form = resolved['qs'], resolved['form']
+    filter_state = resolved['filter_state']
 
-    filter_dict = create_filter_qs(request, StaticFilterSettings.filtered_value_list)
-    if not filter_dict and initial:
-        filter_dict = create_filter_qs(request, StaticFilterSettings.filtered_value_list, data=initial)
-    date_filter = data_filter_qs(request, 'due_date', data=initial if not request.POST else None)
-    qs = _task_subtree_qs(filter_dict, date_filter)
+    apply_table_sort(request)
+    table, qs = build_task_table(request, qs)
 
-    _form = TaskFilterForm(request.POST or None, initial=initial)
-
-    # Сортировка строк — часть структуры таблицы (сохраняется в UserSettings):
-    # 1) явный ?sort= в URL — побеждает и запоминается;
-    # 2) иначе сохранённый table_sort пользователя;
-    # 3) иначе дефолт: свежие (большие id) вперёд.
-    _url_sort = request.GET.get('sort', '')
-    _us = UserSettings.objects.filter(user=request.user).first() \
-        if request.user.is_authenticated else None
-    if request.user.is_authenticated:
-        if _url_sort:
-            if _us is None:
-                _us = UserSettings.objects.create(
-                    user=request.user, table_sort=_url_sort[:32])
-            elif _us.table_sort != _url_sort:
-                _us.table_sort = _url_sort[:32]
-                _us.save()
-        else:
-            _eff_sort = (_us.table_sort if _us else '') or '-id'
-            _q = request.GET.copy()
-            _q['sort'] = _eff_sort
-            request.GET = _q
-    elif not _url_sort:
-        _q = request.GET.copy()
-        _q['sort'] = '-id'
-        request.GET = _q
-
-    table = TaskNodeTable(qs)
-    table.view_mode = 'tree'
-    RequestConfig(request, paginate=False).configure(table)
-    if table.order_by:
-        # Плоская сортировка рвёт дерево (дочерние отрываются от родителей,
-        # подзадача выглядит «отдельной задачей»): сортируем только корни
-        # выборки, поддеревья идут MPTT-порядком. Состояние заголовков
-        # сохраняем напрямую в _order_by, чтобы не пересортировать строки.
-        _sort_by = table.order_by
-        qs = order_qs_hierarchical(qs, [str(o) for o in _sort_by])
-        table = TaskNodeTable(qs)
-        table.view_mode = 'tree'
-        table._order_by = _sort_by
-
-    tree_roots = TaskNode.objects.filter(parent__isnull=True, node_type='task').select_related(
-        'project_site', 'status', 'contractor'
-    ).prefetch_related('children')
+    tree_roots = list_tree_roots()
 
     pivot_table_list = []
     gant_table = ''
     if request.method == 'POST':
 
         if 'submit' in request.POST and _form.is_valid():
-            for name, _column in zip(StaticFilterSettings.pivot_columns_names,
-                                     StaticFilterSettings.pivot_columns_values):
-                pivot_table1 = {"name": name,
-                                'table': create_pivot_table(TaskNode, qs, StaticFilterSettings.replaced_list, _column)}
-                pivot_table_list.append(pivot_table1)
+            pivot_table_list = build_pivot_tables(qs)
 
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return render(request, 'ProjectTDL/custom_table_view.html', {'table': table, 'form': _form})
 
         if 'save_attachments' in request.POST and _form.is_valid():
-            df_initial = create_df_from_model(TaskNode, qs)
-            df_initial['project_site'] = df_initial['project_site'].apply(lambda x: getattr(x, 'name'))
-            df_initial = df_initial.sort_values('project_site')
-            df_export = df_initial \
-                .filter(get_standard_display_list(TaskNode, excluding_list=StaticFilterSettings.export_excluding_list)) \
-                .rename(renamed_dict(TaskNode), axis='columns') \
-                .fillna('')
-            messages.success(request, f"успешно экспортировано {df_export.shape[0]} строк {df_export.shape[1]} столбцов")
-            response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            response['Content-Disposition'] = 'attachment; filename="Задачи.xlsx"'
-            writer = pd.ExcelWriter(response, engine='xlsxwriter')
-            df_export.to_excel(writer, sheet_name='Задачи', index=False, freeze_panes=(1, 1))
-            workbook = writer.book
-            worksheet = writer.sheets['Задачи']
-            column_settings = [{'header': column} for column in df_export]
-            (max_row, max_col) = df_export.shape
-            worksheet.add_table(0, 0, max_row, max_col - 1,
-                           {'columns': column_settings,
-                            'banded_columns': True,
-                            'name': 'Задачи',
-                            'autofilter': True,
-                            'style': 'Table Style Light 8'})
-            writer.close()
-            return response
-
-    user_settings = {
-        'inherit_props': False,
-        'new_task_position': 'bottom',
-        'default_tree_view': False,
-        'default_project_site': False,
-        'default_building': False,
-        'default_category': False,
-        'default_status': False,
-        'default_contractor': False,
-        'column_visibility': {},
-        'column_widths': {},
-        'column_order': [],
-        'panel_fields': {},
-        'page_length': None,
-        'table_sort': '',
-        'auto_save': True,
-        'active_project_id': '',
-    }
-    if request.user.is_authenticated:
-        _us = UserSettings.objects.filter(user=request.user).first()
-        if _us:
-            user_settings = {
-                'inherit_props': _us.inherit_props,
-                'new_task_position': _us.new_task_position,
-                'default_tree_view': _us.default_tree_view,
-                'default_project_site': _us.default_project_site,
-                'default_building': _us.default_building,
-                'default_category': _us.default_category,
-                'default_status': _us.default_status,
-                'default_contractor': _us.default_contractor,
-                'column_visibility': _us.column_visibility or {},
-                'column_widths': _us.column_widths or {},
-                'column_order': _us.column_order or [],
-                'panel_fields': _us.panel_fields or {},
-                'page_length': _us.page_length,
-                'table_sort': _us.table_sort or '',
-                'auto_save': _us.auto_save,
-                'active_project_id': _us.active_project_id or '',
-            }
+            return export_tasks_xlsx(request, qs)
 
     context = {
         'form': _form,
@@ -228,14 +111,8 @@ def custom_task_view(request):
         'pivot_table_list': pivot_table_list,
         'tasks': qs,
         'tree_roots': tree_roots,
-        'all_contractors': Contractor.objects.all().order_by('name'),
-        'all_statuses': Status.objects.all().order_by('name'),
-        'all_categories': Category.objects.all().order_by('name'),
-        'all_project_sites': ProjectSite.objects.all().order_by('name'),
-        'all_buildings': BuildingNumber.objects.all().order_by('building_number'),
-        'all_building_types': BuildingType.objects.all().order_by('name'),
-        'all_design_chapters': DesignChapter.objects.all().order_by('short_name'),
-        'user_settings': user_settings,
+        **filter_dropdowns(),
+        'user_settings': user_settings_dict(request.user),
         'filter_state': (filter_state.params or {}) if filter_state else {},
     }
     return render(request, 'ProjectTDL/custom_task_view_enhanced.html', context)
@@ -707,17 +584,9 @@ def filter_tasks_ajax(request):
     date_filter = data_filter_qs(request, 'due_date', data=request.GET)
     qs = _task_subtree_qs(filter_dict, date_filter)
 
-    table = TaskNodeTable(qs)
-    table.view_mode = 'tree'
-    RequestConfig(request, paginate=False).configure(table)
-    if table.order_by:
-        # Та же иерархическая сортировка, что в custom_task_view: корни по
-        # ключу, поддеревья MPTT-порядком (иначе смена фильтра рвала дерево).
-        _sort_by = table.order_by
-        qs = order_qs_hierarchical(qs, [str(o) for o in _sort_by])
-        table = TaskNodeTable(qs)
-        table.view_mode = 'tree'
-        table._order_by = _sort_by
+    from ProjectTDL.services.task_view import build_task_table
+    # Та же иерархическая сортировка, что в custom_task_view (фаза 3 task_view).
+    table, qs = build_task_table(request, qs)
     table_html = render_to_string('django_tables2/bootstrap_no_pag.html', {'table': table}, request)
 
     tree_roots = TaskNode.objects.filter(parent__isnull=True, node_type='task').select_related(

@@ -32,3 +32,4 @@
 - Блок 25 done: чистые хелперы email_ui/views.py -> services/query_service.py + services/navigation.py (views 2806->2525, тела 1:1, re-export). Тесты tests_views_b25 36/36; полный email_ui 317/317 OK (235s).
 - Блок 27 done (B1): compose-поток views->services/compose_flow (views 2525->2395, тела 1:1, re-export). Тесты tests_compose_b27 20/20; полный email_ui 340/340 OK (231s).
 - Блок 28 done (B2): thread-хелперы views->services/thread_service (views 2395->2289, тела 1:1, re-export). Тесты tests_threads_b28 6/6; полный email_ui 346/346 OK (226s).
+- Блок 29 done (B7): фазы custom_task_view views->services/task_view (views 965->834, тела 1:1; filter_tasks_ajax тоже на фазе 3). Тесты test_task_view_b29 12/12; ProjectTDL 124/124 OK, check clean.
