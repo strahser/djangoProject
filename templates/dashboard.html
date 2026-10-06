@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+
+{% block title %}Сводка дня{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+  <h4>Сводка дня</h4>
+  <div class="row mt-3">
+    <div class="col-md-3">
+      <div class="card text-bg-warning mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Непрочитанные</h5>
+          <p class="card-text display-6">{{ inbox_unread }}</p>
+          <a href="{% url 'email_ui:inbox' 'inbox' %}" class="btn btn-sm btn-light">К почте</a>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-bg-secondary mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Черновики</h5>
+          <p class="card-text display-6">{{ drafts }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-bg-danger mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Просроченные задачи</h5>
+          <p class="card-text display-6">{{ overdue|length }}</p>
+          <a href="{% url 'custom_task_view' %}" class="btn btn-sm btn-light">К задачам</a>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-bg-success mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Платежи 14 дней</h5>
+          <p class="card-text display-6">{{ payments|length }}</p>
+          <p class="card-text">{{ payments_total }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-6">
+      <h5>Сроки на 14 дней</h5>
+      <ul class="list-group">
+        {% for t in due_week %}
+        <li class="list-group-item">
+          <a href="{% url 'task_detail' t.pk %}">{{ t.name }}</a>
+          — {{ t.due_date }}{% if t.project_site %} ({{ t.project_site.name }}){% endif %}
+        </li>
+        {% empty %}
+        <li class="list-group-item text-muted">Нет сроков на горизонте</li>
+        {% endfor %}
+      </ul>
+      <h5 class="mt-3">Просроченные</h5>
+      <ul class="list-group">
+        {% for t in overdue %}
+        <li class="list-group-item">
+          <a href="{% url 'task_detail' t.pk %}">{{ t.name }}</a>
+          — {{ t.due_date }} ({{ t.status }})
+        </li>
+        {% empty %}
+        <li class="list-group-item text-muted">Просрочек нет</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="col-md-6">
+      <h5>Ближайшие платежи</h5>
+      <ul class="list-group">
+        {% for p in payments %}
+        <li class="list-group-item">
+          {{ p.contract }} — {{ p.name }}: {{ p.price }} ({{ p.due_date }})
+        </li>
+        {% empty %}
+        <li class="list-group-item text-muted">Платежей нет</li>
+        {% endfor %}
+      </ul>
+      <h5 class="mt-3">Свежие входящие</h5>
+      <ul class="list-group">
+        {% for e in recent %}
+        <li class="list-group-item">{{ e.subject|default:"Без темы" }} — {{ e.sender }}</li>
+        {% empty %}
+        <li class="list-group-item text-muted">Писем нет</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

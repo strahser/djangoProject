@@ -10,6 +10,7 @@ from django.views.static import serve
 
 from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
 from DocRegistry.admin_sites import k1_site, m1_site
+from djangoProject.dashboard import dashboard
 from djangoProject.health import healthz
 
 # register all adminactions
@@ -17,6 +18,7 @@ actions.add_to_site(site)
 
 urlpatterns = [
     path('healthz/', healthz, name='healthz'),
+    path('dashboard/', dashboard, name='dashboard'),
     path("", include('ProjectTDL.urls')),
     path('grappelli/', include('grappelli.urls')),  # grappelli URLS
     path('grappelli-docs/', include('grappelli.urls_docs')),  # grappelli docs URLS
