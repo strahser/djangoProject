@@ -1,3 +1,15 @@
+# Блок 31 (B4): modal CRUD -> _save_modal_form (done, pushed 5354d33)
+
+7 modal create/edit (contact_edit, group, tag, rule, saved_filter) через
+единый финал save+204/400; contact_create с 2 формами оставлен.
+Полный email_ui 353/353 OK (245s). Фабрика CBV отклонена: различия
+в сообщениях/контекстах/хуках весомее экономии.
+
+# Блок 30 (B6+B8): Seen в фон + гард фан-аута (done, pushed a073e92)
+
+push_seen_async в daemon-потоке (5 точек), sync-ядро 1:1 в seen_sync;
+гард комбинации tags+has_attachments. Тесты 5/5 + 2/2; email_ui 351/351.
+
 # Блок 29 (B7): фазы custom_task_view -> services/task_view (done, pushed 68f2b3b)
 
 # Блок 28 (B2): thread-хелперы views -> services/thread_service (done, pushed d17cb06)

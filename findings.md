@@ -11,6 +11,16 @@
 6. DONE: кириллический поиск — casefold-добор.
 7. DONE: filter_panel — функция восстановлена (авто-открытие модалки).
 
+## Вердикты B1–B8 — выполнено (блоки 27–31)
+- B1 DONE (27): compose-поток -> compose_flow.
+- B2 DONE (28): thread-хелперы -> thread_service.
+- B3 DONE (26): дубль декоратора снят.
+- B4 DONE (31): _save_modal_form (фабрика CBV отклонена — см. план).
+- B5 DONE (26): запятая делится.
+- B6 DONE (30): push_seen_async (daemon-поток).
+- B7 DONE (29): фазы custom_task_view -> task_view.
+- B8 DONE (30): гард фан-аута (дублей нет).
+
 ## Предложения по бизнес-логике и кодовой базе (Блок 25, ждут вердикта)
 - B1: compose-тройник (views 1309/1388/1545: send/reply_send/draft_send
   75–118 строк) -> services/compose_flow.py поверх compose_service.
