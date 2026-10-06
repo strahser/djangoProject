@@ -1,4 +1,6 @@
-# Блок 28 (B2): thread-хелперы views -> services/thread_service (in progress)
+# Блок 29 (B7): фазы custom_task_view -> services/task_view (done, pushed 68f2b3b)
+
+# Блок 28 (B2): thread-хелперы views -> services/thread_service (done, pushed d17cb06)
 
 attach/build/list/page-heads/selection -> thread_service (публичные имена),
 views — re-export. Тесты `email_ui/tests_threads_b28.py` 6/6 до и после

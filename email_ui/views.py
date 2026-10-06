@@ -43,6 +43,7 @@ from .services.navigation import (
     ALLOWED_SORT_FIELDS, _build_back_url, _clean_query_string,
     _get_list_from_request, _safe_next, _sanitize_next_url, apply_sorting,
 )
+from .services.seen_sync import push_seen_async
 from .services.query_service import (
     SEARCH_ANYWHERE_FIELDS, _ci_variants, _field_tokens, _q_field_variants,
     _q_token_anywhere, _query_tokens, _split_tokens, _token_addresses,
@@ -65,64 +66,6 @@ from .services.thread_service import (
 )
 PER_PAGE = 50
 THREADS_PER_PAGE = 20
-
-#: Локальная папка БД -> имя папки на IMAP-сервере (обратное к scheduled/fetch).
-IMAP_FOLDER_BY_DB = {'inbox': 'INBOX', 'sent': 'Отправленные'}
-
-
-def _push_seen_to_server(email_or_emails, seen=True):
-    """Best-effort синхронизация локального is_read -> серверный \\Seen.
-
-    Прочитанное в приложении должно стать прочитанным и на сервере,
-    иначе веб/телефон продолжат показывать его непрочитанным и следующая
-    загрузка (Seen -> БД) будет спорить с локальным статусом.
-    Ошибки сети/авторизации глушатся: UI не должен падать из-за IMAP.
-    """
-    try:
-        items = list(email_or_emails) if isinstance(email_or_emails, (list, tuple, set)) else [email_or_emails]
-    except TypeError:
-        items = [email_or_emails]
-    by_folder = {}
-    for email in items:
-        try:
-            uid = (email.uid or '').strip()
-        except Exception:
-            uid = ''
-        # На сервер отправляем только настоящие IMAP-UID (цифры).
-        # Тестовые ('bulk-uid-1'), legacy (Message-ID как uid) и пустые —
-        # сервер их не знает, STORE вернёт ошибку.
-        if not uid or not uid.isdigit():
-            continue
-        imap_folder = IMAP_FOLDER_BY_DB.get(getattr(email, 'folder', ''))
-        if not imap_folder:
-            continue  # drafts/archive/trash — локальные, на сервере их нет
-        by_folder.setdefault(imap_folder, []).append(uid)
-    if not by_folder:
-        return
-    try:
-        from django.conf import settings as dj_settings
-        host = getattr(dj_settings, 'YA_HOST', '') or ''
-        user = getattr(dj_settings, 'YA_USER', '') or ''
-        password = getattr(dj_settings, 'YA_PASSWORD', '') or ''
-        if not (host and user and password):
-            return
-        from imap_tools import MailBox
-        timeout = int(getattr(dj_settings, 'EMAIL_IMAP_TIMEOUT', 20) or 20)
-        for imap_folder, uids in by_folder.items():
-            mailbox = None
-            try:
-                mailbox = MailBox(host, timeout=timeout).login(user, password, initial_folder=imap_folder)
-                mailbox.flag(uids, '\\Seen', seen)
-            except Exception as e:
-                logger.warning(f"IMAP push Seen={seen} ({imap_folder}, {len(uids)} шт.): {e}")
-            finally:
-                try:
-                    if mailbox is not None:
-                        mailbox.logout()
-                except Exception:
-                    pass
-    except Exception as e:
-        logger.warning(f"IMAP push Seen: {e}")
 
 
 @login_required
@@ -425,7 +368,7 @@ def email_detail(request, pk):
     if not email.is_read:
         email.is_read = True
         email.save(update_fields=['is_read'])
-        _push_seen_to_server(email, seen=True)
+        push_seen_async(email, seen=True)
 
     raw_next = request.GET.get('next') or reverse('email_ui:inbox', args=[email.folder])
     next_url = _sanitize_next_url(raw_next)
@@ -459,7 +402,7 @@ def email_detail_modal(request, pk):
     if not email.is_read:
         email.is_read = True
         email.save(update_fields=['is_read'])
-        _push_seen_to_server(email, seen=True)
+        push_seen_async(email, seen=True)
 
     context = {
         'email': email,
@@ -477,7 +420,7 @@ def mark_email_as_read(request, pk):
     if not email.is_read:
         email.is_read = True
         email.save(update_fields=['is_read'])
-        _push_seen_to_server(email, seen=True)
+        push_seen_async(email, seen=True)
     return HttpResponse(status=204)  # No content, успешно
 
 
@@ -812,10 +755,10 @@ def bulk_action(request):
             messages.success(request, f'{emails.count()} писем перемещено')
     elif action == 'mark_read':
         emails.update(is_read=True)
-        _push_seen_to_server(list(emails.only('id', 'uid', 'folder')), seen=True)
+        push_seen_async(list(emails.only('id', 'uid', 'folder')), seen=True)
     elif action == 'mark_unread':
         emails.update(is_read=False)
-        _push_seen_to_server(list(emails.only('id', 'uid', 'folder')), seen=False)
+        push_seen_async(list(emails.only('id', 'uid', 'folder')), seen=False)
     elif action == 'mark_important':
         emails.update(is_important=True)
     elif action == 'mark_unimportant':
@@ -1675,15 +1618,10 @@ def contact_edit(request, pk):
     """Редактирование контакта (AJAX)."""
     contact = get_object_or_404(Contact, pk=pk)
     form = ContactForm(request.POST, instance=contact)
-    if form.is_valid():
-        form.save()
-        messages.success(request, 'Контакт обновлён')
-        return HttpResponse(status=204)
-    return render(request, 'email_ui/partials/contact_modal.html', {
-        'form': form,
-        'contact': contact,
-        'mode': 'edit',
-    }, status=400)
+    return _save_modal_form(
+        request, form, template='email_ui/partials/contact_modal.html',
+        mode='edit', message='Контакт обновлён',
+        extra={'contact': contact})
 
 
 @login_required
@@ -1729,6 +1667,25 @@ def contact_search(request):
             'company': c.company.name if c.company else '',
         })
     return JsonResponse(data, safe=False)
+
+
+def _save_modal_form(request, form, *, template, mode, message, extra=None, save=None):
+    """Единый финал modal create/edit: save + 204 или 400 с формой.
+
+    message — строка или callable(obj)->строка; save — колбэк вместо
+    form.save() (commit=False + дозаполнение). contact_create с двумя
+    формами оставлен как есть.
+    """
+    if form.is_valid():
+        obj = save() if save is not None else form.save()
+        if message:
+            messages.success(
+                request, message(obj) if callable(message) else message)
+        return HttpResponse(status=204)
+    ctx = {'form': form, 'mode': mode}
+    if extra:
+        ctx.update(extra)
+    return render(request, template, ctx, status=400)
 
 
 # ==================== Contact Groups ====================
@@ -1780,14 +1737,10 @@ def group_create_modal(request):
 def group_create(request):
     """Создание группы (AJAX)."""
     form = ContactGroupForm(request.POST)
-    if form.is_valid():
-        group = form.save()
-        messages.success(request, f'Группа "{group.name}" создана')
-        return HttpResponse(status=204)
-    return render(request, 'email_ui/partials/group_modal.html', {
-        'form': form,
-        'mode': 'create',
-    }, status=400)
+    return _save_modal_form(
+        request, form, template='email_ui/partials/group_modal.html',
+        mode='create',
+        message=lambda group: f'Группа "{group.name}" создана')
 
 
 @login_required
@@ -1807,15 +1760,10 @@ def group_edit(request, pk):
     """Переименование группы (AJAX)."""
     group = get_object_or_404(ContactGroup, pk=pk)
     form = ContactGroupForm(request.POST, instance=group)
-    if form.is_valid():
-        form.save()
-        messages.success(request, 'Группа обновлена')
-        return HttpResponse(status=204)
-    return render(request, 'email_ui/partials/group_modal.html', {
-        'form': form,
-        'group': group,
-        'mode': 'edit',
-    }, status=400)
+    return _save_modal_form(
+        request, form, template='email_ui/partials/group_modal.html',
+        mode='edit', message='Группа обновлена',
+        extra={'group': group})
 
 
 @login_required
@@ -1898,13 +1846,10 @@ def tag_create_modal(request):
 def tag_create(request):
     """Создание тега (AJAX)."""
     form = EmailTagForm(request.POST)
-    if form.is_valid():
-        tag = form.save()
-        messages.success(request, f'Тег "{tag.name}" создан')
-        return HttpResponse(status=204)
-    return render(request, 'email_ui/partials/tag_modal.html', {
-        'form': form, 'mode': 'create',
-    }, status=400)
+    return _save_modal_form(
+        request, form, template='email_ui/partials/tag_modal.html',
+        mode='create',
+        message=lambda tag: f'Тег "{tag.name}" создан')
 
 
 @login_required
@@ -2154,17 +2099,18 @@ def saved_filters_list(request):
 def save_current_filter(request):
     """Сохранить текущий фильтр."""
     form = SavedFilterForm(request.POST)
-    if form.is_valid():
+    def _save_filter():
         sf = form.save(commit=False)
         sf.user = request.user
         # Store the current GET parameters as the filter
         sf.filters = dict(request.GET.lists())
         sf.save()
-        messages.success(request, f'Фильтр "{sf.name}" сохранён')
-        return HttpResponse(status=204)
-    return render(request, 'email_ui/partials/saved_filter_form.html', {
-        'form': form, 'mode': 'save',
-    }, status=400)
+        return sf
+    return _save_modal_form(
+        request, form, template='email_ui/partials/saved_filter_form.html',
+        mode='save',
+        message=lambda sf: f'Фильтр "{sf.name}" сохранён',
+        save=_save_filter)
 
 
 @login_required
@@ -2216,15 +2162,16 @@ def rule_create_modal(request):
 def rule_create(request):
     """Создание правила (AJAX)."""
     form = EmailRuleForm(request.POST)
-    if form.is_valid():
+    def _save_rule():
         rule = form.save(commit=False)
         rule.created_by = request.user
         rule.save()
-        messages.success(request, f'Правило "{rule.name}" создано')
-        return HttpResponse(status=204)
-    return render(request, 'email_ui/partials/rule_modal.html', {
-        'form': form, 'mode': 'create',
-    }, status=400)
+        return rule
+    return _save_modal_form(
+        request, form, template='email_ui/partials/rule_modal.html',
+        mode='create',
+        message=lambda rule: f'Правило "{rule.name}" создано',
+        save=_save_rule)
 
 
 @login_required
@@ -2243,13 +2190,10 @@ def rule_edit(request, pk):
     """Редактирование правила (AJAX)."""
     rule = get_object_or_404(EmailRule, pk=pk)
     form = EmailRuleForm(request.POST, instance=rule)
-    if form.is_valid():
-        form.save()
-        messages.success(request, 'Правило обновлено')
-        return HttpResponse(status=204)
-    return render(request, 'email_ui/partials/rule_modal.html', {
-        'form': form, 'rule': rule, 'mode': 'edit',
-    }, status=400)
+    return _save_modal_form(
+        request, form, template='email_ui/partials/rule_modal.html',
+        mode='edit', message='Правило обновлено',
+        extra={'rule': rule})
 
 
 @login_required
