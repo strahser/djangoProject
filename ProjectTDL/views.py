@@ -435,13 +435,18 @@ def quick_create_subtask(request):
     name = request.POST.get('name', '').strip()
     if not parent_id or not name:
         return JsonResponse({'status': 'error', 'message': 'Укажите родительскую задачу и название'})
+    if not request.user.is_authenticated:
+        return JsonResponse({'status': 'error', 'message': 'Требуется авторизация'})
     try:
         parent = TaskNode.objects.get(pk=parent_id)
+        # Блок 18: подзадачи — только к своим задачам (как update_task_field).
+        if parent.owner_id != request.user.pk:
+            return JsonResponse({'status': 'error', 'message': 'Нет прав на задачу'})
         subtask = TaskNode.objects.create(
             name=name,
             node_type='subtask',
             parent=parent,
-            owner=request.user if request.user.is_authenticated else None,
+            owner=request.user,
             project_site=parent.project_site,
             status=parent.status,
             category=parent.category,
@@ -456,12 +461,15 @@ def quick_create_subtask(request):
 
 @require_POST
 def bulk_delete_tasks(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'status': 'error', 'message': 'Требуется авторизация'})
     task_ids = request.POST.getlist('task_ids')
     task_ids = [t for ids in task_ids for t in ids.split(',') if t]
     if not task_ids:
         return JsonResponse({'status': 'error', 'message': 'Задачи не выбраны'})
     from django.db.models import Q
-    to_delete = TaskNode.objects.filter(id__in=task_ids)
+    # Блок 18: только свои задачи (раньше — любые, включая чужие, без логина).
+    to_delete = TaskNode.objects.filter(id__in=task_ids, owner=request.user)
     count = to_delete.count()
     # Родительские задачи удалятся вместе с подзадачами (CASCADE)
     to_delete.delete()
@@ -829,6 +837,10 @@ def task_detail(request, pk):
     subtask_form = TaskNodeQuickForm(request.POST or None, prefix='subtask')
     if request.method == 'POST' and 'create_subtask' in request.POST:
         if subtask_form.is_valid():
+            # Блок 18: как quick_create_subtask — только свои и залогиненным.
+            if not request.user.is_authenticated or task.owner_id != request.user.pk:
+                messages.error(request, 'Нет прав на задачу')
+                return redirect('task_detail', pk=pk)
             st = subtask_form.save(commit=False)
             st.node_type = 'subtask'
             st.parent = task

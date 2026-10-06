@@ -221,3 +221,67 @@ class ExportXlsxGuardTest(GuardsFixtureMixin, TestCase):
         self.assertIn('attachment', decoded)
         self.assertIn('Задачи.xlsx', decoded)
         self.assertTrue(resp.content[:2] == b'PK')  # zip-сигнатура xlsx
+
+
+class SubtaskCreateGuardsTest(GuardsFixtureMixin, TestCase):
+    def _post(self, **over):
+        data = {'parent_id': str(self.parent.pk), 'name': 'Новая подзадача'}
+        data.update(over)
+        return self.client.post(reverse('quick_create_subtask'), data)
+
+    def test_anonymous_rejected(self):
+        resp = self._post()
+        self.assertEqual(resp.json()['status'], 'error')
+
+    def test_foreign_parent_rejected(self):
+        self.client.force_login(self.other)
+        resp = self._post()
+        self.assertEqual(resp.json()['status'], 'error')
+        self.assertFalse(TaskNode.objects.filter(name='Новая подзадача').exists())
+
+    def test_own_parent_copies_fields(self):
+        self.client.force_login(self.owner)
+        resp = self._post()
+        self.assertEqual(resp.json()['status'], 'ok')
+        st = TaskNode.objects.get(pk=resp.json()['subtask_id'])
+        self.assertEqual(st.owner, self.owner)
+        self.assertEqual(st.status, self.parent.status)
+        self.assertEqual(st.project_site, self.parent.project_site)
+
+    def test_detail_inline_foreign_no_create(self):
+        self.client.force_login(self.other)
+        resp = self.client.post(
+            reverse('task_detail', args=[self.parent.pk]),
+            {'create_subtask': '1', 'subtask-name': 'Инлайн'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(TaskNode.objects.filter(name='Инлайн').exists())
+
+    def test_detail_inline_own_creates(self):
+        self.client.force_login(self.owner)
+        resp = self.client.post(
+            reverse('task_detail', args=[self.parent.pk]),
+            {'create_subtask': '1', 'subtask-name': 'Инлайн'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(TaskNode.objects.filter(name='Инлайн').exists())
+
+
+class BulkDeleteGuardsTest(GuardsFixtureMixin, TestCase):
+    def test_anonymous_rejected(self):
+        resp = self.client.post(reverse('bulk_delete_tasks'),
+                                {'task_ids': [str(self.parent.pk)]})
+        self.assertEqual(resp.json()['status'], 'error')
+        self.assertTrue(TaskNode.objects.filter(pk=self.parent.pk).exists())
+
+    def test_only_own_deleted(self):
+        alien = TaskNode.objects.create(
+            owner=self.other, project_site=self.site, name='Чужая',
+            status=self.open, category=self.category)
+        self.client.force_login(self.owner)
+        resp = self.client.post(
+            reverse('bulk_delete_tasks'),
+            {'task_ids': [str(self.child.pk), str(alien.pk)]})
+        # child — своя (parent остаётся: удаляем только child, не каскад вверх)
+        self.assertEqual(resp.json()['deleted'], 1)
+        self.assertFalse(TaskNode.objects.filter(pk=self.child.pk).exists())
+        self.assertTrue(TaskNode.objects.filter(pk=alien.pk).exists())
+        self.assertTrue(TaskNode.objects.filter(pk=self.parent.pk).exists())
