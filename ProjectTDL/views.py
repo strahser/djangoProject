@@ -916,8 +916,13 @@ def generate_custom_report(request):
     """View для генерации HTML отчета по выбранным задачам (как в админке)."""
     task_ids = []
     for value in request.GET.getlist('task_ids'):
-        task_ids.extend(value.split(','))
-    task_ids = [t for t in task_ids if t]
+        for part in value.split(','):
+            # Блок 21: мусор отбрасывается (раньше id__in=['abc'] давал 500).
+            part = part.strip()
+            try:
+                task_ids.append(int(part))
+            except (ValueError, TypeError):
+                continue
 
     if not task_ids:
         return HttpResponse("Не выбраны задачи для отчета")

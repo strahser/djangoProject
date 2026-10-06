@@ -124,3 +124,40 @@ class HtmlConvertTest(TestCase):
     def test_none_empty(self):
         self.assertEqual(html_convert(None), '')
         self.assertEqual(html_convert(''), '')
+
+
+class CustomReportViewTest(ReportFixtureMixin, TestCase):
+    def _get(self, **params):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.owner)
+        return c.get('/reports/custom/', params)
+
+    def test_no_ids_message(self):
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('Не выбраны задачи', resp.content.decode('utf-8'))
+
+    def test_garbage_ids_message_not_500(self):
+        # Блок 21: мусор отбрасывается вместо 500.
+        resp = self._get(task_ids='abc,!!!')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('Не выбраны задачи', resp.content.decode('utf-8'))
+
+    def test_html_report_file(self):
+        resp = self._get(task_ids=f'{self.parent.pk},{self.child.pk}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('custom_tasks_report.html',
+                      resp['Content-Disposition'])
+        self.assertIn('Родитель', resp.content.decode('utf-8'))
+
+    def test_protocol_report_file(self):
+        resp = self._get(task_ids=str(self.parent.pk), format='protocol')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('protocol_soveshchaniya.html',
+                      resp['Content-Disposition'])
+
+    def test_bad_meeting_date_falls_back(self):
+        resp = self._get(task_ids=str(self.parent.pk), format='protocol',
+                         meeting_date='не дата')
+        self.assertEqual(resp.status_code, 200)
