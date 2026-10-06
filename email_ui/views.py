@@ -2186,13 +2186,18 @@ def contact_search(request):
     query = request.GET.get('q', '')
     contacts = Contact.objects.filter(
         Q(name__icontains=query) | Q(emails__email__icontains=query)
-    ).distinct()[:10]
-    data = [{
-        'id': c.id,
-        'name': c.name,
-        'email': c.primary_email.email if c.primary_email else (c.emails.first().email if c.emails.exists() else ''),
-        'company': c.company.name if c.company else '',
-    } for c in contacts]
+    ).distinct().select_related('company').prefetch_related('emails')[:10]
+    data = []
+    for c in contacts:
+        # Блок 10: адреса из prefetch-кэша, без запросов на строку.
+        cached = list(c.emails.all())
+        primary = next((e for e in cached if e.is_primary), None)
+        data.append({
+            'id': c.id,
+            'name': c.name,
+            'email': primary.email if primary else (cached[0].email if cached else ''),
+            'company': c.company.name if c.company else '',
+        })
     return JsonResponse(data, safe=False)
 
 
@@ -2407,7 +2412,10 @@ def tag_delete(request, pk):
 @require_http_methods(['POST'])
 def assign_tag(request):
     """Назначить тег письму (AJAX)."""
-    email_id = sanitize_id(request.POST.get('email_id'))
+    try:
+        email_id = sanitize_id(request.POST.get('email_id'))
+    except (ValueError, TypeError):
+        return HttpResponseBadRequest('Некорректный ID письма')
     tag_id = request.POST.get('tag_id')
     tag_name = request.POST.get('tag_name')
 
@@ -2455,11 +2463,14 @@ def bulk_assign_tag(request):
     tag = get_object_or_404(EmailTag, pk=sanitize_id(tag_id))
     emails = Email.objects.filter(id__in=email_ids)
 
-    for email in emails:
-        EmailEmailTag.objects.get_or_create(
-            email=email, tag=tag,
-            defaults={'added_by': request.user},
-        )
+    # Блок 10: пачка вместо get_or_create в цикле (гонки + N запросов).
+    existing = set(EmailEmailTag.objects.filter(
+        email_id__in=email_ids, tag=tag).values_list('email_id', flat=True))
+    EmailEmailTag.objects.bulk_create(
+        [EmailEmailTag(email_id=eid, tag=tag, added_by=request.user)
+         for eid in email_ids if eid not in existing],
+        ignore_conflicts=True,
+    )
 
     messages.success(request, f'Тег "{tag.name}" назначен {emails.count()} письмам')
     return HttpResponse(status=204)
