@@ -1,19 +1,15 @@
 import logging
-from urllib.parse import urlencode, parse_qs
 
 from django import forms
 from django.contrib import admin
 from django.contrib import messages
 from django.urls import reverse
-from django.http import HttpResponse
 from django.utils.html import format_html
-from django.utils.safestring import mark_safe
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
 from import_export.fields import Field
 
 from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
-from Emails.models import Email
 from email_ui.models import EmailTaskLink
 from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog
 from ProjectTDL.Tables import StaticFilterSettings
@@ -157,8 +153,9 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
                     email=email, task_node=obj,
                     link_type='created_from', created_by=request.user,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                # Раньше молча терялась связь «задача из письма» — теперь в лог.
+                logger.warning(f'Не linked email {email_id} к задаче {obj.pk}: {e}')
 
     def response_add(self, request, obj, post_url_continue=None):
         next_url = request.POST.get('_next')
@@ -194,17 +191,6 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
 
     add_protocol_button.short_description = 'Протокол'
 
-    def email_list(self, obj):
-        email_ids = EmailTaskLink.objects.filter(task_node=obj).values_list('email_id', flat=True)
-        emails = Email.objects.filter(id__in=email_ids)
-        email_links = []
-        for email in emails:
-            link = reverse("admin:Emails_email_change", args=[email.id])
-            email_links.append(f'<a href="{link}">{email.subject}</a>')
-        return mark_safe(", ".join(email_links))
-
-    email_list.short_description = 'Список Email'
-
     @admin.action(description='Заменить HTML текст')
     def html_replace(modeladmin, request, queryset):
         for obj in queryset:
@@ -216,125 +202,29 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
                 messages.error(request, f'данные записи {obj.id} не обновлены {e}')
 
     def _get_admin_return_url(self, request, selected_ids=None):
-        try:
-            admin_url = reverse('admin:ProjectTDL_tasknode_changelist')
-        except Exception as e:
-            logger.error(f"Ошибка получения URL админки: {e}")
-            return None
-
-        params = {}
-        for key, value in request.GET.items():
-            if key in ['action', 'select_across', '_popup', '_to_field', '_changelist_filters']:
-                continue
-            if key.startswith('_') or key in ['select_across']:
-                continue
-            if key in request.GET.lists():
-                values = request.GET.getlist(key)
-                if len(values) > 1:
-                    params[key] = values
-                elif values:
-                    params[key] = values[0]
-            else:
-                params[key] = value
-
-        if selected_ids:
-            params['id__in'] = ','.join(map(str, selected_ids))
-
-        changelist_filters = request.GET.get('_changelist_filters')
-        if changelist_filters:
-            try:
-                filter_params = parse_qs(changelist_filters)
-                for key, values in filter_params.items():
-                    if key not in params:
-                        if len(values) == 1:
-                            params[key] = values[0]
-                        else:
-                            params[key] = values
-            except Exception:
-                pass
-
-        if params:
-            query_parts = []
-            for key, value in params.items():
-                if isinstance(value, list):
-                    for v in value:
-                        query_parts.append(f"{key}={v}")
-                else:
-                    query_parts.append(f"{key}={value}")
-            query_string = '&'.join(query_parts)
-            admin_url = f"{admin_url}?{query_string}"
-
-        admin_url = request.build_absolute_uri(admin_url)
-        return admin_url
+        """Обратная совместимость: сборка URL живёт в services.admin_reports."""
+        from ProjectTDL.services.admin_reports import build_admin_return_url
+        return build_admin_return_url(request, selected_ids)
 
     @admin.action(description='Сгенерировать HTML отчет')
     def generate_html_report(self, request, queryset):
-        try:
-            task_count = queryset.count()
-            if task_count == 0:
-                messages.warning(request, "Не выбрано ни одной задачи для отчета")
-                return None
-
-            tasks = queryset.select_related(
-                'project_site', 'building_number__name',
-                'design_chapter', 'contractor', 'status', 'category', 'contract'
-            ).prefetch_related('due_date_history')
-
-            task_ids = list(queryset.values_list('id', flat=True))
-            admin_url = self._get_admin_return_url(request, task_ids)
-
-            logger.info(f"Генерация отчета: пользователь {request.user}, задач: {task_count}, "
-                        f"выбранные ID: {task_ids[:10]}{'...' if len(task_ids) > 10 else ''}")
-
-            html_report = ReportGenerator.generate_html_report(
-                tasks, request, admin_url=admin_url
-            )
-
-            response = HttpResponse(html_report, content_type='text/html')
-            response['Content-Disposition'] = 'inline; filename="tasks_report.html"'
-            response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response['Pragma'] = 'no-cache'
-            response['Expires'] = '0'
-
-            logger.info(f"Отчет успешно сгенерирован: {task_count} задач")
-            return response
-
-        except Exception as e:
-            logger.error(f'Ошибка при генерации отчета: {str(e)}', exc_info=True)
-            self.message_user(request, f'Ошибка при генерации отчета: {str(e)}', level=messages.ERROR)
-            return None
+        from ProjectTDL.services.admin_reports import report_action_response
+        return report_action_response(
+            self, request, queryset,
+            generator=ReportGenerator.generate_html_report,
+            filename='tasks_report.html',
+            empty_message='Не выбрано ни одной задачи для отчета',
+            log_label='отчета')
 
     @admin.action(description='Сгенерировать протокол совещания')
     def generate_protocol_report(self, request, queryset):
-        try:
-            task_count = queryset.count()
-            if task_count == 0:
-                messages.warning(request, "Не выбрано ни одной задачи для протокола")
-                return None
-
-            tasks = queryset.select_related(
-                'project_site', 'building_number__name',
-                'design_chapter', 'contractor', 'status', 'category', 'contract'
-            ).prefetch_related('due_date_history')
-
-            task_ids = list(queryset.values_list('id', flat=True))
-            admin_url = self._get_admin_return_url(request, task_ids)
-
-            html_report = ReportGenerator.generate_protocol_report(
-                tasks, request, admin_url=admin_url
-            )
-
-            response = HttpResponse(html_report, content_type='text/html')
-            response['Content-Disposition'] = 'inline; filename="protocol_soveshchaniya.html"'
-            response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response['Pragma'] = 'no-cache'
-            response['Expires'] = '0'
-            return response
-
-        except Exception as e:
-            logger.error(f'Ошибка при генерации протокола: {str(e)}', exc_info=True)
-            self.message_user(request, f'Ошибка при генерации протокола: {str(e)}', level=messages.ERROR)
-            return None
+        from ProjectTDL.services.admin_reports import report_action_response
+        return report_action_response(
+            self, request, queryset,
+            generator=ReportGenerator.generate_protocol_report,
+            filename='protocol_soveshchaniya.html',
+            empty_message='Не выбрано ни одной задачи для протокола',
+            log_label='протокола')
 
     def changelist_view(self, request, extra_context=None):
         response = super().changelist_view(request, extra_context=extra_context)
