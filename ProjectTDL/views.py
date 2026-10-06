@@ -255,6 +255,8 @@ def SubTaskCloneView(request, pk):
     previous_url = request.META.get('HTTP_REFERER')
     if previous_url and urlparse(previous_url).hostname == request.get_host():
         return HttpResponseRedirect(previous_url)
+    # Блок 8: без валидного referer раньше возвращался None (-> 500).
+    return redirect('custom_task_view')
 
 
 class TaskDeleteView(DeleteView):
@@ -310,6 +312,11 @@ def update_task_field(request):
 
         task = get_object_or_404(TaskNode, pk=task_id)
 
+        # Блок 8: править может только владелец (раньше — любой залогиненный).
+        if not request.user.is_authenticated \
+                or task.owner_id != request.user.pk:
+            return JsonResponse({'status': 'error', 'message': 'Нет прав на задачу'})
+
         if field == 'contractor':
             contractor = get_object_or_404(Contractor, pk=value)
             task.contractor = contractor
@@ -339,7 +346,8 @@ def update_task_field(request):
                 task.due_date = None
         elif field == 'price':
             if value:
-                task.price = float(value)
+                # Как в bulk: запятая понимается ('12,34' -> 12.34).
+                task.price = float(str(value).replace(',', '.'))
             else:
                 task.price = None
         else:
@@ -476,13 +484,15 @@ def task_reminder_add(request, pk):
     rid = request.POST.get('recipient') or ''
     if rid:
         recipient = User.objects.filter(pk=rid, is_active=True).first()
-    ContractReminder.objects.create(
-        contract=task.contract, task=task, due_date=due, message=message,
-        recipient=recipient, created_by=request.user)
-    log_change(task=task, action='reminder:create',
-               details=f'напомнить до {due:%d.%m.%Y}'
-                       + (f': {message}' if message else ''),
-               user=request.user)
+    from django.db import transaction
+    with transaction.atomic():
+        ContractReminder.objects.create(
+            contract=task.contract, task=task, due_date=due, message=message,
+            recipient=recipient, created_by=request.user)
+        log_change(task=task, action='reminder:create',
+                   details=f'напомнить до {due:%d.%m.%Y}'
+                           + (f': {message}' if message else ''),
+                   user=request.user)
     messages.success(request, f'Напоминание на {due:%d.%m.%Y} создано')
     return redirect('task_detail', pk=pk)
 
@@ -499,9 +509,11 @@ def task_comment_add(request, pk):
     if not body:
         messages.error(request, 'Текст комментария не может быть пустым')
         return redirect('task_detail', pk=pk)
-    TaskComment.objects.create(task=task, author=request.user, body=body)
-    log_change(task=task, action='task:comment',
-               details=body[:200], user=request.user)
+    from django.db import transaction
+    with transaction.atomic():
+        TaskComment.objects.create(task=task, author=request.user, body=body)
+        log_change(task=task, action='task:comment',
+                   details=body[:200], user=request.user)
     messages.success(request, 'Комментарий добавлен')
     return redirect('task_detail', pk=pk)
 
@@ -518,10 +530,12 @@ def task_attachment_add(request, pk):
     if not f:
         messages.error(request, 'Выберите файл')
         return redirect('task_detail', pk=pk)
-    Attachment.objects.create(file=f, task=task, uploaded_by=request.user,
-                              description=(request.POST.get('description') or '')[:255])
-    log_change(task=task, action='task:attach',
-               details=f.name, user=request.user)
+    from django.db import transaction
+    with transaction.atomic():
+        Attachment.objects.create(file=f, task=task, uploaded_by=request.user,
+                                  description=(request.POST.get('description') or '')[:255])
+        log_change(task=task, action='task:attach',
+                   details=f.name, user=request.user)
     messages.success(request, f'Файл «{f.name}» загружен')
     return redirect('task_detail', pk=pk)
 
@@ -553,10 +567,12 @@ def task_email_attach(request, pk):
     from Emails.models import Email
     task = get_object_or_404(TaskNode, pk=pk)
     email = get_object_or_404(Email, pk=request.POST.get('email_id') or 0)
-    task.emails.add(email)
-    log_change(task=task, action='task:email_attach',
-               details=f'письмо «{(email.subject or "Без темы")[:80]}»',
-               user=request.user)
+    from django.db import transaction
+    with transaction.atomic():
+        task.emails.add(email)
+        log_change(task=task, action='task:email_attach',
+                   details=f'письмо «{(email.subject or "Без темы")[:80]}»',
+                   user=request.user)
     messages.success(request, 'Письмо прикреплено к задаче')
     return redirect('task_detail', pk=pk)
 
@@ -568,10 +584,12 @@ def task_email_detach(request, pk, email_id):
     from Emails.models import Email
     task = get_object_or_404(TaskNode, pk=pk)
     email = get_object_or_404(Email, pk=email_id)
-    task.emails.remove(email)
-    log_change(task=task, action='task:email_detach',
-               details=f'письмо «{(email.subject or "Без темы")[:80]}»',
-               user=request.user)
+    from django.db import transaction
+    with transaction.atomic():
+        task.emails.remove(email)
+        log_change(task=task, action='task:email_detach',
+                   details=f'письмо «{(email.subject or "Без темы")[:80]}»',
+                   user=request.user)
     messages.success(request, 'Письмо откреплено от задачи')
     return redirect('task_detail', pk=pk)
 

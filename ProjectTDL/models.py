@@ -38,9 +38,10 @@ def track_due_date_change_node(sender, instance, **kwargs):
 @receiver(post_save, sender='ProjectTDL.TaskNode')
 def create_due_date_history_node(sender, instance, created, **kwargs):
     if not created and hasattr(instance, '_old_due_date'):
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
-        user = User.objects.first()
+        from ProjectContract.services import get_current_user
+        user = get_current_user()
+        if user is not None and not getattr(user, 'is_authenticated', False):
+            user = None
         TaskDueDateHistory.objects.create(
             task_node=instance,
             old_due_date=instance._old_due_date,

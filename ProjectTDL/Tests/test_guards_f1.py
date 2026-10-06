@@ -39,12 +39,11 @@ class CloneGuardsTest(GuardsFixtureMixin, TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(TaskNode.objects.filter(name='Родитель').count(), 2)
 
-    def test_subtask_clone_without_referer_returns_none(self):
-        # BUG (ProjectTDL/views.py:296-302): без валидного HTTP_REFERER view
-        # возвращает None -> ValueError. Гард: после фикса должен быть 302/404.
+    def test_subtask_clone_without_referer_redirects(self):
+        # Блок 8: без валидного HTTP_REFERER — редирект на список (был 500).
         self.client.force_login(self.owner)
-        with self.assertRaises(ValueError):
-            self.client.get(reverse('SubTaskCloneView', args=[self.child.pk]))
+        resp = self.client.get(reverse('SubTaskCloneView', args=[self.child.pk]))
+        self.assertEqual(resp.status_code, 302)
 
 
 class UpdateTaskFieldGuardsTest(GuardsFixtureMixin, TestCase):
@@ -54,27 +53,43 @@ class UpdateTaskFieldGuardsTest(GuardsFixtureMixin, TestCase):
             {'task_id': task_id, 'field': field, 'value': value})
 
     def test_price_dot_ok(self):
+        self.client.force_login(self.owner)
         resp = self._post(self.parent.pk, 'price', '12.5')
         self.assertEqual(resp.json()['status'], 'ok')
         self.parent.refresh_from_db()
         self.assertEqual(str(self.parent.price), '12.50')
 
-    def test_price_comma_fails(self):
-        # BUG: одиночное обновление не понимает запятую ('12,34' -> ValueError),
-        # а bulk_update_tasks запятую обрабатывает. Несогласованность форматов.
+    def test_price_comma_ok(self):
+        # Блок 8: одиночное обновление понимает запятую, как bulk.
+        self.client.force_login(self.owner)
         resp = self._post(self.parent.pk, 'price', '12,34')
-        self.assertEqual(resp.json()['status'], 'error')
-        self.parent.refresh_from_db()
-        self.assertEqual(str(self.parent.price), '100.00')
-
-    def test_other_users_task_editable(self):
-        # BUG: нет owner-check, только get_object_or_404 — чужую задачу
-        # правит любой залогиненный.
-        self.client.force_login(self.other)
-        resp = self._post(self.parent.pk, 'name', 'Переименовано чужим')
         self.assertEqual(resp.json()['status'], 'ok')
         self.parent.refresh_from_db()
-        self.assertEqual(self.parent.name, 'Переименовано чужим')
+        self.assertEqual(str(self.parent.price), '12.34')
+
+    def test_other_users_task_rejected(self):
+        # Блок 8: чужую задачу правит только владелец (было ok для всех).
+        self.client.force_login(self.other)
+        resp = self._post(self.parent.pk, 'name', 'Переименовано чужим')
+        self.assertEqual(resp.json()['status'], 'error')
+        self.parent.refresh_from_db()
+        self.assertEqual(self.parent.name, 'Родитель')
+
+    def test_owner_can_edit(self):
+        self.client.force_login(self.owner)
+        resp = self._post(self.parent.pk, 'name', 'Новое имя')
+        self.assertEqual(resp.json()['status'], 'ok')
+        self.parent.refresh_from_db()
+        self.assertEqual(self.parent.name, 'Новое имя')
+
+    def test_due_change_attributed_to_request_user(self):
+        # Блок 8: история сроков пишется с request.user (был User.first()).
+        self.client.force_login(self.owner)
+        resp = self._post(self.parent.pk, 'due_date', '2030-05-01')
+        self.assertEqual(resp.json()['status'], 'ok')
+        row = TaskDueDateHistory.objects.get(task_node=self.parent)
+        self.assertEqual(row.changed_by, self.owner)
+        self.assertEqual(str(row.new_due_date), '2030-05-01')
 
     def test_unknown_field_rejected(self):
         resp = self._post(self.parent.pk, 'hacker_field', 'x')
