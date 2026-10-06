@@ -383,12 +383,15 @@ def manage_reference(request):
                 return JsonResponse({'status': 'error', 'message': 'Уже существует'})
             return JsonResponse({'status': 'error', 'message': 'Укажите название'})
         elif action == 'delete':
+            from ProjectTDL.services.task_mutations import delete_reference
             obj_id = request.POST.get('id')
             try:
-                Model.objects.filter(pk=obj_id).delete()
-                return JsonResponse({'status': 'ok'})
+                result = delete_reference(Model, model_key, obj_id)
             except Exception as e:
                 return JsonResponse({'status': 'error', 'message': str(e)})
+            if not result['ok']:
+                return JsonResponse({'status': 'error', 'message': result['message']})
+            return JsonResponse({'status': 'ok'})
 
     objects = Model.objects.all().order_by('name')
     return JsonResponse({

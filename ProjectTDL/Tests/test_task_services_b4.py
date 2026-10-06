@@ -157,3 +157,59 @@ class ServiceParityTest(ServiceFixtureMixin, TestCase):
                 .values_list('pk', flat=True)),
             set(TaskNode.objects.filter(views_q(filt, {}))
                 .values_list('pk', flat=True)))
+
+
+class DeleteReferenceTest(ServiceFixtureMixin, TestCase):
+    """Блок 15: удаление справочников с защитой от каскадных потерь."""
+
+    def _post_delete(self, model, obj_id):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.owner)
+        return c.post('/manage_ref/', {'model': model, 'action': 'delete',
+                                       'id': str(obj_id)})
+
+    def test_used_status_blocked(self):
+        from StaticData.models import Status
+        TaskNode.objects.create(
+            owner=self.owner, project_site=self.site, name='T',
+            status=self.open, category=self.category)
+        resp = self._post_delete('status', self.open.pk)
+        self.assertEqual(resp.json()['status'], 'error')
+        self.assertIn('TaskNode.status', resp.json()['message'])
+        self.assertTrue(Status.objects.filter(pk=self.open.pk).exists())
+
+    def test_unused_category_deleted(self):
+        from StaticData.models import Category
+        cat = Category.objects.create(name='Лишняя')
+        resp = self._post_delete('category', cat.pk)
+        self.assertEqual(resp.json()['status'], 'ok')
+        self.assertFalse(Category.objects.filter(pk=cat.pk).exists())
+
+    def test_contractor_with_tasks_and_contracts_blocked(self):
+        from ProjectContract.models import Contract, Contractor
+        from ProjectTDL.services.task_mutations import reference_usage
+        contractor = Contractor.objects.create(name='Занятой')
+        TaskNode.objects.create(
+            owner=self.owner, project_site=self.site, name='T',
+            status=self.open, category=self.category, contractor=contractor)
+        Contract.objects.create(
+            project_site=self.site, contractor=contractor, name='C',
+            price=0)
+        used = reference_usage('contractor', contractor.pk)
+        self.assertEqual(
+            sorted(f'{m}.{f}' for m, f, _ in used),
+            ['ProjectContract.Contract.contractor',
+             'ProjectTDL.TaskNode.contractor'])
+        resp = self._post_delete('contractor', contractor.pk)
+        self.assertEqual(resp.json()['status'], 'error')
+        self.assertTrue(Contractor.objects.filter(pk=contractor.pk).exists())
+        self.assertTrue(TaskNode.objects.filter(contractor=contractor).exists())
+
+    def test_unknown_model_rejected(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.owner)
+        resp = c.post('/manage_ref/', {'model': 'hacker', 'action': 'delete',
+                                       'id': '1'})
+        self.assertEqual(resp.json()['status'], 'error')

@@ -67,6 +67,53 @@ def apply_bulk_update(task_ids, updates, user):
             'updated_fields': list(updates.keys())}
 
 
+#: Справочник -> (модель, поле) связей для проверки перед удалением (блок 15).
+#: Удаление подрядчика/проекта каскадно сносит задачи и договоры, удаление
+#: статуса роняет БД (DO_NOTHING), категории — молча отвязывает задачи.
+_REFERENCE_USAGE = {
+    'project_site': [('ProjectTDL.TaskNode', 'project_site'),
+                     ('ProjectContract.Contract', 'project_site')],
+    'building_number': [('ProjectTDL.TaskNode', 'building_number')],
+    'design_chapter': [('ProjectTDL.TaskNode', 'design_chapter')],
+    'contractor': [('ProjectTDL.TaskNode', 'contractor'),
+                   ('ProjectContract.Contract', 'contractor'),
+                   ('ProjectContract.Contract', 'client')],
+    'status': [('ProjectTDL.TaskNode', 'status')],
+    'category': [('ProjectTDL.TaskNode', 'category')],
+}
+
+
+def _resolve_model(dotted):
+    from django.apps import apps
+    return apps.get_model(dotted)
+
+
+def reference_usage(model_key, obj_id):
+    """Использование справочника: [(модель, поле, count)] с count > 0."""
+    used = []
+    for dotted, field in _REFERENCE_USAGE.get(model_key, ()):
+        model = _resolve_model(dotted)
+        n = model.objects.filter(**{field + '_id': obj_id}).count()
+        if n:
+            used.append((dotted, field, n))
+    return used
+
+
+def delete_reference(model, model_key, obj_id):
+    """Удаление записи справочника с защитой от каскадных потерь.
+
+    Возвращает dict(ok, message). Занятая запись не удаляется.
+    Несуществующий id — ok (как раньше: filter().delete() молча пуст).
+    """
+    used = reference_usage(model_key, obj_id)
+    if used:
+        details = ', '.join(f'{m}.{f}: {n}' for m, f, n in used)
+        return {'ok': False,
+                'message': f'Запись используется ({details}) — удаление заблокировано'}
+    model.objects.filter(pk=obj_id).delete()
+    return {'ok': True, 'message': ''}
+
+
 def _inherit_enabled(user_settings):
     return bool(user_settings and (
         user_settings.inherit_props
