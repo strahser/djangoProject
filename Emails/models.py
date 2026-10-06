@@ -223,6 +223,12 @@ class Email(models.Model):
         verbose_name = 'E-mail'
         verbose_name_plural = 'E-mail'
         ordering = ['-email_stamp']
+        indexes = [
+            # Список писем: фильтр по папке + сортировка по дате (блок 32).
+            models.Index(fields=['folder', 'email_stamp']),
+            # Счётчик непрочитанных по папке.
+            models.Index(fields=['folder', 'is_read']),
+        ]
 
 
 class Attachment(models.Model):
