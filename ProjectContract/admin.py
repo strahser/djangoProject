@@ -218,14 +218,25 @@ class ContractAdmin(BaseAdmin):
                     {k: v for k, v in tables.items() if k not in before})
             try:
                 qs = response.context_data["cl"].queryset
+                # Два запроса вместо трёх. ВАЖНО: нельзя мешать Sum('price')
+                # с Sum по contractpayments в одном aggregate — JOIN
+                # размножит строки договора (цена посчитается N раз).
                 total_price = qs.aggregate(total=Sum('price'))['total']
-                total_paid = qs.aggregate(total=Coalesce(Sum('contractpayments__price', filter=models.Q(contractpayments__made_payment=True)), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2)))['total']
-                total_unpaid = qs.aggregate(total=Coalesce(Sum('contractpayments__price', filter=models.Q(contractpayments__made_payment=False)), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2)))['total']
+                paid_unpaid = qs.aggregate(
+                    paid=Coalesce(Sum('contractpayments__price', filter=models.Q(
+                        contractpayments__made_payment=True)), Value(0),
+                        output_field=DecimalField(max_digits=12, decimal_places=2)),
+                    unpaid=Coalesce(Sum('contractpayments__price', filter=models.Q(
+                        contractpayments__made_payment=False)), Value(0),
+                        output_field=DecimalField(max_digits=12, decimal_places=2)),
+                )
+                total_paid = paid_unpaid['paid'] or 0
+                total_unpaid = paid_unpaid['unpaid'] or 0
                 response.context_data.update({
                     'total_price': total_price,
                     'total_paid': total_paid,
                     'total_unpaid': total_unpaid,
-                    'total_status': total_price - (total_paid + total_unpaid),
+                    'total_status': (total_price or 0) - (total_paid + total_unpaid),
                 })
             except KeyError:
                 pass
@@ -242,13 +253,32 @@ class ContractAdmin(BaseAdmin):
                    user=request.user)
         super().delete_model(request, obj)
 
+    def get_queryset(self, request):
+        # Суммы по платежам одним запросом вместо 4 aggregates на строку
+        # (paid + unpaid + status_check дергает оба ещё раз).
+        qs = super().get_queryset(request)
+        return qs.annotate(
+            _paid_total=Coalesce(Sum('contractpayments__price', filter=models.Q(
+                contractpayments__made_payment=True)), Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2)),
+            _unpaid_total=Coalesce(Sum('contractpayments__price', filter=models.Q(
+                contractpayments__made_payment=False)), Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2)),
+        )
+
     def paid_amount(self, obj):
-      return obj.contractpayments_set.filter(made_payment=True)\
-      .aggregate(total=Coalesce(Sum('price'),Value(0), output_field=DecimalField(max_digits=12,decimal_places=2)))['total']
+        annotated = getattr(obj, '_paid_total', None)
+        if annotated is not None:
+            return annotated
+        return obj.contractpayments_set.filter(made_payment=True)\
+        .aggregate(total=Coalesce(Sum('price'),Value(0), output_field=DecimalField(max_digits=12,decimal_places=2)))['total']
 
     def unpaid_amount(self, obj):
-      return obj.contractpayments_set.filter(made_payment=False)\
-      .aggregate(total=Coalesce(Sum('price'),Value(0), output_field=DecimalField(max_digits=12,decimal_places=2)))['total']
+        annotated = getattr(obj, '_unpaid_total', None)
+        if annotated is not None:
+            return annotated
+        return obj.contractpayments_set.filter(made_payment=False)\
+        .aggregate(total=Coalesce(Sum('price'),Value(0), output_field=DecimalField(max_digits=12,decimal_places=2)))['total']
 
     def status_check(self, obj):
       return obj.price - (self.paid_amount(obj) + self.unpaid_amount(obj))
