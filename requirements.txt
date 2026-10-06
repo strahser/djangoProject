@@ -1,0 +1,23 @@
+# Minimum to reproduce the test/dev environment (2026-10-06, F5).
+# Full environment is wider; these are the packages the code imports.
+Django==5.2.16
+pandas==2.2.3
+django-tables2==3.0.0
+django-mptt==0.18.0
+django-mptt-admin==2.9.1
+djangorestframework==3.17.1
+django-filter==26.1
+django-import-export==4.4.1
+django-crispy-forms==2.6
+django-bootstrap5==26.2
+django-tinymce==5.0.0
+django-htmx==1.28.0
+django-select2==8.4.8
+django-pandas==0.6.7
+reportlab==5.0.1
+openpyxl==3.1.5
+xlsxwriter==3.2.9
+pillow==12.0.0
+pyodbc==5.3.0
+loguru==0.7.3
+requests==2.34.2

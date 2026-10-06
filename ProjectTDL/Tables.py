@@ -57,6 +57,28 @@ def data_filter_qs(request, datefield, data=None):
     return res_dict
 
 
+def annotate_has_children(qs):
+    """Флаг «есть дети» одним EXISTS-подзапросом вместо exists() на строку.
+
+    Закрывает N+1 в TaskNodeTable.render_name/row_attrs (было 2 запроса
+    на строку). Аннотация переживает order_qs_hierarchical и пагинацию.
+    """
+    from django.db.models import Exists, OuterRef
+    return qs.annotate(has_children_annotated=Exists(
+        TaskNode.objects.filter(parent_id=OuterRef('pk'))))
+
+
+def _record_has_children(record):
+    """Флаг из аннотации; без неё — legacy exists() (таблицы вне _task_subtree_qs)."""
+    annotated = getattr(record, 'has_children_annotated', None)
+    if annotated is not None:
+        return bool(annotated)
+    try:
+        return TaskNode.objects.filter(parent_id=record.pk).exists()
+    except Exception:
+        return False
+
+
 def order_qs_hierarchical(qs, order_fields):
     """Иерархическая сортировка дерева задач для табличного вида.
 
@@ -220,10 +242,7 @@ class TaskNodeTable(tables.Table):
 
     def render_name(self, record):
         # Иконка/отступ для дерева: родители (есть дети) — папка + стрелка; подзадачи — отступ
-        try:
-            has_children = TaskNode.objects.filter(parent_id=record.pk).exists()
-        except Exception:
-            has_children = False
+        has_children = _record_has_children(record)
         depth = record.get_level() if hasattr(record, 'get_level') else 0
         indent = depth * 22
         view_mode = getattr(self, 'view_mode', 'flat')
@@ -295,7 +314,7 @@ class TaskNodeTable(tables.Table):
             "data-id": lambda record: record.pk,
             "data-parent-id": lambda record: record.parent_id or '',
             "data-depth": lambda record: record.get_level() if hasattr(record, 'get_level') else 0,
-            "data-has-children": lambda record: '1' if TaskNode.objects.filter(parent_id=record.pk).exists() else '0',
+            "data-has-children": lambda record: '1' if _record_has_children(record) else '0',
             "data-project-site-id": lambda record: record.project_site_id or '',
             "data-project-site-name": lambda record: record.project_site.name if record.project_site else '',
             "data-building-id": lambda record: record.building_number_id or '',

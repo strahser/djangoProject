@@ -30,16 +30,9 @@ FILTER_FIELDS = ('project_site', 'building_number', 'status', 'category', 'contr
 
 
 def get_filter_state_for_request(request):
-    """Состояние фильтров для текущего пользователя: по активному проекту, иначе общее."""
-    if not request.user.is_authenticated:
-        return None
-    settings = UserSettings.objects.filter(user=request.user).first()
-    active_project_id = settings.active_project_id if settings else None
-    if active_project_id:
-        state = TaskFilterState.objects.filter(user=request.user, project_site_id=active_project_id).first()
-        if state:
-            return state
-    return TaskFilterState.objects.filter(user=request.user, project_site__isnull=True).first()
+    """Состояние фильтров для текущего пользователя (тонкая обёртка)."""
+    from ProjectTDL.services.task_filters import get_filter_state
+    return get_filter_state(getattr(request, 'user', None))
 
 
 def task_action(request):
@@ -55,16 +48,12 @@ def task_action(request):
                     update_dict[k] = v
             if update_dict:
                 try:
-                    selected_objects = TaskNode.objects.filter(pk__in=request.session.get('pks'))
-                    ids = list(selected_objects.values_list('pk', flat=True))
-                    updated_count = selected_objects.update(**update_dict)
-                    # queryset.update() не шлёт сигналов — суммарная запись (DMX-1)
-                    log_change(action='task:bulk_update',
-                               details=f'Массовое обновление {updated_count} задач '
-                                       f'(ids {ids[:20]}): {sorted(update_dict)}',
-                               user=request.user)
+                    from ProjectTDL.services.task_mutations import apply_bulk_update
+                    result = apply_bulk_update(
+                        request.session.get('pks'), update_dict, request.user)
                     request.session['pks'] = None
-                    for data in selected_objects:
+                    for data in TaskNode.objects.filter(
+                            pk__in=result['ids']):
                         messages.success(request, data)
                     return redirect('custom_task_view')
                 except Exception as e:
@@ -82,49 +71,15 @@ def task_action(request):
 
 
 def _inherit_filter_q(filter_dict, date_filter):
-    """Q для строк поддерева: совпадение с фильтром ИЛИ пустое поле.
-
-    Пустое поле подзадачи означает «как у родителя» (наследование), поэтому
-    такие строки остаются в выдаче. А вот явно несовпадающее значение
-    (например, «Закрыто» при фильтре «Открыто») строку скрывает.
-    """
-    result = Q()
-    for key, values in (filter_dict or {}).items():
-        base = key.split('__')[0]
-        result &= Q(**{key: values}) | Q(**{f'{base}__isnull': True})
-    for key, value in (date_filter or {}).items():
-        base = key.split('__')[0]
-        result &= Q(**{key: value}) | Q(**{f'{base}__isnull': True})
-    return result
+    """Обратная совместимость: правило наследования живёт в services."""
+    from ProjectTDL.services.task_filters import inherit_filter_q
+    return inherit_filter_q(filter_dict, date_filter)
 
 
 def _task_subtree_qs(filter_dict, date_filter):
-    """Задачи, подходящие под фильтр, и их подзадачи (поддеревья по MPTT).
-
-    Подзадачи наследуют не все поля от родителя, поэтому их нельзя фильтровать
-    строгим совпадением — иначе подзадачи с пустыми полями (например, без
-    ответственного) пропадут и из плоского списка, и из дерева. Вместо этого
-    к поддереву применяется правило наследования (_inherit_filter_q): пустое
-    поле = «как у родителя» (строка остаётся), явно чужое значение
-    (напр. «Закрыто» при фильтре «Открыто») = строка скрывается.
-    """
-    tasks_qs = TaskNode.objects.filter(node_type='task')
-    if filter_dict:
-        tasks_qs = tasks_qs.filter(**filter_dict)
-    if date_filter:
-        tasks_qs = tasks_qs.filter(**date_filter)
-
-    bounds = Q()
-    for task in tasks_qs.only('tree_id', 'lft', 'rght'):
-        bounds |= Q(tree_id=task.tree_id, lft__gte=task.lft, lft__lte=task.rght)
-    if not bounds:
-        return TaskNode.objects.none()
-    qs = TaskNode.objects.filter(bounds)
-    if filter_dict or date_filter:
-        qs = qs.filter(_inherit_filter_q(filter_dict, date_filter))
-    return qs.select_related(
-        *StaticFilterSettings.filtered_value_list
-    ).order_by('tree_id', 'lft')
+    """Обратная совместимость: поддеревья + has_children из services."""
+    from ProjectTDL.services.task_filters import task_subtree_qs
+    return task_subtree_qs(filter_dict, date_filter)
 
 
 def custom_task_view(request):
@@ -435,107 +390,32 @@ def manage_reference(request):
 
 @require_POST
 def quick_create_task(request):
+    from ProjectTDL.services.task_mutations import create_task_with_defaults
     name = request.POST.get('name', '').strip()
     if not name:
         return JsonResponse({'status': 'error', 'message': 'Укажите название задачи'})
     if not request.user.is_authenticated:
         return JsonResponse({'status': 'error', 'message': 'Требуется авторизация'})
 
-    project_site = request.POST.get('project_site') or None
-    status = request.POST.get('status') or None
-    category = request.POST.get('category') or None
-    contractor = request.POST.get('contractor') or None
-    building_number = request.POST.get('building_number') or None
-
-    # Наследование контекста от ПОСЛЕДНЕЙ задачи выбранного проекта:
-    # если у пользователя включено наследование (inherit_props) или любой default_*,
-    # незаполненные поля берутся из последней задачи проекта (order_by -pk).
-    settings = None
-    if request.user.is_authenticated:
-        settings = UserSettings.objects.filter(user=request.user).first()
-    inherit = bool(settings and (
-        settings.inherit_props
-        or settings.default_project_site
-        or settings.default_building
-        or settings.default_category
-        or settings.default_status
-        or settings.default_contractor
-    ))
-    if inherit and project_site:
-        last_task = TaskNode.objects.filter(
-            node_type='task', project_site_id=project_site
-        ).order_by('-pk').first()
-        if last_task:
-            if not status:
-                status = last_task.status_id or None
-            if not category:
-                category = last_task.category_id or None
-            if not contractor:
-                contractor = last_task.contractor_id or None
-            if not building_number:
-                building_number = last_task.building_number_id or None
-
-    task = TaskNode.objects.create(
-        name=name,
-        node_type='task',
+    task = create_task_with_defaults(
         owner=request.user,
-        project_site_id=project_site,
-        status_id=status,
-        category_id=category,
-        contractor_id=contractor,
-        building_number_id=building_number,
+        name=name,
+        project_site_id=request.POST.get('project_site') or None,
+        status_id=request.POST.get('status') or None,
+        category_id=request.POST.get('category') or None,
+        contractor_id=request.POST.get('contractor') or None,
+        building_number_id=request.POST.get('building_number') or None,
     )
     return JsonResponse({'status': 'ok', 'task_id': task.pk, 'task_name': task.name})
 
 
 def cascade_filter_options(request):
-    from StaticData.models import Status, Category
-    from ProjectContract.models import Contractor
-    project_site_id = request.GET.get('project_site')
-    building_type_id = request.GET.get('building_number')  # id BuildingType (тип здания)
-
-    def _all_entries():
-        return {
-            'statuses': [{'pk': s.pk, 'name': s.name} for s in Status.objects.all().order_by('name')],
-            'categories': [{'pk': c.pk, 'name': c.name} for c in Category.objects.all().order_by('name')],
-            'contractors': [{'pk': c.pk, 'name': c.name} for c in Contractor.objects.all().order_by('name')],
-            'buildings': [{'pk': b.pk, 'name': b.name} for b in BuildingType.objects.all().order_by('name')],
-        }
-
-    if not project_site_id and not building_type_id:
-        return JsonResponse(_all_entries())
-
-    qs = TaskNode.objects.filter(node_type='task')
-    if project_site_id:
-        qs = qs.filter(project_site_id=project_site_id)
-    if building_type_id:
-        qs = qs.filter(building_number__name_id=building_type_id)
-
-    def _field_items(field_name, related_name, model_class):
-        vals = list(qs.filter(**{field_name + '__isnull': False}).order_by(related_name + '__name').values_list(field_name + '_id', flat=True).distinct())
-        if vals:
-            return [{'pk': obj.pk, 'name': obj.name} for obj in model_class.objects.filter(pk__in=vals).order_by('name')]
-        return [{'pk': obj.pk, 'name': obj.name} for obj in model_class.objects.all().order_by('name')]
-
-    def _building_items():
-        # Типы зданий каскадируются от ПРОЕКТА (не от выбранного типа): список сохраняет выбранное значение.
-        bqs = TaskNode.objects.filter(node_type='task')
-        if project_site_id:
-            bqs = bqs.filter(project_site_id=project_site_id)
-        vals = list(bqs.filter(building_number__isnull=False, building_number__name__isnull=False)
-                    .values_list('building_number__name_id', flat=True).distinct())
-        if vals:
-            return [{'pk': obj.pk, 'name': obj.name}
-                    for obj in BuildingType.objects.filter(pk__in=vals).order_by('name')]
-        return [{'pk': obj.pk, 'name': obj.name}
-                for obj in BuildingType.objects.all().order_by('name')]
-
-    return JsonResponse({
-        'statuses': _field_items('status', 'status', Status),
-        'categories': _field_items('category', 'category', Category),
-        'contractors': _field_items('contractor', 'contractor', Contractor),
-        'buildings': _building_items(),
-    })
+    from ProjectTDL.services.task_filters import cascade_options
+    return JsonResponse(cascade_options(
+        project_site_id=request.GET.get('project_site'),
+        # id BuildingType (тип здания)
+        building_type_id=request.GET.get('building_number'),
+    ))
 
 
 @require_POST
@@ -698,51 +578,18 @@ def task_email_detach(request, pk, email_id):
 
 @require_POST
 def bulk_update_tasks(request):
+    from ProjectTDL.services.task_mutations import apply_bulk_update, parse_bulk_updates
     task_ids = request.POST.getlist('task_ids')
     if not task_ids:
         return JsonResponse({'status': 'error', 'message': 'Задачи не выбраны'})
 
-    updates = {}
-    field_mapping = {
-        'project_site': 'project_site_id',
-        'building_number': 'building_number_id',
-        'status': 'status_id',
-        'category': 'category_id',
-        'contractor': 'contractor_id',
-        'design_chapter': 'design_chapter_id',
-        'due_date': 'due_date',
-        'price': 'price',
-    }
-
-    for field, db_field in field_mapping.items():
-        value = request.POST.get(field)
-        if value:
-            if field in ['status', 'category', 'contractor', 'design_chapter', 'building_number']:
-                try:
-                    updates[db_field] = int(value)
-                except ValueError:
-                    pass
-            elif field == 'price':
-                try:
-                    updates[db_field] = float(value.replace(',', '.'))
-                except ValueError:
-                    pass
-            else:
-                updates[db_field] = value
-
+    updates = parse_bulk_updates(request.POST)
     if updates:
-        qs = TaskNode.objects.filter(id__in=task_ids)
-        ids = list(qs.values_list('pk', flat=True))
-        updated_count = qs.update(**updates)
-        # queryset.update() не шлёт сигналов — суммарная запись (DMX-1)
-        log_change(action='task:bulk_update',
-                   details=f'Массовое обновление {updated_count} задач '
-                           f'(ids {ids[:20]}): {sorted(updates)}',
-                   user=request.user)
+        result = apply_bulk_update(task_ids, updates, request.user)
         return JsonResponse({
             'status': 'ok',
-            'message': f'Успешно обновлено {updated_count} задач',
-            'updated_fields': list(updates.keys())
+            'message': f'Успешно обновлено {result["updated_count"]} задач',
+            'updated_fields': result['updated_fields']
         })
 
     return JsonResponse({'status': 'error', 'message': 'Нет данных для обновления'})

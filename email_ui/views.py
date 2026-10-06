@@ -1,6 +1,7 @@
 import json
 import mimetypes
 import os
+import re
 import subprocess
 from sys import platform
 
@@ -43,6 +44,64 @@ from .utils import (
 PER_PAGE = 50
 THREADS_PER_PAGE = 20
 ALLOWED_SORT_FIELDS = ['sender', 'receiver', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
+
+#: Локальная папка БД -> имя папки на IMAP-сервере (обратное к scheduled/fetch).
+IMAP_FOLDER_BY_DB = {'inbox': 'INBOX', 'sent': 'Отправленные'}
+
+
+def _push_seen_to_server(email_or_emails, seen=True):
+    """Best-effort синхронизация локального is_read -> серверный \\Seen.
+
+    Прочитанное в приложении должно стать прочитанным и на сервере,
+    иначе веб/телефон продолжат показывать его непрочитанным и следующая
+    загрузка (Seen -> БД) будет спорить с локальным статусом.
+    Ошибки сети/авторизации глушатся: UI не должен падать из-за IMAP.
+    """
+    try:
+        items = list(email_or_emails) if isinstance(email_or_emails, (list, tuple, set)) else [email_or_emails]
+    except TypeError:
+        items = [email_or_emails]
+    by_folder = {}
+    for email in items:
+        try:
+            uid = (email.uid or '').strip()
+        except Exception:
+            uid = ''
+        # На сервер отправляем только настоящие IMAP-UID (цифры).
+        # Тестовые ('bulk-uid-1'), legacy (Message-ID как uid) и пустые —
+        # сервер их не знает, STORE вернёт ошибку.
+        if not uid or not uid.isdigit():
+            continue
+        imap_folder = IMAP_FOLDER_BY_DB.get(getattr(email, 'folder', ''))
+        if not imap_folder:
+            continue  # drafts/archive/trash — локальные, на сервере их нет
+        by_folder.setdefault(imap_folder, []).append(uid)
+    if not by_folder:
+        return
+    try:
+        from django.conf import settings as dj_settings
+        host = getattr(dj_settings, 'YA_HOST', '') or ''
+        user = getattr(dj_settings, 'YA_USER', '') or ''
+        password = getattr(dj_settings, 'YA_PASSWORD', '') or ''
+        if not (host and user and password):
+            return
+        from imap_tools import MailBox
+        timeout = int(getattr(dj_settings, 'EMAIL_IMAP_TIMEOUT', 20) or 20)
+        for imap_folder, uids in by_folder.items():
+            mailbox = None
+            try:
+                mailbox = MailBox(host, timeout=timeout).login(user, password, initial_folder=imap_folder)
+                mailbox.flag(uids, '\\Seen', seen)
+            except Exception as e:
+                logger.warning(f"IMAP push Seen={seen} ({imap_folder}, {len(uids)} шт.): {e}")
+            finally:
+                try:
+                    if mailbox is not None:
+                        mailbox.logout()
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"IMAP push Seen: {e}")
 
 
 def _contacts_picker_json(contacts):
@@ -249,9 +308,18 @@ def _sanitize_next_url(next_url):
 
 
 def _clean_query_string(request, remove_params=None):
-    """Remove specified params from query string and return URL-encoded string."""
+    """Remove specified params from query string and return URL-encoded string.
+
+    page/_infinite убираем всегда: ссылки «догрузить ещё» и сортировки строятся
+    из текущего query string, и без чистки они накапливали собственные
+    параметры (page=2&page=3&…), из-за чего список бесконечно грузил одну и
+    ту же страницу дублями.
+
+    folder убираем тоже: шаблоны сами добавляют &folder={{ folder }}, иначе в
+    ссылке получалось folder=inbox&folder=inbox.
+    """
     if remove_params is None:
-        remove_params = ['sort', 'order']
+        remove_params = ['sort', 'order', 'page', '_infinite', 'folder']
     params = request.GET.copy()
     for key in remove_params:
         params.pop(key, None)
@@ -260,7 +328,7 @@ def _clean_query_string(request, remove_params=None):
 
 def _build_back_url(request, folder='inbox'):
     """Build a full-page back URL for email list, avoiding /partial/ paths."""
-    qs = _clean_query_string(request, remove_params=['sort', 'order', 'folder'])
+    qs = _clean_query_string(request)
     url = reverse('email_ui:inbox', args=[folder])
     if qs:
         url += '?' + qs
@@ -285,6 +353,73 @@ def _split_tokens(raw):
     if not raw:
         return []
     return [t.strip() for t in str(raw).replace(';', ',').split(',') if t.strip()]
+
+
+# Мусор, который прилипает к адресу при копировании из письма: «Имя <a@b.ru>»,
+# «"a@b.ru".», «a@b.ru,» — это всё один и тот же адрес, а в письме он хранится
+# как bare-адрес без скобок, кавычек и точек. Без нормализации такие запросы
+# молча давали «Нет писем».
+_ADDRESS_EDGE_JUNK = ' \t\r\n<>"\'«»,;:.'
+
+# Адрес внутри произвольного текста (регистр не важен — его решает _ci_variants).
+_EMAIL_IN_TEXT_RE = re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}')
+
+
+def _token_addresses(raw):
+    """Адреса внутри одного токена без обрамляющего мусора.
+
+    'kunaev@isetgroup.ru.'         -> ['kunaev@isetgroup.ru']
+    'Кунаев <kunaev@isetgroup.ru>' -> ['kunaev@isetgroup.ru']
+    'a@b.ru c@d.ru'                -> ['a@b.ru', 'c@d.ru']
+    'Кунаев'                       -> []  (не адрес — ищем как слово)
+    """
+    text = str(raw or '').strip()
+    if not text:
+        return []
+    found = extract_all_email_addresses(text)
+    cleaned = text.strip(_ADDRESS_EDGE_JUNK)
+    if cleaned and cleaned != text:
+        for addr in extract_all_email_addresses(cleaned):
+            if addr not in found:
+                found.append(addr)
+    if not found:
+        # Адрес, склеенный с мусором внутри токена ('a@b.ru.' / 'Имя a@b.ru').
+        m = _EMAIL_IN_TEXT_RE.search(cleaned or text)
+        if m:
+            found.append(m.group(0).rstrip('.'))
+    return found
+
+
+def _field_tokens(raw):
+    """Токены для адресных полей фильтра («От кого», «Кому», «Копия»).
+
+    Адрес в любом оформлении отдаётся bare-адресом (внутри поля токены
+    объединяются через ИЛИ), всё остальное остаётся словом как есть.
+    """
+    tokens = []
+    for part in _split_tokens(raw):
+        addresses = _token_addresses(part)
+        tokens.extend(addresses if addresses else [part])
+    return [t for t in tokens if t]
+
+
+def _query_tokens(raw):
+    """Токены общего поиска: пары (значение, это_адрес).
+
+    Слова делятся по пробелам/запятым/точкам с запятой, адрес в любом
+    оформлении ('<a@b.ru>', 'Имя <a@b.ru>', 'a@b.ru.') сводится к bare-адресу.
+    """
+    tokens = []
+    for part in re.split(r'[,;\s]+', str(raw or '')):
+        part = part.strip()
+        if not part:
+            continue
+        addresses = _token_addresses(part)
+        if addresses:
+            tokens.extend((addr, True) for addr in addresses)
+        else:
+            tokens.append((part, False))
+    return tokens
 
 
 # Поля общего поиска («везде»): тема + все адресные поля + наименование.
@@ -333,21 +468,24 @@ def filter_emails(queryset, cleaned_data):
     # Строгий поиск: каждое поле ищет ТОЛЬКО в своём поле письма.
     # Мульти-ввод: токены через запятую объединяются через ИЛИ внутри поля.
     # Разные поля комбинируются через И (цепочка .filter()).
+    # Адрес нормализуется до bare-адреса ('<a@b.ru>', 'Имя <a@b.ru>', 'a@b.ru.'
+    # → 'a@b.ru'): в письме он хранится без скобок и точек, поэтому запрос,
+    # скопированный из письма «как есть», раньше молча ничего не находил.
     if cleaned_data.get('sender'):
         q = Q()
-        for t in _split_tokens(cleaned_data['sender']):
+        for t in _field_tokens(cleaned_data['sender']):
             q |= _q_field_variants('sender', t) | _q_field_variants('sender_name', t)
         if q:
             queryset = queryset.filter(q)
     if cleaned_data.get('receiver'):
         q = Q()
-        for t in _split_tokens(cleaned_data['receiver']):
+        for t in _field_tokens(cleaned_data['receiver']):
             q |= _q_field_variants('receiver', t)
         if q:
             queryset = queryset.filter(q)
     if cleaned_data.get('cc'):
         q = Q()
-        for t in _split_tokens(cleaned_data['cc']):
+        for t in _field_tokens(cleaned_data['cc']):
             q |= _q_field_variants('cc', t)
         if q:
             queryset = queryset.filter(q)
@@ -391,14 +529,14 @@ def filter_emails(queryset, cleaned_data):
         # «Совещание 10.09.25 на К-1» независимо от регистра.
         # search_scope: '' (везде без тела) / subject (только тема) /
         # subject_body (везде + тело письма).
+        # Адрес (есть '@') ищется по адресным полям при ЛЮБОЙ области: в теме
+        # письма адресов не бывает, и «Только тема» молча не находил адресата.
         scope = cleaned_data.get('search_scope') or ''
-        tokens = [t for t in query.replace(',', ' ').replace(';', ' ').split() if t]
-        if scope == 'subject':
-            for tok in tokens:
+        include_body = scope == 'subject_body'
+        for tok, is_address in _query_tokens(query):
+            if scope == 'subject' and not is_address:
                 queryset = queryset.filter(_q_field_variants('subject', tok))
-        else:
-            include_body = scope == 'subject_body'
-            for tok in tokens:
+            else:
                 queryset = queryset.filter(_q_token_anywhere(tok, include_body=include_body))
     return queryset
 
@@ -529,6 +667,17 @@ def inbox_view(request, folder='inbox'):
         'building_type': bool(selected_building_types),
         'category': bool(selected_categories),
     }
+    # Счётчик для бейджа на кнопке «Фильтры и поиск»: пустые значения
+    # (search=, search_scope= в поделившейся ссылке) фильтрами не считаем.
+    _count_keys = ('search', 'sender', 'receiver', 'cc', 'date_from', 'date_to',
+                   'sent_status', 'has_attachments', 'is_important', 'is_unread')
+    active_filter_count = sum(
+        1 for k in _count_keys if (request.GET.get(k) or '').strip()
+    ) + sum(
+        1 for k in ('project_site', 'contractor', 'building_type',
+                    'category', 'info', 'tags')
+        for v in request.GET.getlist(k) if str(v).strip()
+    )
     context = {
         'folder': folder,
         'page_obj': page_obj,
@@ -548,6 +697,7 @@ def inbox_view(request, folder='inbox'):
         **_get_email_field_suggestions(),
         'email_list_back_url': _build_back_url(request, folder),
         'active_filters': active_filters,
+        'active_filter_count': active_filter_count,
         'email_view_settings': _get_email_view_settings(request),
     }
     return render(request, 'email_ui/inbox.html', context)
@@ -582,6 +732,7 @@ def email_list_partial(request):
     # Если запрос от индикатора бесконечной прокрутки – возвращаем только строки и новый индикатор
     if request.GET.get('_infinite'):
         context = {
+            'folder': folder,
             'page_obj': page_obj,
             'clean_params': _clean_query_string(request),
             'email_list_back_url': _build_back_url(request, folder),
@@ -648,6 +799,7 @@ def email_detail(request, pk):
     if not email.is_read:
         email.is_read = True
         email.save(update_fields=['is_read'])
+        _push_seen_to_server(email, seen=True)
 
     raw_next = request.GET.get('next') or reverse('email_ui:inbox', args=[email.folder])
     next_url = _sanitize_next_url(raw_next)
@@ -681,6 +833,7 @@ def email_detail_modal(request, pk):
     if not email.is_read:
         email.is_read = True
         email.save(update_fields=['is_read'])
+        _push_seen_to_server(email, seen=True)
 
     context = {
         'email': email,
@@ -698,6 +851,7 @@ def mark_email_as_read(request, pk):
     if not email.is_read:
         email.is_read = True
         email.save(update_fields=['is_read'])
+        _push_seen_to_server(email, seen=True)
     return HttpResponse(status=204)  # No content, успешно
 
 
@@ -1032,8 +1186,10 @@ def bulk_action(request):
             messages.success(request, f'{emails.count()} писем перемещено')
     elif action == 'mark_read':
         emails.update(is_read=True)
+        _push_seen_to_server(list(emails.only('id', 'uid', 'folder')), seen=True)
     elif action == 'mark_unread':
         emails.update(is_read=False)
+        _push_seen_to_server(list(emails.only('id', 'uid', 'folder')), seen=False)
     elif action == 'mark_important':
         emails.update(is_important=True)
     elif action == 'mark_unimportant':
@@ -1203,6 +1359,7 @@ def fetch_emails(request):
 
     actions_list = []  # Успешно обработанные
     scip_list = []  # Пропущенные (уже есть)
+    error_list = []  # Ошибки соединения/обработки по папкам
 
     # Базовая директория для сохранения вложений
     directory = os.path.join(E_MAIL_DIRECTORY, 'imap_attachments')
@@ -1213,6 +1370,7 @@ def fetch_emails(request):
         parser.main(folder_db_name, folder, limit=email_limit)
         actions_list.append(parser.create_action_list)
         scip_list.append(parser.skip_action_list)
+        error_list.extend(parser.error_list)
 
     # Преобразуем списки списков в плоский список
     actions_list = flatten(actions_list)
@@ -1223,6 +1381,15 @@ def fetch_emails(request):
         messages.success(request, f"Почта сохранена для следующих позиций: {', '.join(res_list)}")
     else:
         messages.info(request, "Новых писем не найдено")
+    if error_list:
+        # Транзиентный обрыв Яндекса (BYE problems with connection):
+        # пользователь должен видеть, что папка пропущена, а не тишину.
+        messages.warning(
+            request,
+            "Не все папки проверены (сервер временно разорвал соединение, "
+            "следующая загрузка доберёт пропущенное): "
+            + "; ".join(str(e) for e in error_list[:5]),
+        )
 
     # Редирект обратно на исходную страницу (список писем)
     next_url = request.POST.get('next', reverse('email_ui:inbox_default'))
@@ -1417,38 +1584,28 @@ def send_email(request):
             'groups_json': _groups_picker_json(),
         }, status=400)
 
+    from email_ui.services import compose_service as compose
+
     cd = form.cleaned_data
-    use_outlook = cd.get('use_outlook', False)
 
     try:
         uploaded_files = request.FILES.getlist('attachment_files')
 
         # Send
-        sender = EmailSenderService(
-            smtp_account=cd.get('smtp_account'),
-            use_outlook=use_outlook,
-        )
+        sender = compose.build_sender(cd)
 
-        to_list = extract_all_email_addresses(cd['to'])
-        if not to_list:
-            to_list = [addr.strip() for addr in cd['to'].split(',') if addr.strip()]
-
-        from .utils import _EMAIL_STANDALONE_RE
-        invalid = [a for a in to_list if not _EMAIL_STANDALONE_RE.match(a)]
-        if invalid:
-            form.add_error('to', f'Некорректные адреса: {", ".join(invalid)}')
+        to_list = compose.parse_recipients(cd['to'])
+        bad = compose.invalid_addresses(to_list)
+        if bad:
+            form.add_error('to', f'Некорректные адреса: {", ".join(bad)}')
             return render(request, 'email_ui/partials/compose_modal.html', {
                 'form': form, 'mode': 'compose', 'contacts': contacts,
                 'contacts_json': _contacts_picker_json(contacts),
             'groups_json': _groups_picker_json(),
             }, status=400)
 
-        cc_list = extract_all_email_addresses(cd.get('cc', ''))
-        if not cc_list:
-            cc_list = [addr.strip() for addr in cd.get('cc', '').split(',') if addr.strip()]
-        bcc_list = extract_all_email_addresses(cd.get('bcc', ''))
-        if not bcc_list:
-            bcc_list = [addr.strip() for addr in cd.get('bcc', '').split(',') if addr.strip()]
+        cc_list = compose.parse_recipients(cd.get('cc', ''))
+        bcc_list = compose.parse_recipients(cd.get('bcc', ''))
 
         result = sender.send_via_smtp(
             to_emails=to_list,
@@ -1462,39 +1619,11 @@ def send_email(request):
 
         if result:
             # Create sent email record
-            email_obj = Email.objects.create(
-                email_type='OUT',
-                subject=cd['subject'],
-                sender=sender.smtp_account.from_email if sender.smtp_account else '',
-                receiver=', '.join(to_list),
-                cc=', '.join(cc_list) if cc_list else None,
-                bcc=', '.join(bcc_list) if bcc_list else None,
-                folder='sent',
-                sent_status='sent',
-                sent_at=timezone.now(),
-                email_stamp=timezone.now(),
-                is_read=True,
-            )
+            email_obj = compose.create_sent_email(
+                sender=sender, subject=cd['subject'], to_list=to_list,
+                cc_list=cc_list, bcc_list=bcc_list)
             # Save uploaded files to disk and create Attachment records
-            for f in uploaded_files:
-                try:
-                    att = Attachment(
-                        email=email_obj,
-                        filename=f.name,
-                        size=f.size or 0,
-                        content_type=f.content_type or '',
-                        file_path='',
-                    )
-                    if email_obj.link:
-                        os.makedirs(email_obj.link, exist_ok=True)
-                        file_path = os.path.join(email_obj.link, f.name)
-                        with open(file_path, 'wb+') as dest:
-                            for chunk in f.chunks():
-                                dest.write(chunk)
-                        att.file_path = file_path
-                    att.save()
-                except Exception as e:
-                    logger.warning(f'Ошибка сохранения вложения {f.name}: {e}')
+            compose.persist_uploaded_files(email_obj, uploaded_files)
 
             next_url = _sanitize_next_url(request.POST.get('next', ''))
             return render(request, 'email_ui/partials/send_success.html', {
@@ -1515,6 +1644,8 @@ def send_email(request):
 @require_http_methods(['POST'])
 def reply_send(request, pk):
     """Отправка ответа/пересылки на письмо."""
+    from email_ui.services import compose_service as compose
+
     email = get_object_or_404(Email, pk=pk)
     mode = request.POST.get('mode', 'reply')
     contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
@@ -1569,12 +1700,7 @@ def reply_send(request, pk):
             subject = f'Re: {email.subject}' if email.subject else 'Re:'
 
     # Collect excluded attachment IDs from form
-    excluded_ids = set()
-    for val in request.POST.getlist('exclude_attachments'):
-        try:
-            excluded_ids.add(sanitize_id(val))
-        except (ValueError, TypeError):
-            continue
+    excluded_ids = compose.parse_excluded_ids(request.POST)
 
     # Determine which attachments to forward
     include_attachments = cd.get('include_attachments', False) or mode == 'forward'
@@ -1602,33 +1728,15 @@ def reply_send(request, pk):
         )
 
         # Create reply/forward record
-        new_email = Email.objects.create(
-            email_type='OUT',
-            subject=subject,
-            sender=sender.smtp_account.from_email if sender.smtp_account else '',
-            receiver=', '.join(to_list),
-            cc=', '.join(cc_list) if cc_list else None,
-            folder='sent',
-            sent_status='sent',
-            sent_at=timezone.now(),
-            email_stamp=timezone.now(),
-            is_read=True,
+        new_email = compose.create_sent_email(
+            sender=sender, subject=subject, to_list=to_list, cc_list=cc_list,
             in_reply_to=email.message_id if mode != 'forward' else None,
-            thread_id=email.thread_id if mode != 'forward' else None,
-        )
+            thread_id=email.thread_id if mode != 'forward' else None)
 
         # Save forwarded attachments to DB
         if include_attachments:
-            for att in email.attachments.all():
-                if att.pk in excluded_ids:
-                    continue
-                Attachment.objects.create(
-                    email=new_email,
-                    filename=att.filename,
-                    file_path=att.file_path,
-                    size=att.size,
-                    content_type=att.content_type,
-                )
+            compose.copy_attachment_rows(
+                new_email, email.attachments.all(), excluded_ids)
 
         next_url = _sanitize_next_url(request.POST.get('next', ''))
         return render(request, 'email_ui/partials/send_success.html', {
@@ -1693,6 +1801,8 @@ def draft_edit(request, pk):
 @require_http_methods(['POST'])
 def draft_send(request, pk):
     """Отправить письмо из черновика и удалить черновик."""
+    from email_ui.services import compose_service as compose
+
     draft = get_object_or_404(Email, pk=pk, folder='drafts')
     contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
     form = ComposeEmailForm(request.POST, request.FILES)
@@ -1726,19 +1836,15 @@ def draft_send(request, pk):
     try:
         uploaded_files = request.FILES.getlist('attachment_files')
 
-        sender = EmailSenderService(
-            smtp_account=cd.get('smtp_account'),
-            use_outlook=cd.get('use_outlook', False),
-        )
+        sender = compose.build_sender(cd)
 
-        to_list = extract_all_email_addresses(cd['to'])
-        if not to_list:
-            to_list = [addr.strip() for addr in cd['to'].split(',') if addr.strip()]
+        to_list = compose.parse_recipients(cd['to'])
 
-        from .utils import _EMAIL_STANDALONE_RE
-        invalid = [a for a in to_list if not _EMAIL_STANDALONE_RE.match(a)]
-        if invalid:
-            form.add_error('to', f'Некорректные адреса: {", ".join(invalid)}')
+        bad = compose.invalid_addresses(to_list)
+        if bad:
+            form.add_error('to', f'Некорректные адреса: {", ".join(bad)}')
+            # BUG: шаблон compose_modal вместо draft_edit (расхождение UX-ошибок
+            # тройника). Сохранено 1:1, фиксировать — решением владельца.
             return render(request, 'email_ui/partials/compose_modal.html', {
                 'form': form, 'mode': 'edit_draft', 'draft_email': draft,
                 'draft_attachments': list(draft.attachments.all()),
@@ -1747,20 +1853,11 @@ def draft_send(request, pk):
                 'groups_json': _groups_picker_json(),
             }, status=400)
 
-        cc_list = extract_all_email_addresses(cd.get('cc', ''))
-        if not cc_list:
-            cc_list = [addr.strip() for addr in cd.get('cc', '').split(',') if addr.strip()]
-        bcc_list = extract_all_email_addresses(cd.get('bcc', ''))
-        if not bcc_list:
-            bcc_list = [addr.strip() for addr in cd.get('bcc', '').split(',') if addr.strip()]
+        cc_list = compose.parse_recipients(cd.get('cc', ''))
+        bcc_list = compose.parse_recipients(cd.get('bcc', ''))
 
         # Собираем вложения: черновика (не удалённые) + новые загруженные
-        excluded_ids = set()
-        for val in request.POST.getlist('exclude_attachments'):
-            try:
-                excluded_ids.add(sanitize_id(val))
-            except (ValueError, TypeError):
-                continue
+        excluded_ids = compose.parse_excluded_ids(request.POST)
 
         attachment_objs = []
         for att in draft.attachments.all():
@@ -1780,19 +1877,9 @@ def draft_send(request, pk):
         )
 
         if result:
-            email_obj = Email.objects.create(
-                email_type='OUT',
-                subject=cd['subject'],
-                sender=sender.smtp_account.from_email if sender.smtp_account else '',
-                receiver=', '.join(to_list),
-                cc=', '.join(cc_list) if cc_list else None,
-                bcc=', '.join(bcc_list) if bcc_list else None,
-                folder='sent',
-                sent_status='sent',
-                sent_at=timezone.now(),
-                email_stamp=timezone.now(),
-                is_read=True,
-            )
+            email_obj = compose.create_sent_email(
+                sender=sender, subject=cd['subject'], to_list=to_list,
+                cc_list=cc_list, bcc_list=bcc_list)
 
             # Сохраняем вложения отправленного письма в БД
             for att in attachment_objs:
@@ -1807,24 +1894,7 @@ def draft_send(request, pk):
                     )
                 else:
                     # Это новый загруженный файл
-                    try:
-                        new_att = Attachment(
-                            email=email_obj,
-                            filename=att.name,
-                            size=att.size or 0,
-                            content_type=att.content_type or '',
-                            file_path='',
-                        )
-                        if email_obj.link:
-                            os.makedirs(email_obj.link, exist_ok=True)
-                            file_path = os.path.join(email_obj.link, att.name)
-                            with open(file_path, 'wb+') as dest:
-                                for chunk in att.chunks():
-                                    dest.write(chunk)
-                            new_att.file_path = file_path
-                        new_att.save()
-                    except Exception as e:
-                        logger.warning(f'Ошибка сохранения вложения {att.name}: {e}')
+                    compose.persist_uploaded_files(email_obj, [att])
 
             # Удаляем черновик
             draft.delete()

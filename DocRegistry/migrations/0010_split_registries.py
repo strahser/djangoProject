@@ -19,7 +19,7 @@ def _copy_table(apps, old_name, new_name):
     for row in Old.objects.values(*common).order_by('id'):
         New.objects.create(**row)
         n += 1
-    print(f'{old_name} → {new_name}: {n}')
+    print(f'{old_name} -> {new_name}: {n}')
 
 
 def copy_m1_data(apps, schema_editor):
