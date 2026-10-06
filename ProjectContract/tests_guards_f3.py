@@ -104,8 +104,7 @@ class PropagateCascadeTest(ContractGuardMixin, TestCase):
         self.assertLessEqual(updated, 2)
 
 
-class CashflowIdempotencyTest(ContractGuardMixin, TestCase):
-    def test_double_save_same_rows(self):
+class CashflowIdempotencyTest(ContractGuardMixin, TestCase):    def test_double_save_same_rows(self):
         p = self._pay(due_date=date(2026, 4, 1), price=Decimal('500'),
                       status='paid', paid_date=date(2026, 4, 2))
         first = sorted(CashflowEntry.objects.filter(
@@ -158,3 +157,18 @@ class BulkSkipsCleanTest(ContractGuardMixin, TestCase):
         total = PaymentTaskLink.objects.filter(task_node=task).aggregate(
             total=Sum('amount_applied'))['total']
         self.assertEqual(total, Decimal('1200.00'))
+
+
+class UpdateChildrenTest(ContractGuardMixin, TestCase):
+    def test_delegates_to_propagate(self):
+        # Блок 16: единственный легаси-мутатор — тонкая обёртка propagate.
+        from datetime import date
+        gp = self._pay(name='GP', start_date=date(2026, 1, 1),
+                       duration=9, price=Decimal('10'))
+        child = self._pay(name='CH', parent=gp, duration=5,
+                          price=Decimal('10'))
+        gp.due_date = date(2026, 3, 1)
+        gp.save()
+        self.assertEqual(gp.update_children(), 1)
+        child.refresh_from_db()
+        self.assertEqual(child.start_date, date(2026, 3, 1))

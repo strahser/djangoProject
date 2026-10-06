@@ -4,7 +4,6 @@ from decimal import Decimal
 import pandas as pd
 from django.db import models
 from django.urls import reverse
-from django.utils import timezone
 from django.db.models import F, Sum, Max, Min, DateField
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
@@ -175,22 +174,6 @@ class ContractPayments(BaseModel):
 		compute_own_dates(self)
 		super().save(*args, **kwargs)
 		propagate_dates(self)
-
-	def update_due_date(self):
-		"""
-        Обновляет дату окончания платежа, если изменились дата начала или длительность.
-        """
-		if self.start_date and self.duration:
-			self.due_date = self.start_date + timezone.timedelta(days = self.duration)
-			self.save()
-
-	def update_start_date(self):
-		"""
-        Обновляет дату начала платежа, если изменился предшественник.
-        """
-		if self.parent:
-			self.start_date = self.parent.due_date
-			self.save()
 
 	def update_children(self):
 		"""
