@@ -45,13 +45,22 @@ DB_DIR = os.path.join(os.path.dirname(BASE_DIR), 'djangoProjectDB')
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
+def _env_flag(name, default=True):
+    """Флаг из окружения: 'True'/'False', иначе default (блок 9)."""
+    return os.environ.get(name, str(default)) == 'True'
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-vz5p($d!3(1hw%0!+yd4esaxcg!iz(7nefhh!k@m+-c#o6geu3'
+# Локальный dev-ключ уже в истории git — для продакшена задай DJANGO_SECRET_KEY
+# в окружении и СМЕНИ ключ (смена разлогинит всех пользователей).
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-vz5p($d!3(1hw%0!+yd4esaxcg!iz(7nefhh!k@m+-c#o6geu3')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _env_flag('DJANGO_DEBUG', True)
 
-ALLOWED_HOSTS = []
+_allowed_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
 
 # Application definition
 
@@ -103,9 +112,9 @@ AUTOSAVE_PERIOD =1440 #minutes (1 раз в сутки)
 
 EMAIL_FETCH_INTERVAL_MINUTES = 30  # minutes (автозагрузка почты каждые 30 минут)
 BACKUP_KEEP_VERSIONS = 2
-MEDIA_ROOT =r"e:\Проекты Симрус\Переписка"
+MEDIA_ROOT = os.environ.get('DJANGO_MEDIA_ROOT', r"e:\Проекты Симрус\Переписка")
 MEDIA_URL = '/media/'
-BACKUP_PATH = folder = r'c:\Users\Strakhov\Yandex.Disk\djangoDb'
+BACKUP_PATH = os.environ.get('BACKUP_PATH', r'c:\Users\Strakhov\Yandex.Disk\djangoDb')
 
 # Движок валидации РД (DesignBase FastAPI, M1 DOC-2/DOC-3)
 DESIGNBASE_URL = os.environ.get('DESIGNBASE_URL', 'http://127.0.0.1:8010')
