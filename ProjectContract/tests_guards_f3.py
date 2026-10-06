@@ -104,7 +104,8 @@ class PropagateCascadeTest(ContractGuardMixin, TestCase):
         self.assertLessEqual(updated, 2)
 
 
-class CashflowIdempotencyTest(ContractGuardMixin, TestCase):    def test_double_save_same_rows(self):
+class CashflowIdempotencyTest(ContractGuardMixin, TestCase):
+    def test_double_save_same_rows(self):
         p = self._pay(due_date=date(2026, 4, 1), price=Decimal('500'),
                       status='paid', paid_date=date(2026, 4, 2))
         first = sorted(CashflowEntry.objects.filter(
