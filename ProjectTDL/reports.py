@@ -9,10 +9,10 @@ import locale
 # Настройка локали для форматирования чисел
 try:
     locale.setlocale(locale.LC_ALL, 'ru_RU.UTF-8')
-except:
+except Exception:
     try:
         locale.setlocale(locale.LC_ALL, 'Russian_Russia.1251')
-    except:
+    except Exception:
         locale.setlocale(locale.LC_ALL, '')
 
 
@@ -49,7 +49,7 @@ def format_currency(value, decimal_places=2):
             return f"{value:,.3f}".replace(",", " ").replace(".", ",")
         else:
             return f"{value:,.2f}".replace(",", " ").replace(".", ",")
-    except:
+    except (ValueError, TypeError):
         return f"0.{'0' * decimal_places}"
 
 
@@ -202,8 +202,8 @@ class ReportGenerator:
         is_overdue = bool(due_raw and meeting_day and due_raw < meeting_day and not is_closed)
         info['due_iso'] = due_raw.isoformat() if due_raw else ''
         # Подзадачи (дети первого уровня)
-        children = task.get_children().filter(node_type='subtask').order_by('id') \
-            if hasattr(task, 'get_children') else []
+        children = task.get_children().filter(node_type='subtask').select_related(
+            'status').order_by('id') if hasattr(task, 'get_children') else []
         subtasks = [{
             'name': st.name,
             'due_date': st.due_date.strftime('%d.%m.%Y') if st.due_date else '-',
@@ -386,7 +386,7 @@ class ReportGenerator:
             try:
                 home_url = reverse('custom_task_view')
                 home_url = request.build_absolute_uri(home_url)
-            except:
+            except Exception:
                 home_url = None
 
         # Если admin_url не передан, создаем его с учетом текущих параметров
@@ -401,7 +401,7 @@ class ReportGenerator:
                     admin_url += f'?id__in={",".join(map(str, selected_task_ids))}'
 
                 admin_url = request.build_absolute_uri(admin_url)
-            except:
+            except Exception:
                 admin_url = None
 
         # Форматируем общую стоимость
