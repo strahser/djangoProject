@@ -281,6 +281,29 @@ class FetchGuardsTest(TestCase):
         self.assertTrue(any('BYE' in m for m in msgs))
 
 
+class ScheduledFetchTest(TestCase):
+    """Автозагрузка: падение одной папки не отменяет вторую (блок 14)."""
+
+    def _run(self, side_effects):
+        from email_ui import scheduled as sched_mod
+        with patch.object(sched_mod, 'ParsingImapEmailToDB') as mock_cls:
+            inst = mock_cls.return_value
+            inst.create_action_list = ['u1']
+            inst.skip_action_list = []
+            inst.error_list = []
+            inst.main.side_effect = side_effects
+            sched_mod.fetch_new_emails_job()
+            return inst.main
+
+    def test_second_folder_survives_first_crash(self):
+        main = self._run([ConnectionError('BYE'), None])
+        self.assertEqual(main.call_count, 2)
+
+    def test_success_no_raise(self):
+        main = self._run(None)
+        self.assertEqual(main.call_count, 2)
+
+
 class ExportGuardsTest(RefMixin, TestCase):
     @classmethod
     def setUpTestData(cls):

@@ -12,6 +12,12 @@ from Emails.ЕmailParser.ParsingImapEmailToDB import ParsingImapEmailToDB
 
 AUTO_FETCH_LIMIT = 100
 
+# Защита от двойного запуска: runserver с autoreload и повторные вызовы
+# из apps.ready() создавали 2-3 параллельных планировщика, которые
+# одновременно качали одни и те же UID (в логах — парные прогоны
+# «новых 6» + «новых 2» с теми же UID и гонка записей).
+_SCHEDULER_STARTED = False
+
 
 def fetch_new_emails_job():
     """Автоматическая загрузка новых писем из IMAP (каждые 30 минут)."""
@@ -33,8 +39,13 @@ def fetch_new_emails_job():
     try:
         for folder, email_type in folders.items():
             root_path = os.path.join(directory, folder)
-            parser = ParsingImapEmailToDB(root_path)
-            parser.main(email_type, folder, limit=AUTO_FETCH_LIMIT)
+            try:
+                parser = ParsingImapEmailToDB(root_path)
+                parser.main(email_type, folder, limit=AUTO_FETCH_LIMIT)
+            except Exception as exc:
+                # Падение одной папки не отменяет вторую (как в fetch_emails).
+                errors.append(f'{folder}: {exc}')
+                continue
             created.extend(parser.create_action_list)
             skipped.extend(parser.skip_action_list)
             errors.extend(parser.error_list)
@@ -45,6 +56,11 @@ def fetch_new_emails_job():
         )
         if created:
             logger.info(f"[EmailAutoFetch] Новые письма: {created[:50]}")
+        if errors:
+            # Транзиентные обрывы (BYE problems with connection) — warning,
+            # а не exception: сервер Яндекса регулярно рвёт соединения,
+            # следующий прогон доберёт пропущенное.
+            logger.warning(f"[EmailAutoFetch] Ошибки прогона: {errors[:10]}")
     except Exception as exc:
         logger.exception(f"[EmailAutoFetch] Ошибка при загрузке почты: {exc}")
     finally:
@@ -55,6 +71,10 @@ def fetch_new_emails_job():
 
 
 def start_email_fetch_scheduler():
+    global _SCHEDULER_STARTED
+    if _SCHEDULER_STARTED:
+        logger.warning("[EmailAutoFetch] Планировщик уже запущен — повторный старт пропущен")
+        return
     try:
         scheduler = BackgroundScheduler()
         scheduler.add_job(
@@ -66,6 +86,7 @@ def start_email_fetch_scheduler():
             next_run_time=datetime.datetime.now(),
         )
         scheduler.start()
+        _SCHEDULER_STARTED = True
         logger.info(
             f"[EmailAutoFetch] Планировщик запущен (каждые {settings.EMAIL_FETCH_INTERVAL_MINUTES} минут)"
         )
