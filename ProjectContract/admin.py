@@ -256,8 +256,11 @@ class ContractAdmin(BaseAdmin):
     def get_queryset(self, request):
         # Суммы по платежам одним запросом вместо 4 aggregates на строку
         # (paid + unpaid + status_check дергает оба ещё раз).
+        # Плюс FK changelist-колонок одним JOIN вместо 3 запросов на строку.
         qs = super().get_queryset(request)
-        return qs.annotate(
+        return qs.select_related(
+            'project_site', 'contractor', 'client',
+        ).annotate(
             _paid_total=Coalesce(Sum('contractpayments__price', filter=models.Q(
                 contractpayments__made_payment=True)), Value(0),
                 output_field=DecimalField(max_digits=12, decimal_places=2)),

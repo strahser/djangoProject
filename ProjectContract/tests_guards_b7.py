@@ -62,6 +62,15 @@ class RowAggregatesTest(ContractAdminFixtureMixin, TestCase):
             self.assertEqual(self._ma().unpaid_amount(obj), Decimal('700'))
             self.assertEqual(self._ma().status_check(obj), Decimal('0'))
 
+    def test_fk_columns_no_extra_queries(self):
+        # Блок 23: project_site/contractor/client идут JOIN одним запросом.
+        qs = self._ma().get_queryset(self._request())
+        with self.assertNumQueries(1):
+            objs = list(qs)
+            for o in objs:
+                (o.project_site.name, o.contractor.name,
+                 o.client.name if o.client_id else None)
+
 
 class ChangelistTotalsTest(ContractAdminFixtureMixin, TestCase):
     def test_changelist_totals(self):

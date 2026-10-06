@@ -125,6 +125,14 @@ class UniversalAdmin(admin.ModelAdmin):
 
 @admin.register(TaskNode)
 class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
+    def get_queryset(self, request):
+        # Блок 23: FK changelist-колонок одним JOIN вместо N+1 на строку.
+        return super().get_queryset(request).select_related(
+            'project_site', 'building_number__name', 'design_chapter',
+            'contractor', 'status', 'category', 'contract', 'owner',
+        )
+
+    excluding_list = ['description', 'parent', 'owner', 'contract', 'lft', 'rght', 'tree_id', 'level', ]
     excluding_list = ['description', 'parent', 'owner', 'contract', 'lft', 'rght', 'tree_id', 'level', ]
     additional_list = ['creation_stamp', 'add_emails_button', 'add_report_button', 'add_protocol_button']
     actions = [duplicate_event, 'html_replace', 'generate_html_report', 'generate_protocol_report']

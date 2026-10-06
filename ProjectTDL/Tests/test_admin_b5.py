@@ -136,3 +136,12 @@ class HtmlReplaceActionTest(AdminFixtureMixin, TestCase):
         self.ma.html_replace(
             req, TaskNode.objects.filter(pk=self.task.pk))
         self.assertTrue(any('обновлены' in m for m in self._messages(req)))
+
+
+class ChangelistSmokeTest(AdminFixtureMixin, TestCase):
+    def test_changelist_renders(self):
+        # Блок 23: smoke полного рендера (get_queryset + mptt + шаблоны).
+        self.client.force_login(self.boss)
+        resp = self.client.get('/admin/ProjectTDL/tasknode/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'B5')
