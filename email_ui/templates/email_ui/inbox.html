@@ -25,19 +25,47 @@
         </div>
     </div>
 
-    <div class="card mb-3">
-        <div class="card-header py-2 filter-header-clickable d-flex justify-content-between align-items-center"
-             data-bs-toggle="collapse" data-bs-target="#filter-collapse"
-             aria-expanded="false" aria-controls="filter-collapse">
-            <h6 class="mb-0"><i class="bi bi-funnel me-1"></i> Фильтры и поиск</h6>
-            <i class="bi bi-chevron-down chevron-icon"></i>
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#filterModal">
+            <i class="bi bi-funnel me-1"></i> Фильтры и поиск
+            {% if active_filter_count %}<span class="badge bg-primary ms-1">{{ active_filter_count }}</span>{% endif %}
+        </button>
+        <div id="selected-filters-summary" class="flex-grow-1">
+            {% include "email_ui/partials/selected_filters_summary.html" %}
         </div>
-        <div class="collapse" id="filter-collapse">
-            <div class="card-body">
-                {% include "email_ui/partials/filter_form.html" %}
+        {% if active_filter_count %}
+        <a href="{% url 'email_ui:inbox' folder %}" class="btn btn-outline-danger btn-sm">
+            <i class="bi bi-x-circle"></i> Сброс
+        </a>
+        {% endif %}
+    </div>
+
+    <div class="modal fade" id="filterModal" tabindex="-1" aria-labelledby="filterModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title" id="filterModalLabel"><i class="bi bi-funnel me-1"></i> Фильтры и поиск</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+                <div class="modal-body">
+                    {% include "email_ui/partials/filter_form.html" %}
+                </div>
+                <div class="modal-footer py-2">
+                    <a href="{% url 'email_ui:inbox' folder %}" class="btn btn-outline-danger btn-sm">
+                        <i class="bi bi-x-circle"></i> Сброс
+                    </a>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Закрыть</button>
+                    <button type="submit" class="btn btn-primary btn-sm" form="filter-form">
+                        <i class="bi bi-search me-1"></i>Найти
+                    </button>
+                </div>
             </div>
         </div>
     </div>
+    <style>
+    /* Вложенная модалка выбора (Проекты/Подрядчики/...) — поверх окна фильтров. */
+    #dynamicModal { z-index: 1065; }
+    </style>
 
     <div id="bulk-action-bar" class="mb-2 d-none">
         <form id="bulk-form" method="post"
@@ -117,5 +145,11 @@ function moveToFolder(folderName) {
     form.appendChild(actionInput);
     form.requestSubmit();
 }
+// Раскрытие фильтров при активных фильтрах в URL (модалка вместо старой панели).
+function expandPanelIfFiltersActive() {
+    var m = document.getElementById('filterModal');
+    if (m && window.bootstrap) { bootstrap.Modal.getOrCreateInstance(m).show(); }
+}
+{% if active_filter_count %}document.addEventListener('DOMContentLoaded', expandPanelIfFiltersActive);{% endif %}
 </script>
 {% endblock %}

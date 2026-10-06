@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from email_ui.utils import extract_all_email_addresses
 from Emails.models import Attachment, Email
+from Emails.ЕmailParser.EmailConfig import E_MAIL_DIRECTORY
 from email_ui.services.email_sender import EmailSenderService
 
 logger = logging.getLogger(__name__)
@@ -70,10 +71,11 @@ def create_sent_email(*, sender, subject, to_list, cc_list,
 
 
 def persist_uploaded_files(email_obj, uploaded_files) -> None:
-    """Новые загруженные файлы: запись Attachment + копия на диск (если link).
+    """Новые загруженные файлы: запись Attachment + копия на диск.
 
-    1:1 из send_email: без email.link файл не пишется (file_path == ''),
-    ошибки одного файла только логируются, остальные сохраняются.
+    Без email.link файлы складываются в E_MAIL_DIRECTORY/sent/<id> (раньше
+    молча терялись с file_path == ''). Путь фиксируется в link записи.
+    Ошибки одного файла только логируются, остальные сохраняются.
     """
     for f in uploaded_files or []:
         try:
@@ -84,13 +86,19 @@ def persist_uploaded_files(email_obj, uploaded_files) -> None:
                 content_type=f.content_type or '',
                 file_path='',
             )
-            if email_obj.link:
-                os.makedirs(email_obj.link, exist_ok=True)
-                file_path = os.path.join(email_obj.link, f.name)
-                with open(file_path, 'wb+') as dest:
-                    for chunk in f.chunks():
-                        dest.write(chunk)
-                att.file_path = file_path
+            target_dir = email_obj.link
+            if not target_dir:
+                target_dir = os.path.join(
+                    E_MAIL_DIRECTORY, 'sent', str(email_obj.pk))
+                os.makedirs(target_dir, exist_ok=True)
+                email_obj.link = target_dir
+                email_obj.save(update_fields=['link'])
+            os.makedirs(target_dir, exist_ok=True)
+            file_path = os.path.join(target_dir, f.name)
+            with open(file_path, 'wb+') as dest:
+                for chunk in f.chunks():
+                    dest.write(chunk)
+            att.file_path = file_path
             att.save()
         except Exception as e:
             logger.warning(f'Ошибка сохранения вложения {f.name}: {e}')

@@ -38,7 +38,11 @@ class RuleEvaluator:
 
     @classmethod
     def evaluate(cls, email: Email, conditions: List[Dict[str, Any]]) -> bool:
-        """Evaluate all conditions (AND logic)."""
+        """Evaluate all conditions (AND logic).
+
+        Неизвестное условие — fail-closed (False): правило с опечаткой
+        не должно молча срабатывать на всё (было: warning + игнор).
+        """
         if not conditions:
             return True
 
@@ -49,10 +53,11 @@ class RuleEvaluator:
 
             key = f'{field}_{operator}'
             evaluator = cls.CONDITIONS.get(key)
-            if evaluator and not evaluator(email, value):
+            if evaluator is None:
+                logger.error(f'Unknown condition: {key} — правило не сработает')
                 return False
-            elif evaluator is None:
-                logger.warning(f'Unknown condition: {key}')
+            if not evaluator(email, value):
+                return False
 
         return True
 

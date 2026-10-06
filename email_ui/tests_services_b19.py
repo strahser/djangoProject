@@ -37,11 +37,10 @@ class RuleEvaluatorTest(ServiceFixtureMixin, TestCase):
     def test_empty_conditions_match_all(self):
         self.assertTrue(RuleEvaluator.evaluate(self._email(), []))
 
-    def test_unknown_condition_ignored(self):
-        # Факт: неизвестное условие только логируется и НЕ блокирует правило
-        # (опечатка в правиле = срабатывает всегда). Менять — решением владельца.
+    def test_unknown_condition_blocks(self):
+        # Fail-closed: неизвестное условие = правило не срабатывает.
         email = self._email()
-        self.assertTrue(RuleEvaluator.evaluate(
+        self.assertFalse(RuleEvaluator.evaluate(
             email, [{'field': 'nope', 'operator': 'nope', 'value': 'x'}]))
 
     def test_regex_condition(self):

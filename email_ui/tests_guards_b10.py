@@ -60,6 +60,14 @@ class ContactSearchGuardsTest(DirectoryFixtureMixin, TestCase):
             resp = self.client.get(reverse('email_ui:contact_search'), {'q': 'contact'})
         self.assertEqual(len(resp.json()), 3)
 
+    def test_cyrillic_case_insensitive(self):
+        # SQLite LIKE глух к регистру кириллицы — добираем casefold.
+        self._contact('Иван Петров', 'ivan@test.com')
+        resp = self.client.get(reverse('email_ui:contact_search'), {'q': 'иван'})
+        rows = resp.json()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['email'], 'ivan@test.com')
+
 
 class BulkAssignTagTest(DirectoryFixtureMixin, TestCase):
     def test_assign_many_and_idempotent(self):

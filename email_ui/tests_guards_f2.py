@@ -86,19 +86,26 @@ class SendMatrixGuardsTest(SendGuardMixin, TestCase):
 
 class SendAttachmentGuardsTest(SendGuardMixin, TestCase):
     def test_attachment_record_without_link_no_file(self):
-        # Факт: без email.link запись Attachment создаётся, но файл на диск
-        # НЕ пишется (file_path == ''). Письмо без проекта теряет вложения молча.
+        # Файлы без link складываются в E_MAIL_DIRECTORY/sent/<id>
+        # (раньше молча терялись с file_path == '').
+        import tempfile
         content = b'%PDF-1.4 fake'
-        resp = self.client.post(reverse('email_ui:send_email'), {
-            'to': 'a@test.com', 'subject': 'F2files', 'body': '<p>x</p>',
-            'attachment_files': SimpleUploadedFile(
-                'doc.pdf', content, content_type='application/pdf'),
-        })
-        self.assertEqual(resp.status_code, 200)
-        email = Email.objects.get(folder='sent', subject='F2files')
-        att = Attachment.objects.get(email=email, filename='doc.pdf')
-        self.assertEqual(att.file_path, '')
-        self.assertEqual(att.size, len(content))
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch('email_ui.services.compose_service.E_MAIL_DIRECTORY', tmp):
+                resp = self.client.post(reverse('email_ui:send_email'), {
+                    'to': 'a@test.com', 'subject': 'F2files', 'body': '<p>x</p>',
+                    'attachment_files': SimpleUploadedFile(
+                        'doc.pdf', content, content_type='application/pdf'),
+                })
+                self.assertEqual(resp.status_code, 200)
+                email = Email.objects.get(folder='sent', subject='F2files')
+                att = Attachment.objects.get(email=email, filename='doc.pdf')
+                self.assertEqual(att.size, len(content))
+                self.assertTrue(att.file_path.startswith(tmp))
+                email.refresh_from_db()
+                self.assertTrue(email.link.startswith(tmp))
+                with open(att.file_path, 'rb') as fh:
+                    self.assertEqual(fh.read(), content)
 
 
 class BulkGuardsTest(RefMixin, TestCase):
@@ -229,11 +236,17 @@ class ComposeServiceTest(TestCase):
             Attachment.objects.get(email=sent, filename='f.txt').size, 3)
         copy_attachment_rows(sent, [att], {att.pk})  # excluded — дубля нет
         self.assertEqual(Attachment.objects.filter(email=sent).count(), 1)
-        # Без link файл на диск не пишется, запись создаётся.
-        persist_uploaded_files(sent, [SimpleUploadedFile('n.txt', b'123')])
-        row = Attachment.objects.get(email=sent, filename='n.txt')
-        self.assertEqual(row.file_path, '')
-        self.assertEqual(row.size, 3)
+        # Без link файл уходит в fallback E_MAIL_DIRECTORY/sent/<id>.
+        import os as _os
+        import tempfile
+        from unittest.mock import patch as _patch
+        with tempfile.TemporaryDirectory() as tmp:
+            with _patch('email_ui.services.compose_service.E_MAIL_DIRECTORY', tmp):
+                persist_uploaded_files(sent, [SimpleUploadedFile('n.txt', b'123')])
+                row = Attachment.objects.get(email=sent, filename='n.txt')
+                self.assertTrue(row.file_path.startswith(tmp))
+                self.assertTrue(_os.path.isfile(row.file_path))
+                self.assertEqual(row.size, 3)
 
 
 class FetchGuardsTest(TestCase):

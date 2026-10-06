@@ -441,6 +441,22 @@ class CashflowEntry(BaseModel):
 		return f'{self.date} {self.get_bucket_display()} {self.amount}'
 
 
+class PaymentTaskLinkManager(models.Manager):
+    """bulk_create с валидацией clean() (обход давал переплату без ошибки).
+
+    skip_validation=True — люк для миграций/сидов (там инварианты
+    гарантируются кодом переноса).
+    """
+
+    def bulk_create(self, objs, **kwargs):
+        skip = kwargs.pop('skip_validation', False)
+        objs = list(objs)
+        if not skip:
+            for obj in objs:
+                obj.full_clean()
+        return super().bulk_create(objs, **kwargs)
+
+
 class PaymentTaskLink(BaseModel):
     """Связь платёж ↔ работа (TaskNode) — DMC-2.
 
@@ -475,6 +491,8 @@ class PaymentTaskLink(BaseModel):
         verbose_name_plural = 'Привязки платёж ↔ задача'
         unique_together = ('payment', 'task_node')
         ordering = ['id']
+
+    objects = PaymentTaskLinkManager()
 
     def __str__(self):
         return f'{self.payment} → {self.task_node} ({self.amount_applied})'

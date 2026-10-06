@@ -2196,9 +2196,23 @@ def contact_delete(request, pk):
 def contact_search(request):
     """Поиск контактов для автодополнения (AJAX)."""
     query = request.GET.get('q', '')
-    contacts = Contact.objects.filter(
+    contacts = list(Contact.objects.filter(
         Q(name__icontains=query) | Q(emails__email__icontains=query)
-    ).distinct().select_related('company').prefetch_related('emails')[:10]
+    ).distinct().select_related('company').prefetch_related('emails')[:10])
+    if query and any(ord(c) > 127 for c in query):
+        # SQLite LIKE регистронезависим только для ASCII: кириллицу
+        # добираем casefold-сравнением в Python (кап 500 кандидатов).
+        qfold = query.casefold()
+        seen = {c.pk for c in contacts}
+        extra = Contact.objects.exclude(pk__in=seen).select_related(
+            'company').prefetch_related('emails')[:500]
+        for c in extra:
+            cached = list(c.emails.all())
+            if qfold in c.name.casefold() or any(
+                    qfold in e.email.casefold() for e in cached):
+                contacts.append(c)
+                if len(contacts) >= 10:
+                    break
     data = []
     for c in contacts:
         # Блок 10: адреса из prefetch-кэша, без запросов на строку.

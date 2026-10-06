@@ -143,9 +143,25 @@ class EstimateRollupQueryTest(ContractGuardMixin, TestCase):
 
 
 class BulkSkipsCleanTest(ContractGuardMixin, TestCase):
-    def test_bulk_create_bypasses_overpay_validation(self):
-        # Факт: clean (лимит суммы привязок ценой задачи) работает только
-        # через save/full_clean; bulk_create его обходит — переплата без ошибки.
+    def test_bulk_create_validates_overpay(self):
+        # bulk_create валидирует clean(): переплата отклоняется.
+        from django.core.exceptions import ValidationError
+        task = self._task(Decimal('1000.00'))
+        pay = self._pay(price=Decimal('5000.00'))
+        pay2 = self._pay(name='ПП2', price=Decimal('5000.00'))
+        PaymentTaskLink.objects.create(
+            payment=pay, task_node=task, amount_applied=Decimal('600.00'))
+        with self.assertRaises(ValidationError):
+            PaymentTaskLink.objects.bulk_create([
+                PaymentTaskLink(payment=pay2, task_node=task,
+                                amount_applied=Decimal('600.00'))])
+        from django.db.models import Sum
+        total = PaymentTaskLink.objects.filter(task_node=task).aggregate(
+            total=Sum('amount_applied'))['total']
+        self.assertEqual(total, Decimal('600.00'))
+
+    def test_bulk_create_skip_hatch(self):
+        # skip_validation=True — люк для переносов (поведение задокументировано).
         task = self._task(Decimal('1000.00'))
         pay = self._pay(price=Decimal('5000.00'))
         pay2 = self._pay(name='ПП2', price=Decimal('5000.00'))
@@ -153,7 +169,8 @@ class BulkSkipsCleanTest(ContractGuardMixin, TestCase):
             payment=pay, task_node=task, amount_applied=Decimal('600.00'))
         PaymentTaskLink.objects.bulk_create([
             PaymentTaskLink(payment=pay2, task_node=task,
-                            amount_applied=Decimal('600.00'))])
+                            amount_applied=Decimal('600.00'))],
+            skip_validation=True)
         from django.db.models import Sum
         total = PaymentTaskLink.objects.filter(task_node=task).aggregate(
             total=Sum('amount_applied'))['total']
