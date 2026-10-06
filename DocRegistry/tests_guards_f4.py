@@ -83,3 +83,32 @@ class DesignBaseUnreachableTest(TestCase):
             get('/health', params={'a': '1'}, timeout=1)
         with self.assertRaises(DesignBaseUnreachable):
             post('/validate', payload={'x': 1}, timeout=1)
+
+
+class CompareRegistryTest(TestCase):
+    """Блок 22: матрица сверки drift (чистая функция, без accdb/БД)."""
+
+    def test_all_match_ok(self):
+        from .services import compare_registry
+        rows = [{'code': 1, 'accdb_row_hash': 'a'},
+                {'code': 2, 'accdb_row_hash': 'b'}]
+        rep = compare_registry(rows, {1: 'a', 2: 'b'})
+        self.assertTrue(rep['ok'])
+        self.assertEqual(rep, {'new': [], 'missing': [], 'changed': [],
+                               'ok': True})
+
+    def test_new_missing_changed(self):
+        from .services import compare_registry
+        rows = [{'code': 1, 'accdb_row_hash': 'a2'},
+                {'code': 3, 'accdb_row_hash': 'c'}]
+        rep = compare_registry(rows, {1: 'a', 2: 'b'})
+        self.assertFalse(rep['ok'])
+        self.assertEqual(rep['new'], [3])
+        self.assertEqual(rep['missing'], [2])
+        self.assertEqual(rep['changed'], [1])
+
+    def test_empty_live_all_missing(self):
+        from .services import compare_registry
+        rep = compare_registry([], {1: 'a'})
+        self.assertEqual(rep['missing'], [1])
+        self.assertFalse(rep['ok'])
