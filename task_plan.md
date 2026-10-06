@@ -1,3 +1,15 @@
+# Блок 25: чистые хелперы email_ui/views -> services (done)
+
+views.py 2806 -> 2525 (-281): токены/Q/filter_emails ->
+`email_ui/services/query_service.py` (201); сортировка/навигация
+(_sanitize_next_url, _clean_query_string, _build_back_url, _safe_next,
+_get_list_from_request, apply_sorting + ALLOWED_SORT_FIELDS) ->
+`email_ui/services/navigation.py` (102). Тела 1:1, views — re-export
+(patch-таргеты `email_ui.views.*` и ленивый импорт из Emails/views целы).
+Тесты `email_ui/tests_views_b25.py` 36/36 (факты+quirks: запятая в
+_get_list_from_request не делится; ORDER BY рендерится DESC).
+Проверка: email_ui 317/317 OK (235s), manage check clean.
+
 # Блок 24: таблица подзадач формы правки (done, pushed 50e8373)
 
 # ФИНАЛ автопилота (2026-10-06): полный прогон 603 теста — 602 OK,

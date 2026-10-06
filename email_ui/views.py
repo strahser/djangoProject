@@ -1,7 +1,6 @@
 import json
 import mimetypes
 import os
-import re
 import subprocess
 from sys import platform
 
@@ -10,7 +9,6 @@ from django.contrib.admin.utils import flatten
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.db.models.functions import Coalesce, TruncDate
 from django.http import (
     FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse,
 )
@@ -41,9 +39,17 @@ from .utils import (
     clean_email_html, extract_email_address, extract_all_email_addresses, resolve_sender_to_email,
     resolve_inline_image_urls, sanitize_id, sanitize_id_list, segment_letter_html,
 )
+from .services.navigation import (
+    ALLOWED_SORT_FIELDS, _build_back_url, _clean_query_string,
+    _get_list_from_request, _safe_next, _sanitize_next_url, apply_sorting,
+)
+from .services.query_service import (
+    SEARCH_ANYWHERE_FIELDS, _ci_variants, _field_tokens, _q_field_variants,
+    _q_token_anywhere, _query_tokens, _split_tokens, _token_addresses,
+    filter_emails,
+)
 PER_PAGE = 50
 THREADS_PER_PAGE = 20
-ALLOWED_SORT_FIELDS = ['sender', 'receiver', 'subject', 'email_stamp', 'project_site__name', 'contractor__name']
 
 #: Локальная папка БД -> имя папки на IMAP-сервере (обратное к scheduled/fetch).
 IMAP_FOLDER_BY_DB = {'inbox': 'INBOX', 'sent': 'Отправленные'}
@@ -276,269 +282,6 @@ def selection_threads(request):
         'back_url': back_url,
     }
     return render(request, 'email_ui/partials/email_threads.html', context)
-
-
-def _sanitize_next_url(next_url):
-    """Ensure 'next' always points to a full page, not a partial/ URL."""
-    from django.http import QueryDict
-    if not next_url:
-        return reverse('email_ui:inbox_default')
-    # Защита от open-redirect: разрешаем только локальные пути.
-    if not next_url.startswith('/'):
-        return reverse('email_ui:inbox_default')
-    if '/partial/' in next_url:
-        try:
-            folder = 'inbox'
-            qd = QueryDict('')
-            if '?' in next_url:
-                qs = next_url.split('?', 1)[1]
-                qd = QueryDict(qs)
-                folder = qd.get('folder', 'inbox')
-            url = reverse('email_ui:inbox', args=[folder])
-            qd_copy = qd.copy()
-            for key in ('sort', 'order', 'folder'):
-                qd_copy.pop(key, None)
-            qs2 = qd_copy.urlencode()
-            if qs2:
-                url += '?' + qs2
-            return url
-        except Exception:
-            return reverse('email_ui:inbox_default')
-    return next_url
-
-
-def _clean_query_string(request, remove_params=None):
-    """Remove specified params from query string and return URL-encoded string.
-
-    page/_infinite убираем всегда: ссылки «догрузить ещё» и сортировки строятся
-    из текущего query string, и без чистки они накапливали собственные
-    параметры (page=2&page=3&…), из-за чего список бесконечно грузил одну и
-    ту же страницу дублями.
-
-    folder убираем тоже: шаблоны сами добавляют &folder={{ folder }}, иначе в
-    ссылке получалось folder=inbox&folder=inbox.
-    """
-    if remove_params is None:
-        remove_params = ['sort', 'order', 'page', '_infinite', 'folder']
-    params = request.GET.copy()
-    for key in remove_params:
-        params.pop(key, None)
-    return params.urlencode()
-
-
-def _build_back_url(request, folder='inbox'):
-    """Build a full-page back URL for email list, avoiding /partial/ paths."""
-    qs = _clean_query_string(request)
-    url = reverse('email_ui:inbox', args=[folder])
-    if qs:
-        url += '?' + qs
-    return url
-
-
-def apply_sorting(queryset, request):
-    sort_field = request.GET.get('sort', 'email_stamp')
-    sort_order = request.GET.get('order', 'desc')
-
-    if sort_field.lstrip('-') not in ALLOWED_SORT_FIELDS:
-        sort_field = 'email_stamp'
-
-    if sort_order == 'desc' and not sort_field.startswith('-'):
-        sort_field = f'-{sort_field}'
-
-    return queryset.order_by(sort_field), sort_field.lstrip('-'), sort_order
-
-
-def _split_tokens(raw):
-    """Делит мульти-ввод почты на токены (запятая/точка с запятой)."""
-    if not raw:
-        return []
-    return [t.strip() for t in str(raw).replace(';', ',').split(',') if t.strip()]
-
-
-# Мусор, который прилипает к адресу при копировании из письма: «Имя <a@b.ru>»,
-# «"a@b.ru".», «a@b.ru,» — это всё один и тот же адрес, а в письме он хранится
-# как bare-адрес без скобок, кавычек и точек. Без нормализации такие запросы
-# молча давали «Нет писем».
-_ADDRESS_EDGE_JUNK = ' \t\r\n<>"\'«»,;:.'
-
-# Адрес внутри произвольного текста (регистр не важен — его решает _ci_variants).
-_EMAIL_IN_TEXT_RE = re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}')
-
-
-def _token_addresses(raw):
-    """Адреса внутри одного токена без обрамляющего мусора.
-
-    'kunaev@isetgroup.ru.'         -> ['kunaev@isetgroup.ru']
-    'Кунаев <kunaev@isetgroup.ru>' -> ['kunaev@isetgroup.ru']
-    'a@b.ru c@d.ru'                -> ['a@b.ru', 'c@d.ru']
-    'Кунаев'                       -> []  (не адрес — ищем как слово)
-    """
-    text = str(raw or '').strip()
-    if not text:
-        return []
-    found = extract_all_email_addresses(text)
-    cleaned = text.strip(_ADDRESS_EDGE_JUNK)
-    if cleaned and cleaned != text:
-        for addr in extract_all_email_addresses(cleaned):
-            if addr not in found:
-                found.append(addr)
-    if not found:
-        # Адрес, склеенный с мусором внутри токена ('a@b.ru.' / 'Имя a@b.ru').
-        m = _EMAIL_IN_TEXT_RE.search(cleaned or text)
-        if m:
-            found.append(m.group(0).rstrip('.'))
-    return found
-
-
-def _field_tokens(raw):
-    """Токены для адресных полей фильтра («От кого», «Кому», «Копия»).
-
-    Адрес в любом оформлении отдаётся bare-адресом (внутри поля токены
-    объединяются через ИЛИ), всё остальное остаётся словом как есть.
-    """
-    tokens = []
-    for part in _split_tokens(raw):
-        addresses = _token_addresses(part)
-        tokens.extend(addresses if addresses else [part])
-    return [t for t in tokens if t]
-
-
-def _query_tokens(raw):
-    """Токены общего поиска: пары (значение, это_адрес).
-
-    Слова делятся по пробелам/запятым/точкам с запятой, адрес в любом
-    оформлении ('<a@b.ru>', 'Имя <a@b.ru>', 'a@b.ru.') сводится к bare-адресу.
-    """
-    tokens = []
-    for part in re.split(r'[,;\s]+', str(raw or '')):
-        part = part.strip()
-        if not part:
-            continue
-        addresses = _token_addresses(part)
-        if addresses:
-            tokens.extend((addr, True) for addr in addresses)
-        else:
-            tokens.append((part, False))
-    return tokens
-
-
-# Поля общего поиска («везде»): тема + все адресные поля + наименование.
-SEARCH_ANYWHERE_FIELDS = (
-    'subject', 'sender', 'sender_name', 'receiver', 'cc', 'bcc', 'name',
-)
-
-
-def _ci_variants(token):
-    """Варианты регистра для токена.
-
-    SQLite LIKE (а значит и Django __icontains) регистронезависим только
-    для ASCII. Для кириллицы 'совещание' не найдёт 'Совещание' и наоборот.
-    Поэтому ищем сразу по нескольким вариантам через ИЛИ.
-    """
-    t = (token or '').strip()
-    if not t:
-        return []
-    variants = {t, t.lower(), t.upper(), t.capitalize(), t.title()}
-    return [v for v in variants if v]
-
-
-def _q_field_variants(field, token):
-    """Q(field__icontains=вариант) объединённые через ИЛИ."""
-    q = Q()
-    for v in _ci_variants(token):
-        q |= Q(**{f'{field}__icontains': v})
-    return q
-
-
-def _q_token_anywhere(token, include_body=False):
-    """Один токен общего поиска: любое поле из SEARCH_ANYWHERE_FIELDS (ИЛИ).
-
-    include_body=True — дополнительно ищем в теле письма (body_text),
-    т.е. режим «Тема + тело письма».
-    """
-    q = Q()
-    for field in SEARCH_ANYWHERE_FIELDS:
-        q |= _q_field_variants(field, token)
-    if include_body:
-        q |= _q_field_variants('body_text', token)
-    return q
-
-
-def filter_emails(queryset, cleaned_data):
-    # Строгий поиск: каждое поле ищет ТОЛЬКО в своём поле письма.
-    # Мульти-ввод: токены через запятую объединяются через ИЛИ внутри поля.
-    # Разные поля комбинируются через И (цепочка .filter()).
-    # Адрес нормализуется до bare-адреса ('<a@b.ru>', 'Имя <a@b.ru>', 'a@b.ru.'
-    # → 'a@b.ru'): в письме он хранится без скобок и точек, поэтому запрос,
-    # скопированный из письма «как есть», раньше молча ничего не находил.
-    if cleaned_data.get('sender'):
-        q = Q()
-        for t in _field_tokens(cleaned_data['sender']):
-            q |= _q_field_variants('sender', t) | _q_field_variants('sender_name', t)
-        if q:
-            queryset = queryset.filter(q)
-    if cleaned_data.get('receiver'):
-        q = Q()
-        for t in _field_tokens(cleaned_data['receiver']):
-            q |= _q_field_variants('receiver', t)
-        if q:
-            queryset = queryset.filter(q)
-    if cleaned_data.get('cc'):
-        q = Q()
-        for t in _field_tokens(cleaned_data['cc']):
-            q |= _q_field_variants('cc', t)
-        if q:
-            queryset = queryset.filter(q)
-    if cleaned_data.get('project_site'):
-        queryset = queryset.filter(project_site__in=cleaned_data['project_site'])
-    if cleaned_data.get('contractor'):
-        queryset = queryset.filter(contractor__in=cleaned_data['contractor'])
-    if cleaned_data.get('category'):
-        queryset = queryset.filter(category__in=cleaned_data['category'])
-    if cleaned_data.get('building_type'):
-        queryset = queryset.filter(building_type__in=cleaned_data['building_type'])
-    if cleaned_data.get('info'):
-        queryset = queryset.filter(info__in=cleaned_data['info'])
-    if cleaned_data.get('tags'):
-        queryset = queryset.filter(email_tags__tag__in=cleaned_data['tags']).distinct()
-    if cleaned_data.get('has_attachments'):
-        queryset = queryset.filter(attachments__isnull=False).distinct()
-    if cleaned_data.get('is_important'):
-        queryset = queryset.filter(is_important=True)
-    if cleaned_data.get('is_unread'):
-        queryset = queryset.filter(is_read=False)
-    if cleaned_data.get('date_from') or cleaned_data.get('date_to'):
-        # Дата письма: email_stamp, а для отправленных из приложения
-        # (там штамп пуст) — sent_at/creation_stamp, иначе их не найти.
-        queryset = queryset.annotate(
-            _eff_date=Coalesce(TruncDate('email_stamp'), TruncDate('sent_at'),
-                               TruncDate('creation_stamp')),
-        )
-        if cleaned_data.get('date_from'):
-            queryset = queryset.filter(_eff_date__gte=cleaned_data['date_from'])
-        if cleaned_data.get('date_to'):
-            queryset = queryset.filter(_eff_date__lte=cleaned_data['date_to'])
-    if cleaned_data.get('folder'):
-        queryset = queryset.filter(folder=cleaned_data['folder'])
-    if cleaned_data.get('sent_status'):
-        queryset = queryset.filter(sent_status=cleaned_data['sent_status'])
-    if cleaned_data.get('search'):
-        query = (cleaned_data['search'] or '').strip()
-        # Общий поиск — везде (ИЛИ по полям). Слова через пробел/запятую —
-        # каждое должно найтись где-то (И): «совещание К-1» найдёт
-        # «Совещание 10.09.25 на К-1» независимо от регистра.
-        # search_scope: '' (везде без тела) / subject (только тема) /
-        # subject_body (везде + тело письма).
-        # Адрес (есть '@') ищется по адресным полям при ЛЮБОЙ области: в теме
-        # письма адресов не бывает, и «Только тема» молча не находил адресата.
-        scope = cleaned_data.get('search_scope') or ''
-        include_body = scope == 'subject_body'
-        for tok, is_address in _query_tokens(query):
-            if scope == 'subject' and not is_address:
-                queryset = queryset.filter(_q_field_variants('subject', tok))
-            else:
-                queryset = queryset.filter(_q_token_anywhere(tok, include_body=include_body))
-    return queryset
 
 
 def _canonical_top_addresses(field, limit=200):
@@ -1327,18 +1070,6 @@ def unread_count(request):
     if request.headers.get('HX-Request') == 'true':
         return HttpResponse(str(data['inbox']))
     return JsonResponse(data)
-
-
-def _get_list_from_request(request, param_name):
-    """
-    Возвращает список значений параметра, поддерживая как множественные параметры,
-    так и строку с запятыми.
-    """
-    values = request.GET.getlist(param_name)
-    if not values and request.GET.get(param_name):
-        values = request.GET.get(param_name).split(',')
-    # Удаляем пустые строки
-    return [v for v in values if v]
 
 
 @login_required
@@ -2237,18 +1968,6 @@ def _groups_picker_json(groups=None):
 
 
 # ==================== Contact Groups ====================
-
-def _safe_next(request, fallback_view, **kwargs):
-    """Безопасный возврат к месту вызова (?next=) или fallback."""
-    from django.utils.http import url_has_allowed_host_and_scheme
-    nxt = request.POST.get('next') or request.GET.get('next')
-    if nxt and url_has_allowed_host_and_scheme(
-        nxt,
-        allowed_hosts={request.get_host()},
-        require_https=request.is_secure(),
-    ):
-        return redirect(nxt)
-    return redirect(fallback_view, **kwargs)
 
 
 @login_required

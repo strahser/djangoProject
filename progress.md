@@ -29,3 +29,4 @@
   мои файлы только добавлены, tests.py/templates не тронуты).
   Находки F2: send ест ';'; вложения без link теряются молча (file_path '');
   copy/export пишут через E_MAIL_DIRECTORY (патчится как атрибут views).
+- Блок 25 done: чистые хелперы email_ui/views.py -> services/query_service.py + services/navigation.py (views 2806->2525, тела 1:1, re-export). Тесты tests_views_b25 36/36; полный email_ui 317/317 OK (235s).
