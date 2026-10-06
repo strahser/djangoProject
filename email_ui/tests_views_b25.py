@@ -285,11 +285,15 @@ class GetListFromRequestTest(TestCase):
             _get_list_from_request(self._req('tag=1&tag=2'), 'tag'),
             ['1', '2'])
 
-    def test_comma_string_stays_single_item(self):
-        # FACT: ветка split(',') недостижима (getlist не пуст, когда get
-        # truthy) — запятая НЕ делится. Пин факта, не идеала.
+    def test_comma_string_splits(self):
+        # B5: строка с запятыми делится (докстринг так и обещал).
         self.assertEqual(
-            _get_list_from_request(self._req('tag=a,b'), 'tag'), ['a,b'])
+            _get_list_from_request(self._req('tag=a,b'), 'tag'), ['a', 'b'])
+
+    def test_mixed_multi_and_comma(self):
+        self.assertEqual(
+            _get_list_from_request(self._req('tag=1,a&tag=b,,c'), 'tag'),
+            ['1', 'a', 'b', 'c'])
 
     def test_missing_param_empty(self):
         self.assertEqual(

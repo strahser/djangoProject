@@ -84,9 +84,13 @@ def _get_list_from_request(request, param_name):
     """
     values = request.GET.getlist(param_name)
     if not values and request.GET.get(param_name):
-        values = request.GET.get(param_name).split(',')
-    # Удаляем пустые строки
-    return [v for v in values if v]
+        values = [request.GET.get(param_name)]
+    # Делим каждый элемент по запятой: одиночная строка 'a,b' и смешанные
+    # 'tag=1,a&tag=b' дают плоский список; пустые отбрасываем.
+    flat = []
+    for v in values:
+        flat.extend([p for p in str(v).split(',') if p])
+    return flat
 
 
 def _safe_next(request, fallback_view, **kwargs):

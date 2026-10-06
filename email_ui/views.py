@@ -1709,8 +1709,6 @@ def save_draft(request):
 
 @login_required
 @require_http_methods(['POST'])
-@login_required
-@require_http_methods(['POST'])
 def draft_update(request, pk):
     """Обновить существующий черновик (без отправки)."""
     draft = get_object_or_404(Email, pk=pk, folder='drafts')
