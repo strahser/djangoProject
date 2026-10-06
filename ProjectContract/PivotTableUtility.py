@@ -97,6 +97,10 @@ class PivotTableConfig:
 
     @classmethod
     def create_pivot_html_table(cls, calendar_data: pd.DataFrame) -> str:
+        # Блок 13: пустая выборка — штатная ситуация (договоры без платежей),
+        # а не ошибка: None, заглушку ставит вызывающий код.
+        if calendar_data.empty or 'payment_value' not in calendar_data.columns:
+            return None
         pivot_table = calendar_data.pivot_table(**cls.pivot_data)
         pivot_table = pivot_table.map(lambda x: humanize.intcomma(x).replace(',', ' '))
         pivot_table.columns = pivot_table.columns.map(lambda x: cls.pivot_column_names.get(x, x))
@@ -128,15 +132,17 @@ def create_payment_calendar(extra_context: dict, scale, all_contracts=None,
         pivot_html = '<p>Нет данных для сводной таблицы.</p>'
     for k, v in PivotTableConfig.pivot_column_names.items():
         pivot_html = pivot_html.replace(k, v)
+    calendar_html = PivotTableConfig.create_pivot_html_table(calendar_data)
+    schedule_html = PivotTableConfig.create_pivot_html_table(schedule_data)
     try:
-        extra_context['calendar_table'] = mark_safe(
-            PivotTableConfig.create_pivot_html_table(calendar_data))
+        extra_context['calendar_table'] = mark_safe(calendar_html) \
+            if calendar_html else '<p>Нет данных календаря.</p>'
     except Exception as e:
         logger.error(f"Ошибка таблицы календаря: {e}")
         extra_context['calendar_table'] = '<p>Нет данных календаря.</p>'
     try:
-        extra_context['schedule_table'] = mark_safe(
-            PivotTableConfig.create_pivot_html_table(schedule_data))
+        extra_context['schedule_table'] = mark_safe(schedule_html) \
+            if schedule_html else '<p>Нет данных графика платежей.</p>'
     except Exception as e:
         logger.error(f"Ошибка таблицы графика: {e}")
         extra_context['schedule_table'] = '<p>Нет данных графика платежей.</p>'
@@ -164,6 +170,33 @@ def get_contract_payments_status(contracts):
     return payments_info
 
 
+def _pivot_contract_table(df, df1, agg_fields, pivot_rows, values,
+                          _renamed_dict, extra_context):
+    """Сводная таблица договоров с итогами (только для непустых выборок)."""
+    df1 = df1.groupby('contract__id', as_index=False)[agg_fields].sum()
+    df = df.merge(df1, left_on='id', right_on='contract__id', how='left')
+    # Преобразование price и всех полей agg_fields к числовому типу перед сводной таблицей
+    for field in values:
+        df[field] = to_numeric(df[field], errors='coerce')
+    df_total = df['price'].sum()
+    # 1. Создание основной сводной таблицы с общими итогами.
+    df_pivot = df.pivot_table(index=pivot_rows,
+                              values=values,
+                              aggfunc='sum',
+                              margins=True,
+                              margins_name='Итого'
+                              )
+    df_html = (
+        df_pivot
+        .map (lambda x: humanize.intcomma(x).replace(',', ' '))
+        .rename(_renamed_dict, axis='columns')
+        .rename_axis(index=_renamed_dict)
+        .to_html(**PIVOT_HTML_PROPERTY)
+    )
+    extra_context['pivot_table'] = df_html
+    extra_context['df_total'] = df_total
+
+
 def create_calendar_list_view(request, response, extra_context):
     # Масштаб — из GET (форма PaymentInclude.html сабмитит GET). Ф2: вынести в БД.
     scale = request.GET.get('scale', 'day')
@@ -180,30 +213,19 @@ def create_calendar_list_view(request, response, extra_context):
         qs_data = list(qs.values())
         df = pd.DataFrame(qs_data)
         df1 = pd.DataFrame(list(total_payments))
-        df1 = df1.groupby('contract__id', as_index=False)[agg_fields].sum()
-        df = df.merge(df1, left_on='id', right_on='contract__id', how='left')
-        # Преобразование price и всех полей agg_fields к числовому типу перед сводной таблицей
-        for field in values:
-            df[field] = to_numeric(df[field], errors='coerce')
-        df_total = df['price'].sum()
-        # 1. Создание основной сводной таблицы с общими итогами.
-        df_pivot = df.pivot_table(index=pivot_rows,
-                                  values=values,
-                                  aggfunc='sum',
-                                  margins=True,
-                                  margins_name='Итого'
-                                  )
-        df_html = (
-            df_pivot
-            .map (lambda x: humanize.intcomma(x).replace(',', ' '))
-            .rename(_renamed_dict, axis='columns')
-            .rename_axis(index=_renamed_dict)
-            .to_html(**PIVOT_HTML_PROPERTY)
-        )
-        extra_context['pivot_table'] = df_html
-        extra_context['df_total'] = df_total
+        # Блок 13: пустые выборки (договоры без платежей) — заглушки сразу,
+        # без попытки groupby/pivot (был KeyError 'contract__id' в ERROR-лог
+        # при штатном открытии changelist).
+        if df.empty or df1.empty or 'contract__id' not in df1.columns:
+            extra_context['pivot_table'] = '<p>Нет данных для сводной таблицы.</p>'
+            extra_context['df_total'] = 0
+        else:
+            _pivot_contract_table(df, df1, agg_fields, pivot_rows, values,
+                                  _renamed_dict, extra_context)
     except Exception as e:
         logger.error(f"Ошибка Создание get_contract_payments_status  {e}")
+        extra_context.setdefault('pivot_table', '<p>Нет данных для сводной таблицы.</p>')
+        extra_context.setdefault('df_total', 0)
     payments = create_payment_calendar(extra_context, scale, qs)
     extra_context.update(payments)
     return extra_context
