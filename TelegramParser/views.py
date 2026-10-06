@@ -2,8 +2,10 @@ import sys
 import threading
 import traceback
 from django.contrib import admin, messages
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 from loguru import logger
 
 from .models import TelegramChannel, ParseLog
@@ -41,10 +43,12 @@ def _run_parse_in_thread(channel_username, log_id=None):
     return thread
 
 
+@login_required
 def fetch_channel_data(request, channel_id):
     from django.utils import timezone
 
-    channel = TelegramChannel.objects.get(pk=channel_id)
+    # Блок 20: 404 вместо 500 на битом id (было .get без обработки).
+    channel = get_object_or_404(TelegramChannel, pk=channel_id)
     log = ParseLog.objects.create(
         channel=channel, operation='api', status='running'
     )
@@ -58,9 +62,12 @@ def fetch_channel_data(request, channel_id):
         f'Обновите страницу логов через несколько секунд.'
     )
 
-    return redirect(request.META.get('HTTP_REFERER', admin.site.name))
+    # Блок 20: дефолт admin.site.name ('admin') — не URL, без referer был 500.
+    return redirect(request.META.get(
+        'HTTP_REFERER', reverse('admin:TelegramParser_telegramchannel_changelist')))
 
 
+@login_required
 def parse_status(request):
     """JSON endpoint: статус последних логов парсинга."""
     logs = ParseLog.objects.select_related('channel').order_by('-started_at')[:5]
