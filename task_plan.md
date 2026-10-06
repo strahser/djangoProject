@@ -1,3 +1,16 @@
+# Блок 28 (B2): thread-хелперы views -> services/thread_service (in progress)
+
+attach/build/list/page-heads/selection -> thread_service (публичные имена),
+views — re-export. Тесты `email_ui/tests_threads_b28.py` 6/6 до и после
+переезда без правок. Полный email_ui в фоне.
+
+# Блок 27 (B1): compose-поток views -> services/compose_flow (done, pushed d5ea3b6)
+
+views.py 2525 -> 2395 (-130): active_contacts/picker_context/_json-хелперы,
+reply_all_recipients, resolve_reply_recipients/subject, collect_attachments,
+record_draft_attachments, prepare_draft_dir. Тела 1:1. Тесты
+`email_ui/tests_compose_b27.py` 20/20; полный email_ui 340/340 OK (231s).
+
 # Блок 27 (B1): compose-поток views -> services/compose_flow (in progress)
 
 # Блок 26: B3+B5 (done, pushed 2842e24)

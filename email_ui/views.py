@@ -57,6 +57,12 @@ from .services.compose_flow import (
     reply_all_recipients as _reply_all_recipients,
     resolve_reply_recipients, resolve_subject,
 )
+from .services.thread_service import (
+    attach_thread_context as _attach_thread_context,
+    attach_thread_page_heads as _attach_thread_page_heads,
+    build_selection_threads as _build_selection_threads,
+    build_thread_list as _build_thread_list,
+)
 PER_PAGE = 50
 THREADS_PER_PAGE = 20
 
@@ -117,118 +123,6 @@ def _push_seen_to_server(email_or_emails, seen=True):
                     pass
     except Exception as e:
         logger.warning(f"IMAP push Seen: {e}")
-
-
-def _attach_thread_context(emails, head_cache=None, with_head=True):
-    """Досчитывает поля для режима цепочек: direction in/out, body_head.
-
-    Мутирует объекты (атрибуты, не колонки БД). head_cache — dict на запрос,
-    чтобы не читать один HTML-файл дважды. with_head=False — только direction
-    (дешёво, без чтения файлов: для подсчёта Вх./Исх. до пагинации).
-    """
-    from .utils import email_body_head
-    if head_cache is None:
-        head_cache = {}
-    for email in emails:
-        email.direction = (
-            'out' if (email.email_type or '').upper() == 'OUT' else 'in'
-        )
-        email.direction_label = 'Исходящее' if email.direction == 'out' else 'Входящее'
-        if with_head and not getattr(email, 'body_head', ''):
-            try:
-                email.body_head = email_body_head(email, 220, head_cache)
-            except Exception:
-                email.body_head = ''
-        elif not hasattr(email, 'body_head'):
-            email.body_head = ''
-
-
-def _build_thread_list(emails):
-    """Группирует письма в цепочки по теме (ThreadService), сортирует по свежим.
-
-    Возвращает список dict: key/subject/emails/count/in_count/out_count/earliest/latest.
-    Письма внутри — хронологически (старые сверху, как чтение переписки).
-    """
-    from .services.thread_service import ThreadService
-    threads = ThreadService.build_threads(emails)
-    out = []
-    for key, msgs in threads.items():
-        # Только direction (без чтения файлов) — головы дочитаем после пагинации.
-        _attach_thread_context(msgs, with_head=False)
-        latest = max(
-            (m.email_stamp or m.creation_stamp for m in msgs if m.email_stamp or m.creation_stamp),
-            default=None,
-        )
-        earliest = min(
-            (m.email_stamp or m.creation_stamp for m in msgs if m.email_stamp or m.creation_stamp),
-            default=None,
-        )
-        # Тема для заголовка — из самого свежего письма (сохраняет Re:/Fwd:).
-        subj_src = max(msgs, key=lambda m: (m.email_stamp or m.creation_stamp or m.id))
-        out.append({
-            'key': key,
-            'subject': (subj_src.subject or '').strip() or 'Без темы',
-            'emails': msgs,
-            'count': len(msgs),
-            'in_count': sum(1 for m in msgs if m.direction == 'in'),
-            'out_count': sum(1 for m in msgs if m.direction == 'out'),
-            'earliest': earliest,
-            'latest': latest,
-        })
-    def _thread_ts(t):
-        dt = t['latest']
-        try:
-            return dt.timestamp() if dt else float('-inf')
-        except Exception:
-            return float('-inf')
-    out.sort(key=_thread_ts, reverse=True)
-    return out
-
-
-def _attach_thread_page_heads(thread_page):
-    """Дочитывает body_head только для писем текущей страницы цепочек."""
-    head_cache = {}
-    for t in thread_page:
-        _attach_thread_context(t['emails'], head_cache, with_head=True)
-
-
-def _build_selection_threads(selected_ids):
-    """Цепочки для выбранных писем: сами письма + связанные из inbox+sent.
-
-    Связь — общий thread_id или одинаковая нормализованная тема
-    (ThreadService.normalize_subject: режутся Re:/Fwd: и т.п.).
-    Выбранные включаются всегда, даже из других папок.
-    """
-    from .services.thread_service import ThreadService
-    sel = list(Email.objects.filter(pk__in=selected_ids))
-    if not sel:
-        return []
-    norms, tids = set(), set()
-    for e in sel:
-        n = ThreadService.normalize_subject(e.subject or '')
-        if n:
-            norms.add(n)
-        tid = (e.thread_id or '').strip()
-        if tid:
-            tids.add(tid)
-    matched = {e.pk for e in sel}
-    if norms or tids:
-        rows = Email.objects.filter(folder__in=('inbox', 'sent')).values(
-            'id', 'subject', 'thread_id')
-        for r in rows:
-            rtid = (r['thread_id'] or '').strip()
-            if rtid and rtid in tids:
-                matched.add(r['id'])
-                continue
-            if norms and ThreadService.normalize_subject(r['subject'] or '') in norms:
-                matched.add(r['id'])
-    emails = list(
-        Email.objects.filter(pk__in=matched).select_related(
-            'project_site', 'contractor', 'category', 'building_type',
-        ).prefetch_related('attachments'))
-    thread_list = _build_thread_list(emails)
-    _attach_thread_page_heads(thread_list)
-    return thread_list
 
 
 @login_required
