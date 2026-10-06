@@ -16,7 +16,9 @@ from AdminUtils import get_standard_display_list
 from ProjectContract.models import Contractor
 from ProjectTDL.models import TaskNode
 from StaticData.models import Status
-from services.DataFrameRender.RenderDfFromModel import create_df_from_model, renamed_dict
+from services.DataFrameRender.RenderDfFromModel import (
+    ButtonData, HTML_DF_PROPERTY, create_df_from_model,
+    create_group_button, renamed_dict)
 from services.Downloads.ExcelDownload import df_to_excel_in_memory, result_to_excel_add_table
 import re
 
@@ -77,6 +79,27 @@ def _record_has_children(record):
         return TaskNode.objects.filter(parent_id=record.pk).exists()
     except Exception:
         return False
+
+
+def subtask_actions_html(task):
+    """HTML-таблица подзадач с кнопками для формы редактирования (блок 24).
+
+    Переезд из TaskUpdateView.get_context_data без смены поведения:
+    нет детей — пустая строка (в шаблоне falsy, как отсутствие ключа).
+    """
+    qs = task.get_children().filter(node_type='subtask')
+    if not qs:
+        return ''
+    df_initial = create_df_from_model(qs.model, qs)
+    button_data_copy = ButtonData('SubTaskCloneView', "pk", name='📄')
+    button_data_delete = ButtonData('SubTaskDeleteView', "pk", cls='danger', name='X')
+    button_data_update = ButtonData('SubTaskUpdateView', "pk")
+    df_initial['name'] = df_initial.apply(lambda x: button_data_update.create_text_link(x['id'], x['name']),
+                                          axis=1)
+    button_copy = df_initial.apply(lambda x: button_data_copy.button_link(x['id']), axis=1)
+    button_delete = df_initial.apply(lambda x: button_data_delete.button_link(x['id']), axis=1)
+    df_initial['действия'] = create_group_button([button_copy, button_delete])
+    return df_initial.rename(renamed_dict(TaskNode), axis='columns').to_html(**HTML_DF_PROPERTY)
 
 
 def order_qs_hierarchical(qs, order_fields):

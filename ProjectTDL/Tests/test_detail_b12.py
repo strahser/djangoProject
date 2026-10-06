@@ -45,3 +45,38 @@ class TaskDetailGuardsTest(TestCase):
         # Рост числа = регрессия.
         with self.assertNumQueries(12):
             self.client.get(reverse('task_detail', args=[self.parent.pk]))
+
+
+class TaskUpdateViewTest(TestCase):
+    """Блок 24: форма редактирования — таблица подзадач из хелпера."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from decimal import Decimal
+        cls.owner = User.objects.create_user(username='b24', password='pw')
+        cls.site = ProjectSite.objects.create(name='B24-Объект')
+        cls.open = Status.objects.create(pk=1, name='Открыто')
+        cls.category = Category.objects.create(pk=1, name='Проектная')
+        cls.parent = TaskNode.objects.create(
+            owner=cls.owner, project_site=cls.site, name='Правка',
+            status=cls.open, category=cls.category, price=Decimal('10'))
+
+    def setUp(self):
+        self.client.force_login(self.owner)
+
+    def test_no_children_empty_data(self):
+        resp = self.client.get(reverse('TaskUpdateView', args=[self.parent.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['data'], '')
+
+    def test_with_child_buttons_table(self):
+        TaskNode.objects.create(
+            owner=self.owner, project_site=self.site, parent=self.parent,
+            node_type='subtask', name='Дитя-правка',
+            status=self.open, category=self.category)
+        resp = self.client.get(reverse('TaskUpdateView', args=[self.parent.pk]))
+        self.assertEqual(resp.status_code, 200)
+        html = resp.context['data']
+        self.assertIn('Дитя-правка', html)
+        self.assertIn('SubTaskCloneView', html)
+        self.assertIn('SubTaskDeleteView', html)

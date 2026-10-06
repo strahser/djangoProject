@@ -17,7 +17,7 @@ from AdminUtils import get_standard_display_list
 from ProjectContract.models import Contractor
 from ProjectContract.services import log_change
 from ProjectTDL.Tables import TaskNodeTable, create_filter_qs, data_filter_qs, StaticFilterSettings, \
-    order_qs_hierarchical
+    order_qs_hierarchical, subtask_actions_html
 from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, TaskNodeQuickForm
 from ProjectTDL.models import TaskNode, UserSettings, TaskFilterState
 from ProjectTDL.reports import ReportGenerator
@@ -289,19 +289,7 @@ class TaskUpdateView(UpdateView):
         c_object = self.get_object()
         context = super(TaskUpdateView, self).get_context_data(**kwargs)
         context['i__next__'] = self.request.POST.get('__next__') or reverse('custom_task_view')
-        qs = c_object.get_children().filter(node_type='subtask')
-        if qs:
-            df_initial = create_df_from_model(qs.model, qs)
-            button_data_copy = ButtonData('SubTaskCloneView', "pk", name='📄')
-            button_data_delete = ButtonData('SubTaskDeleteView', "pk", cls='danger', name='X')
-            button_data_update = ButtonData('SubTaskUpdateView', "pk")
-            df_initial['name'] = df_initial.apply(lambda x: button_data_update.create_text_link(x['id'], x['name']),
-                                                  axis=1)
-            button_copy = df_initial.apply(lambda x: button_data_copy.button_link(x['id']), axis=1)
-            button_delete = df_initial.apply(lambda x: button_data_delete.button_link(x['id']), axis=1)
-            df_initial['действия'] = create_group_button([button_copy, button_delete])
-            data = df_initial.rename(renamed_dict(TaskNode), axis='columns').to_html(**HTML_DF_PROPERTY)
-            context['data'] = data
+        context['data'] = subtask_actions_html(c_object)
         return context
 @require_POST
 def update_task_field(request):
