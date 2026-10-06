@@ -34,3 +34,4 @@
 - Блок 28 done (B2): thread-хелперы views->services/thread_service (views 2395->2289, тела 1:1, re-export). Тесты tests_threads_b28 6/6; полный email_ui 346/346 OK (226s).
 - Блок 29 done (B7): фазы custom_task_view views->services/task_view (views 965->834, тела 1:1; filter_tasks_ajax тоже на фазе 3). Тесты test_task_view_b29 12/12; ProjectTDL 124/124 OK, check clean.
 - Блок 30 done (B6+B8): Seen-синхронизация views->services/seen_sync + push_seen_async в daemon-потоке (5 точек вызова); гард tests_filter_fanout_b30 (tags+attachments без дублей). Тесты tests_seen_b30 5/5; полный email_ui 351/351 OK (247s).
+- Блок 31 done (B4): 7 modal create/edit -> _save_modal_form (views, без магии фабрик; contact_create с 2 формами оставлен). Полный email_ui 353/353 OK (245s).
