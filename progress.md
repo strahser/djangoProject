@@ -37,3 +37,4 @@
 - Блок 31 done (B4): 7 modal create/edit -> _save_modal_form (views, без магии фабрик; contact_create с 2 формами оставлен). Полный email_ui 353/353 OK (245s).
 - ФИНАЛ B1-B8: полный прогон всех приложений 689/689 OK (333s). Все 8 предложений закрыты, каждый блок запушен.
 - Блок 32 done (стабилизация БД): WAL+busy_timeout через connection_created; составные индексы (folder,email_stamp)/(folder,is_read) + миграция 0010; гарды бэкапа (backup/cleanup/ротация). Тесты 8/8.
+- Блок 33 done (прод-хостинг): waitress==3.0.2 в requirements + serve_waitress.bat (django.bat с правками владельца не тронут); /healthz/ проба с проверкой БД. Тест 1/1.
