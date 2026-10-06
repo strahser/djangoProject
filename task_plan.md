@@ -1,3 +1,12 @@
+# Блок 27 (B1): compose-поток views -> services/compose_flow (in progress)
+
+# Блок 26: B3+B5 (done, pushed 2842e24)
+
+B3: дубль декоратора draft_update снят (auth-гард в tests_fixes_b26).
+B5: _get_list_from_request делит запятые (докстринг так обещал):
+'tag=a,b' -> ['a','b'], смешанные 'tag=1,a&tag=b,,c' плоско. Тесты B25
+обновлены. Проверка: 41/41 OK (b25+b26+DraftUpdateViewTest).
+
 # Блок 25: чистые хелперы email_ui/views -> services (done)
 
 views.py 2806 -> 2525 (-281): токены/Q/filter_emails ->

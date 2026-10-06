@@ -48,6 +48,15 @@ from .services.query_service import (
     _q_token_anywhere, _query_tokens, _split_tokens, _token_addresses,
     filter_emails,
 )
+from .services.compose_flow import (
+    active_contacts, collect_reply_attachments,
+    contacts_picker_json as _contacts_picker_json,
+    current_user_email,
+    groups_picker_json as _groups_picker_json,
+    prepare_draft_dir, record_draft_attachments,
+    reply_all_recipients as _reply_all_recipients,
+    resolve_reply_recipients, resolve_subject,
+)
 PER_PAGE = 50
 THREADS_PER_PAGE = 20
 
@@ -108,26 +117,6 @@ def _push_seen_to_server(email_or_emails, seen=True):
                     pass
     except Exception as e:
         logger.warning(f"IMAP push Seen: {e}")
-
-
-def _contacts_picker_json(contacts):
-    """Единый источник данных пикера контактов: список [{n: имя, e: email}].
-
-    Возвращает Python-список — сериализует шаблонный фильтр json_script.
-    """
-    from .utils import canonical_email
-    out, seen = [], set()
-    for c in contacts:
-        try:
-            primary = c.primary_email
-            raw = (primary.email if primary else '').strip()
-        except Exception:
-            raw = ''
-        addr = canonical_email(raw) or raw
-        if addr and addr.lower() not in seen:
-            seen.add(addr.lower())
-            out.append({'n': c.name or '', 'e': addr})
-    return out
 
 
 def _attach_thread_context(emails, head_cache=None, with_head=True):
@@ -1165,57 +1154,13 @@ def open_attachment_folder(request, pk):
         return JsonResponse({'success': False, 'error': str(e)})
 
 
-def _reply_all_recipients(email, user_email=''):
-    """To/Cc для «Ответить всем» по исходному письму.
-
-    Единая логика для префилла модалки и fallback отправки:
-    To — явный адрес отправителя; Cc — явные адреса из To/Cc
-    минус отправитель, свои адреса (пользователь, YA_USER,
-    аккаунт письма, все активные SMTP). Возвращает (to, cc, missing),
-    где missing — entries без явного email (не подменяются контактами).
-    """
-    sender_email = resolve_sender_to_email(email.sender or '')
-    excluded = set()
-    if sender_email:
-        excluded.add(sender_email.lower())
-    if user_email:
-        excluded.add(user_email.lower())
-    from django.conf import settings
-    ya_user = getattr(settings, 'YA_USER', '') or ''
-    if ya_user:
-        excluded.add(ya_user.lower())
-    if email.smtp_account and email.smtp_account.from_email:
-        excluded.add(email.smtp_account.from_email.lower())
-    from email_ui.models import SMTPAccount
-    for acc in SMTPAccount.objects.filter(is_active=True):
-        if acc.from_email:
-            excluded.add(acc.from_email.lower())
-    cc_set, missing = set(), []
-    for raw_field in (email.receiver, email.cc):
-        if not raw_field:
-            continue
-        for entry in raw_field.split(','):
-            entry = entry.strip()
-            if not entry:
-                continue
-            addr = extract_email_address(entry)
-            if not addr:
-                # Явный email отсутствует - не подменяем контактом, фиксируем пропуск.
-                missing.append(entry)
-                continue
-            if addr.lower() in excluded:
-                continue
-            cc_set.add(addr)
-    return sender_email, ', '.join(sorted(cc_set)), missing
-
-
 # ==================== Phase 2: Compose & Send ====================
 
 @login_required
 def compose_modal(request):
     """Редактор для создания нового письма."""
     form = ComposeEmailForm()
-    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
+    contacts = active_contacts()
     return render(request, 'email_ui/partials/compose_modal.html', {
         'form': form,
         'mode': 'compose',
@@ -1254,7 +1199,7 @@ def reply_modal(request, pk, reply_type='reply'):
     to_addr = ''
     cc_addr = ''
     resolve_errors = []
-    user_email = (request.user.email or '').lower() if request.user and hasattr(request.user, 'email') else ''
+    user_email = current_user_email(request)
 
     if reply_type == 'reply':
         # Адрес получателя извлекается ТОЛЬКО явно из поля From.
@@ -1282,7 +1227,7 @@ def reply_modal(request, pk, reply_type='reply'):
     elif reply_type == 'forward':
         to_addr = ''
 
-    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
+    contacts = active_contacts()
     # Для reply/reply_all/forward: передаём вложения оригинального письма
     forward_attachments = list(email.attachments.all()) if reply_type in ('reply', 'reply_all', 'forward') else []
 
@@ -1308,7 +1253,7 @@ def reply_modal(request, pk, reply_type='reply'):
 @require_http_methods(['POST'])
 def send_email(request):
     """Отправка письма (AJAX)."""
-    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
+    contacts = active_contacts()
     form = ComposeEmailForm(request.POST, request.FILES)
     if not form.is_valid():
         logger.warning(f'send_email form errors: {form.errors}')
@@ -1391,7 +1336,7 @@ def reply_send(request, pk):
 
     email = get_object_or_404(Email, pk=pk)
     mode = request.POST.get('mode', 'reply')
-    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
+    contacts = active_contacts()
     form = ComposeReplyForm(request.POST)
     if not form.is_valid():
         return render(request, 'email_ui/partials/compose_modal.html', {
@@ -1404,28 +1349,10 @@ def reply_send(request, pk):
     cd = form.cleaned_data
     body = cd.get('body', '')
 
-    # Формируем получателей
-    to_raw = cd.get('to', '')
-    if not to_raw and mode in ('reply', 'reply_all'):
-        # Адрес извлекается ТОЛЬКО явно из поля From. Нечёткий поиск запрещён.
-        to_raw = resolve_sender_to_email(email.sender or '')
-    to_list = extract_all_email_addresses(to_raw)
-
-    cc_raw = cd.get('cc', '')
-    if not cc_raw and mode == 'reply_all':
-        # Тот же расчёт, что префилл модалки: с исключениями себя/отправителя/ящиков.
-        sender_user_email = (
-            (request.user.email or '').lower()
-            if request.user and hasattr(request.user, 'email') else ''
-        )
-        _, cc_raw, _ = _reply_all_recipients(email, sender_user_email)
-    cc_list = extract_all_email_addresses(cc_raw)
-
-    # БЕЗОПАСНОСТЬ: адрес получателя обязателен и должен быть действительным.
-    # Отсекаем любые невалидные адреса (защита от случайной подстановки).
-    from .utils import _EMAIL_STANDALONE_RE
-    to_list = [a for a in to_list if _EMAIL_STANDALONE_RE.match(a)]
-    cc_list = [a for a in cc_list if _EMAIL_STANDALONE_RE.match(a)]
+    # Формируем получателей (фолбэки + чистка — в compose_flow).
+    to_list, cc_list = resolve_reply_recipients(
+        email, cd.get('to', ''), cd.get('cc', ''), mode,
+        current_user_email(request))
     if not to_list:
         return render(request, 'email_ui/partials/compose_modal.html', {
             'form': form, 'email': email, 'mode': mode, 'contacts': contacts,
@@ -1435,28 +1362,16 @@ def reply_send(request, pk):
                      'Укажите адрес вручную перед отправкой ответа.',
         }, status=400)
 
-    subject = cd.get('subject', '')
-    if not subject:
-        if mode == 'forward':
-            subject = f'Fwd: {email.subject}' if email.subject else 'Fwd:'
-        else:
-            subject = f'Re: {email.subject}' if email.subject else 'Re:'
+    subject = resolve_subject(email.subject, cd.get('subject', ''), mode)
 
     # Collect excluded attachment IDs from form
     excluded_ids = compose.parse_excluded_ids(request.POST)
 
     # Determine which attachments to forward
     include_attachments = cd.get('include_attachments', False) or mode == 'forward'
-    attachment_objs = []
-    if include_attachments:
-        for att in email.attachments.all():
-            if att.pk in excluded_ids:
-                continue
-            attachment_objs.append(att)
-
-    # Include newly uploaded files
-    for f in request.FILES.getlist('attachment_files'):
-        attachment_objs.append(f)
+    attachment_objs = collect_reply_attachments(
+        email, include_attachments, excluded_ids,
+        request.FILES.getlist('attachment_files'))
 
     try:
         sender = EmailSenderService()
@@ -1514,7 +1429,7 @@ def draft_edit(request, pk):
     if not body_text:
         body_text = email.body_text or ''
 
-    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
+    contacts = active_contacts()
 
     context = {
         'form': ComposeEmailForm(initial={
@@ -1547,7 +1462,7 @@ def draft_send(request, pk):
     from email_ui.services import compose_service as compose
 
     draft = get_object_or_404(Email, pk=pk, folder='drafts')
-    contacts = Contact.objects.filter(is_active=True).prefetch_related('emails')
+    contacts = active_contacts()
     form = ComposeEmailForm(request.POST, request.FILES)
 
     if not form.is_valid():
@@ -1602,12 +1517,8 @@ def draft_send(request, pk):
         # Собираем вложения: черновика (не удалённые) + новые загруженные
         excluded_ids = compose.parse_excluded_ids(request.POST)
 
-        attachment_objs = []
-        for att in draft.attachments.all():
-            if att.pk not in excluded_ids:
-                attachment_objs.append(att)
-        for f in uploaded_files:
-            attachment_objs.append(f)
+        attachment_objs = collect_reply_attachments(
+            draft, True, excluded_ids, uploaded_files)
 
         result = sender.send_via_smtp(
             to_emails=to_list,
@@ -1625,19 +1536,7 @@ def draft_send(request, pk):
                 cc_list=cc_list, bcc_list=bcc_list)
 
             # Сохраняем вложения отправленного письма в БД
-            for att in attachment_objs:
-                if hasattr(att, 'pk') and att.pk:
-                    # Это существующий Attachment из черновика — копируем запись
-                    Attachment.objects.create(
-                        email=email_obj,
-                        filename=att.filename,
-                        file_path=att.file_path,
-                        size=att.size,
-                        content_type=att.content_type,
-                    )
-                else:
-                    # Это новый загруженный файл
-                    compose.persist_uploaded_files(email_obj, [att])
+            record_draft_attachments(email_obj, attachment_objs)
 
             # Удаляем черновик
             draft.delete()
@@ -1672,25 +1571,7 @@ def save_draft(request):
     subject_val = request.POST.get('subject', '')
     body_val = request.POST.get('body', '')
 
-    from django.conf import settings
-
-    # Создаём директорию черновиков
-    draft_dir = os.path.join(settings.DRAFT_DIRECTORY)
-    os.makedirs(draft_dir, exist_ok=True)
-
-    # Создаём уникальную поддиректорию для письма
-    from datetime import datetime
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    subject_clean = subject_val[:50] if subject_val else 'no_subject'
-    safe_subject = ''.join(c if c.isalnum() or c in ' -_.,()' else '_' for c in subject_clean).strip()
-    email_dir = os.path.join(draft_dir, f'{ts}_{safe_subject}')
-    os.makedirs(email_dir, exist_ok=True)
-
-    # Сохраняем HTML тело
-    if body_val:
-        body_path = os.path.join(email_dir, f'{safe_subject}.html')
-        with open(body_path, 'w', encoding='utf-8') as f:
-            f.write(body_val)
+    email_dir = prepare_draft_dir(subject_val, body_val)
 
     Email.objects.create(
         email_type='OUT',
@@ -1954,15 +1835,6 @@ def contact_search(request):
             'company': c.company.name if c.company else '',
         })
     return JsonResponse(data, safe=False)
-
-
-def _groups_picker_json(groups=None):
-    """Группы для пикера: [{n: название, e: [твёрдые почты плоско]}]."""
-    if groups is None:
-        groups = ContactGroup.objects.filter(is_active=True).prefetch_related(
-            'contacts__emails', 'subgroups',
-        )
-    return [{'n': g.name, 'e': g.all_emails()} for g in groups]
 
 
 # ==================== Contact Groups ====================
