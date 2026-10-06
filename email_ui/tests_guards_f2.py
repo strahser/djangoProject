@@ -236,6 +236,51 @@ class ComposeServiceTest(TestCase):
         self.assertEqual(row.size, 3)
 
 
+class FetchGuardsTest(TestCase):
+    """Получение почты: мусор и падение IMAP не дают 500 (баг 2026-10-06)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='f2_fetch', password='pw')
+
+    def setUp(self):
+        self.client.force_login(self.user)
+        _parser_mock = patch('email_ui.views.ParsingImapEmailToDB')
+        self.mock_parser_cls = _parser_mock.start()
+        self.addCleanup(_parser_mock.stop)
+        inst = self.mock_parser_cls.return_value
+        inst.create_action_list = []
+        inst.skip_action_list = []
+        inst.error_list = []
+
+    def _post(self, **over):
+        data = {'mail_count': '1'}
+        data.update(over)
+        return self.client.post(reverse('email_ui:fetch_emails'), data)
+
+    def test_garbage_count_falls_back_to_default(self):
+        resp = self._post(mail_count='мусор')
+        self.assertEqual(resp.status_code, 302)
+        self.mock_parser_cls.return_value.main.assert_called()
+        _, kwargs = self.mock_parser_cls.return_value.main.call_args
+        self.assertEqual(kwargs.get('limit'), 10)
+
+    def test_huge_count_clamped(self):
+        resp = self._post(mail_count='999999')
+        self.assertEqual(resp.status_code, 302)
+        _, kwargs = self.mock_parser_cls.return_value.main.call_args
+        self.assertEqual(kwargs.get('limit'), 500)
+
+    def test_folder_crash_becomes_warning(self):
+        self.mock_parser_cls.return_value.main.side_effect = ConnectionError('BYE')
+        resp = self.client.post(reverse('email_ui:fetch_emails'), {'mail_count': '1'})
+        self.assertEqual(resp.status_code, 302)
+        page = self.client.get(resp.get('Location'), follow=True)
+        self.assertEqual(page.status_code, 200)
+        msgs = [str(m) for m in page.context['messages']]
+        self.assertTrue(any('BYE' in m for m in msgs))
+
+
 class ExportGuardsTest(RefMixin, TestCase):
     @classmethod
     def setUpTestData(cls):

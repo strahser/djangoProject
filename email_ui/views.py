@@ -1348,8 +1348,13 @@ def fetch_emails(request):
     Запускает процесс получения почты через IMAP.
     После завершения редиректит обратно на страницу, с которой пришёл запрос.
     """
-    # Количество писем для загрузки (по умолчанию 10)
-    email_limit = int(request.POST.get('mail_count', 10))
+    # Количество писем для загрузки (по умолчанию 10). Мусор в поле —
+    # дефолт, а не 500 (было int() без валидации).
+    try:
+        email_limit = int(request.POST.get('mail_count', 10))
+    except (ValueError, TypeError):
+        email_limit = 10
+    email_limit = min(max(email_limit, 1), 500)
 
     # Соответствие папок IMAP и внутренних типов
     initial_folder_list = {
@@ -1366,8 +1371,15 @@ def fetch_emails(request):
 
     for folder, folder_db_name in initial_folder_list.items():
         root_path = os.path.join(directory, folder)
-        parser = ParsingImapEmailToDB(root_path)
-        parser.main(folder_db_name, folder, limit=email_limit)
+        try:
+            parser = ParsingImapEmailToDB(root_path)
+            parser.main(folder_db_name, folder, limit=email_limit)
+        except Exception as e:
+            # Падение одной папки (обрыв IMAP, нет папки на сервере) не
+            # роняет вторую: факт — в error_list, пользователь видит warning.
+            logger.exception(f'IMAP ({folder}): получение не удалось: {e}')
+            error_list.append(f'{folder}: {e}')
+            continue
         actions_list.append(parser.create_action_list)
         scip_list.append(parser.skip_action_list)
         error_list.extend(parser.error_list)
