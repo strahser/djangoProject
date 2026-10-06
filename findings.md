@@ -1,13 +1,19 @@
 # findings — Блок 1
 
-## Решения владельца (ожидают вердикта, не трогать без команды)
-1. SECRET_KEY в истории git — ротация через DJANGO_SECRET_KEY (разлогинит всех).
-2. Неизвестное условие email-правила игнорируется (= правило срабатывает всегда).
-3. Двойной журнал ContractAdmin save/delete vs API log_change — зафиксировано как факт.
-4. PaymentTaskLink.clean обходится через bulk_create (переплата без ошибки) — факт.
-5. Вложения писем без link теряются молча (file_path='') — факт.
-6. SQLite LIKE регистронезависим только для ASCII (кириллический поиск чувствителен).
-7. test_filter_panel_opens_when_filters_active падает (чужие незакоммиченные правки шаблонов).
+## Решения владельца — выполнено (pushed f014d7e), кроме п.1
+1. SECRET_KEY — НЕ НУЖНО (пропущено по команде).
+2. DONE: неизвестное условие правила — fail-closed.
+3. Двойной журнал ContractAdmin — проверено: дубля нет (сигналы журнала
+   по договорам отсутствуют; save/delete пишут по одной записи — гарды B7).
+   Отдельного фикса не требует.
+4. DONE: bulk_create привязок валидирует clean (люк skip_validation).
+5. DONE: вложения без link — fallback sent/<id>.
+6. DONE: кириллический поиск — casefold-добор.
+7. DONE: filter_panel — функция восстановлена (авто-открытие модалки).
+
+## Внимание (не моё, требует взгляда)
+- makemigrations --check: незафиксированное изменение DocRegistry
+  (0015 alter change_descr) — из твоих незакоммиченных правок моделей.
 
 ## Инфра
 - БД: `DB_DIR = <parent>/djangoProjectDB`, `DATABASES.default.NAME = djangoProjectDB/db.sqlite3` (`djangoProject/settings.py:181-186`). Локальный `db.sqlite3` (0 байт) не используется.
