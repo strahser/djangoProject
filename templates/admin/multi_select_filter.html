@@ -1,0 +1,38 @@
+{% load i18n %}
+<details data-filter-title="{{ title }}" open>
+  <summary>{{ title }}</summary>
+  <ul class="multi-select-filter" data-param="{{ spec.parameter_name }}">
+    {% for choice in choices %}
+      {% if choice.is_all %}
+        <li{% if choice.selected %} class="selected"{% endif %}>
+          <a href="{{ choice.query_string|iriencode }}">{% translate 'All' %}</a>
+        </li>
+      {% else %}
+        <li>
+          <label>
+            <input type="checkbox" value="{{ choice.value }}"{% if choice.selected %} checked{% endif %}>
+            {{ choice.display }}
+          </label>
+        </li>
+      {% endif %}
+    {% endfor %}
+  </ul>
+</details>
+<script>
+(function() {
+  if (window.__multiSelectFilterInit) return;
+  window.__multiSelectFilterInit = true;
+  document.addEventListener('change', function(e) {
+    var box = e.target;
+    if (!box.matches || !box.matches('.multi-select-filter input[type=checkbox]')) return;
+    var ul = box.closest('.multi-select-filter');
+    var param = ul.getAttribute('data-param');
+    var sp = new URLSearchParams(window.location.search);
+    sp.delete(param);
+    ul.querySelectorAll('input[type=checkbox]:checked').forEach(function(cb) {
+      sp.append(param, cb.value);
+    });
+    window.location.search = sp.toString();
+  });
+})();
+</script>

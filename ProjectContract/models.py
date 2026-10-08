@@ -638,7 +638,16 @@ class EstimateConcept(BaseModel):
         return f'{self.name} ({self.amount})'
 
     def save(self, *args, **kwargs):
-        if self.quantity is not None and self.unit_price is not None:
+        # Сумму пересчитываем только если менялись объём/цена (поля скрыты из
+        # админки — прямое редактирование суммы не должно затираться).
+        recompute = True
+        if self.pk:
+            orig = EstimateConcept.objects.filter(pk=self.pk).values(
+                'quantity', 'unit_price').first()
+            if orig is not None:
+                recompute = (orig['quantity'] != self.quantity
+                             or orig['unit_price'] != self.unit_price)
+        if recompute and self.quantity is not None and self.unit_price is not None:
             self.amount = Decimal(self.quantity) * Decimal(self.unit_price)
         super().save(*args, **kwargs)
         if self.estimate_id:

@@ -477,101 +477,116 @@ class PaymentTaskLinkAdmin(admin.ModelAdmin):
 class EstimateConceptInline(admin.TabularInline):
     model = EstimateConcept
     extra = 0
-    fields = ('name', 'building_number', 'design_chapter', 'unit', 'quantity', 'unit_price', 'amount', 'task_node')
-    readonly_fields = ('amount',)
+    fields = ('name', 'building_number', 'design_chapter', 'amount', 'task_node')
     autocomplete_fields = ('task_node',)
     autocomplete_fields = ('task_node',)
 
 
-class EstimateContractorFilter(admin.SimpleListFilter):
+class MultiSelectFilterMixin:
+    """Мультиселект для SimpleListFilter: ?contract=73&contract=74.
+
+    Значения берутся из request.GET.getlist, в шаблоне — чекбоксы
+    (templates/admin/multi_select_filter.html).
+    """
+    template = 'admin/multi_select_filter.html'
+    lookup_arg = None  # например 'estimate__contract__in'
+
+    def value(self):
+        return [v for v in self.request.GET.getlist(self.parameter_name) if v]
+
+    def queryset(self, request, queryset):
+        vals = self.value()
+        if vals:
+            return queryset.filter(**{self.lookup_arg: vals})
+        return queryset
+
+    def choices(self, changelist):
+        vals = set(self.value())
+        yield {
+            'selected': not vals,
+            'query_string': changelist.get_query_string(remove=[self.parameter_name]),
+            'display': _('Все'),
+            'value': '',
+            'is_all': True,
+        }
+        for lookup, title in self.lookup_choices:
+            yield {
+                'selected': str(lookup) in vals,
+                'value': lookup,
+                'display': title,
+                'is_all': False,
+            }
+
+
+class EstimateContractorFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
     """Подрядчик -> сужает договоры и сметы (каскад)."""
-    title = _('Contractor')
+    title = 'Подрядчик'
     parameter_name = 'contractor'
+    lookup_arg = 'contract__contractor__in'
 
     def lookups(self, request, model_admin):
         ids = ContractEstimate.objects.values_list('contract__contractor', flat=True).distinct()
         contractors = Contractor.objects.filter(id__in=ids).order_by('name')
         return [(str(c.id), str(c)) for c in contractors]
 
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(contract__contractor=self.value())
-        return queryset
 
-
-class EstimateContractFilter(admin.SimpleListFilter):
+class EstimateContractFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
     """Договор (только выбранного подрядчика)."""
-    title = _('Contract')
+    title = 'Договор'
     parameter_name = 'contract'
+    lookup_arg = 'contract__in'
 
     def lookups(self, request, model_admin):
         contracts = Contract.objects.all().order_by('name')
-        contractor = request.GET.get('contractor')
-        if contractor:
-            contracts = contracts.filter(contractor=contractor)
+        contractors = [v for v in request.GET.getlist('contractor') if v]
+        if contractors:
+            contracts = contracts.filter(contractor__in=contractors)
         contracts = contracts.filter(estimates__isnull=False).distinct()
         return [(str(c.id), str(c)) for c in contracts]
 
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(contract=self.value())
-        return queryset
 
-
-class ConceptContractorFilter(admin.SimpleListFilter):
+class ConceptContractorFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
     """Подрядчик -> сужает договоры и сметы (каскад)."""
-    title = _('Contractor')
+    title = 'Подрядчик'
     parameter_name = 'contractor'
+    lookup_arg = 'estimate__contract__contractor__in'
 
     def lookups(self, request, model_admin):
         ids = EstimateConcept.objects.values_list('estimate__contract__contractor', flat=True).distinct()
         contractors = Contractor.objects.filter(id__in=ids).order_by('name')
         return [(str(c.id), str(c)) for c in contractors]
 
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(estimate__contract__contractor=self.value())
-        return queryset
 
-
-class ConceptContractFilter(admin.SimpleListFilter):
+class ConceptContractFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
     """Договор (только выбранного подрядчика)."""
-    title = _('Contract')
+    title = 'Договор'
     parameter_name = 'contract'
+    lookup_arg = 'estimate__contract__in'
 
     def lookups(self, request, model_admin):
         contracts = Contract.objects.all().order_by('name')
-        contractor = request.GET.get('contractor')
-        if contractor:
-            contracts = contracts.filter(contractor=contractor)
+        contractors = [v for v in request.GET.getlist('contractor') if v]
+        if contractors:
+            contracts = contracts.filter(contractor__in=contractors)
         contracts = contracts.filter(estimates__concepts__isnull=False).distinct()
         return [(str(c.id), str(c)) for c in contracts]
 
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(estimate__contract=self.value())
-        return queryset
 
-
-class ConceptEstimateFilter(admin.SimpleListFilter):
+class ConceptEstimateFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
     """Смета (только выбранного договора/подрядчика)."""
-    title = _('Estimate')
+    title = 'Смета'
     parameter_name = 'estimate'
+    lookup_arg = 'estimate__in'
 
     def lookups(self, request, model_admin):
         estimates = ContractEstimate.objects.all().order_by('name')
-        contractor = request.GET.get('contractor')
-        contract = request.GET.get('contract')
-        if contractor:
-            estimates = estimates.filter(contract__contractor=contractor)
-        if contract:
-            estimates = estimates.filter(contract=contract)
+        contractors = [v for v in request.GET.getlist('contractor') if v]
+        contracts = [v for v in request.GET.getlist('contract') if v]
+        if contractors:
+            estimates = estimates.filter(contract__contractor__in=contractors)
+        if contracts:
+            estimates = estimates.filter(contract__in=contracts)
         return [(str(e.id), f'{e.name} ({e.contract})') for e in estimates]
-
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(estimate=self.value())
-        return queryset
 
 
 @admin.register(ContractEstimate)
@@ -605,9 +620,9 @@ class ContractEstimateAdmin(admin.ModelAdmin):
 
 @admin.register(EstimateConcept)
 class EstimateConceptAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'building_number', 'design_chapter', 'estimate', 'unit', 'quantity', 'unit_price', 'amount', 'task_node']
+    list_display = ['id', 'name', 'building_number', 'design_chapter', 'estimate', 'amount', 'task_node']
     list_filter = ['estimate__status', ConceptContractorFilter, ConceptContractFilter, ConceptEstimateFilter, 'building_number', 'design_chapter']
     search_fields = ['name', 'estimate__name', 'task_node__name']
+    fields = ['name', 'building_number', 'design_chapter', 'estimate', 'amount', 'task_node']
     autocomplete_fields = ('estimate', 'task_node')
-    readonly_fields = ('amount',)
     list_per_page = 20
