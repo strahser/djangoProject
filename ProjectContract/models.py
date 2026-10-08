@@ -600,6 +600,20 @@ class EstimateConcept(BaseModel):
         verbose_name='Смета',
     )
     name = models.CharField(max_length=200, verbose_name='Наименование')
+    building_number = models.ForeignKey(
+        'StaticData.BuildingNumber',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='estimate_concepts',
+        verbose_name='Здание',
+    )
+    design_chapter = models.ForeignKey(
+        'StaticData.DesignChapter',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='estimate_concepts',
+        verbose_name='Раздел',
+    )
     unit = models.CharField(max_length=50, null=True, blank=True, verbose_name='Ед. изм.')
     quantity = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True,
                                    verbose_name='Объём')

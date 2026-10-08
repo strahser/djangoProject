@@ -477,19 +477,115 @@ class PaymentTaskLinkAdmin(admin.ModelAdmin):
 class EstimateConceptInline(admin.TabularInline):
     model = EstimateConcept
     extra = 0
-    fields = ('name', 'unit', 'quantity', 'unit_price', 'amount', 'task_node')
+    fields = ('name', 'building_number', 'design_chapter', 'unit', 'quantity', 'unit_price', 'amount', 'task_node')
     readonly_fields = ('amount',)
     autocomplete_fields = ('task_node',)
+    autocomplete_fields = ('task_node',)
+
+
+class EstimateContractorFilter(admin.SimpleListFilter):
+    """Подрядчик -> сужает договоры и сметы (каскад)."""
+    title = _('Contractor')
+    parameter_name = 'contractor'
+
+    def lookups(self, request, model_admin):
+        ids = ContractEstimate.objects.values_list('contract__contractor', flat=True).distinct()
+        contractors = Contractor.objects.filter(id__in=ids).order_by('name')
+        return [(str(c.id), str(c)) for c in contractors]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(contract__contractor=self.value())
+        return queryset
+
+
+class EstimateContractFilter(admin.SimpleListFilter):
+    """Договор (только выбранного подрядчика)."""
+    title = _('Contract')
+    parameter_name = 'contract'
+
+    def lookups(self, request, model_admin):
+        contracts = Contract.objects.all().order_by('name')
+        contractor = request.GET.get('contractor')
+        if contractor:
+            contracts = contracts.filter(contractor=contractor)
+        contracts = contracts.filter(estimates__isnull=False).distinct()
+        return [(str(c.id), str(c)) for c in contracts]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(contract=self.value())
+        return queryset
+
+
+class ConceptContractorFilter(admin.SimpleListFilter):
+    """Подрядчик -> сужает договоры и сметы (каскад)."""
+    title = _('Contractor')
+    parameter_name = 'contractor'
+
+    def lookups(self, request, model_admin):
+        ids = EstimateConcept.objects.values_list('estimate__contract__contractor', flat=True).distinct()
+        contractors = Contractor.objects.filter(id__in=ids).order_by('name')
+        return [(str(c.id), str(c)) for c in contractors]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(estimate__contract__contractor=self.value())
+        return queryset
+
+
+class ConceptContractFilter(admin.SimpleListFilter):
+    """Договор (только выбранного подрядчика)."""
+    title = _('Contract')
+    parameter_name = 'contract'
+
+    def lookups(self, request, model_admin):
+        contracts = Contract.objects.all().order_by('name')
+        contractor = request.GET.get('contractor')
+        if contractor:
+            contracts = contracts.filter(contractor=contractor)
+        contracts = contracts.filter(estimates__concepts__isnull=False).distinct()
+        return [(str(c.id), str(c)) for c in contracts]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(estimate__contract=self.value())
+        return queryset
+
+
+class ConceptEstimateFilter(admin.SimpleListFilter):
+    """Смета (только выбранного договора/подрядчика)."""
+    title = _('Estimate')
+    parameter_name = 'estimate'
+
+    def lookups(self, request, model_admin):
+        estimates = ContractEstimate.objects.all().order_by('name')
+        contractor = request.GET.get('contractor')
+        contract = request.GET.get('contract')
+        if contractor:
+            estimates = estimates.filter(contract__contractor=contractor)
+        if contract:
+            estimates = estimates.filter(contract=contract)
+        return [(str(e.id), f'{e.name} ({e.contract})') for e in estimates]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(estimate=self.value())
+        return queryset
 
 
 @admin.register(ContractEstimate)
 class ContractEstimateAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'contract', 'status', 'total_amount', 'is_overrun_flag']
-    list_filter = ['status', 'contract']
+    list_display = ['id', 'name', 'contract', 'contractor_name', 'status', 'total_amount', 'is_overrun_flag']
+    list_filter = ['status', EstimateContractorFilter, EstimateContractFilter]
     search_fields = ['name', 'contract__name', 'contract__number']
     inlines = (EstimateConceptInline,)
     actions = ('rollup_estimates', 'approve_estimates')
     list_per_page = 20
+
+    @admin.display(description='Подрядчик', ordering='contract__contractor')
+    def contractor_name(self, obj):
+        return obj.contract.contractor if obj.contract else None
 
     @admin.display(boolean=True, description='Перерасход')
     def is_overrun_flag(self, obj):
@@ -509,8 +605,8 @@ class ContractEstimateAdmin(admin.ModelAdmin):
 
 @admin.register(EstimateConcept)
 class EstimateConceptAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'estimate', 'unit', 'quantity', 'unit_price', 'amount', 'task_node']
-    list_filter = ['estimate__contract', 'estimate__status']
+    list_display = ['id', 'name', 'building_number', 'design_chapter', 'estimate', 'unit', 'quantity', 'unit_price', 'amount', 'task_node']
+    list_filter = ['estimate__status', ConceptContractorFilter, ConceptContractFilter, ConceptEstimateFilter, 'building_number', 'design_chapter']
     search_fields = ['name', 'estimate__name', 'task_node__name']
     autocomplete_fields = ('estimate', 'task_node')
     readonly_fields = ('amount',)
