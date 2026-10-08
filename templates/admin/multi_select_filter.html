@@ -1,38 +1,56 @@
 {% load i18n %}
 <details data-filter-title="{{ title }}" open>
   <summary>{{ title }}</summary>
-  <ul class="multi-select-filter" data-param="{{ spec.parameter_name }}">
-    {% for choice in choices %}
-      {% if choice.is_all %}
-        <li{% if choice.selected %} class="selected"{% endif %}>
-          <a href="{{ choice.query_string|iriencode }}">{% translate 'All' %}</a>
-        </li>
-      {% else %}
-        <li>
-          <label>
-            <input type="checkbox" value="{{ choice.value }}"{% if choice.selected %} checked{% endif %}>
-            {{ choice.display }}
-          </label>
-        </li>
-      {% endif %}
-    {% endfor %}
-  </ul>
+  <div class="multi-select-combo-wrap" data-param="{{ spec.parameter_name }}">
+    <select multiple class="multi-select-combo" style="width:100%;">
+      {% for choice in choices %}
+        {% if not choice.is_all %}
+          <option value="{{ choice.value }}"{% if choice.selected %} selected{% endif %}>{{ choice.display }}</option>
+        {% endif %}
+      {% endfor %}
+    </select>
+    <div style="margin-top:4px;">
+      <a href="{{ choices.0.query_string|iriencode }}">{% translate 'All' %}</a>
+    </div>
+  </div>
 </details>
 <script>
 (function() {
-  if (window.__multiSelectFilterInit) return;
-  window.__multiSelectFilterInit = true;
-  document.addEventListener('change', function(e) {
-    var box = e.target;
-    if (!box.matches || !box.matches('.multi-select-filter input[type=checkbox]')) return;
-    var ul = box.closest('.multi-select-filter');
-    var param = ul.getAttribute('data-param');
+  if (window.__multiSelectComboInit) return;
+  window.__multiSelectComboInit = true;
+  function applyCombo(sel) {
+    var wrap = sel.closest('.multi-select-combo-wrap');
+    var param = wrap.getAttribute('data-param');
     var sp = new URLSearchParams(window.location.search);
     sp.delete(param);
-    ul.querySelectorAll('input[type=checkbox]:checked').forEach(function(cb) {
-      sp.append(param, cb.value);
+    Array.prototype.forEach.call(sel.selectedOptions, function(opt) {
+      sp.append(param, opt.value);
     });
-    window.location.search = sp.toString();
-  });
+    var next = sp.toString();
+    var cur = window.location.search.replace(/^\?/, '');
+    if (next !== cur) window.location.search = next;
+  }
+  function init() {
+    document.querySelectorAll('select.multi-select-combo').forEach(function(sel) {
+      if (sel.dataset.msInit) return;
+      sel.dataset.msInit = '1';
+      sel.addEventListener('change', function() { applyCombo(sel); });
+      try {
+        if (window.jQuery && jQuery.fn && jQuery.fn.select2) {
+          jQuery(sel).select2({
+            placeholder: '',
+            allowClear: true,
+            closeOnSelect: false,
+            width: '100%'
+          }).on('change', function() { applyCombo(sel); });
+        }
+      } catch (e) { /* fallback: native multiselect */ }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
 </script>
