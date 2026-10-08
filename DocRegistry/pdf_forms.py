@@ -220,6 +220,7 @@ def approval_sheet_multi(entries, signers, when=None, month_ru: str | None = Non
 
     Для админ-экшена: выделил записи → бланк PDF. Шапка — из проекта записей;
     несколько проектов — таблицей. Подписанты — единый список.
+    В таблице §2 — короткое описание (change_descr); детальное (change_descr_detail) — ниже таблицы.
     """
     from datetime import date as _date
 
@@ -228,6 +229,7 @@ def approval_sheet_multi(entries, signers, when=None, month_ru: str | None = Non
     designers.discard('')
     designer = next(iter(designers)) if len(designers) == 1 else DESIGNER_DEFAULT
     rows = [_entry_row(e) for e in entries]
+    details = [(e.file_name or '', e.change_descr_detail or '') for e in entries if e.change_descr_detail]
     ciphers = [e.cipher or '' for e in entries]
     # «общий том» — только когда у ВСЕХ строк один непустой шифр; иначе примечание не нужно
     note_tom = ciphers[0] if ciphers and all(c and c == ciphers[0] for c in ciphers) else ''
@@ -237,16 +239,24 @@ def approval_sheet_multi(entries, signers, when=None, month_ru: str | None = Non
             seen.add(e.project_id)
             projects.append(e.project)
     header = _project_header(projects, designer)
-    return _approval_sheet(when, month_ru, signers, rows, note_tom, header)
+    return _approval_sheet(when, month_ru, signers, rows, note_tom, header, details)
 
 
 def _project_header(projects, designer_fallback: str = '') -> list:
     """Шапка листа: один проект — строки заказчик/объект/проектировщик,
-    несколько — таблица (Проект | Заказчик | Объект | Проектировщик), иначе константы."""
+    несколько — таблица (Проект | Заказчик | Объект | Проектировщик), иначе константы.
+
+    Родин — дефолт по М1 (решение 06.10.2026, CL-АПС-2026-10-06): единогласный
+    разработчик записей важнее шапки проекта (у проекта один designer на всех —
+    Родин/ИСЕТ/Канопус не различаются). Шапка проекта — только когда у записей
+    нет своего разработчика (тогда designer_fallback == DESIGNER_DEFAULT)."""
     s = _styles()
     if len(projects) == 1:
         p = projects[0]
-        designer = p.designer or designer_fallback or DESIGNER_DEFAULT
+        if designer_fallback and designer_fallback != DESIGNER_DEFAULT:
+            designer = designer_fallback
+        else:
+            designer = p.designer or designer_fallback or DESIGNER_DEFAULT
         return [
             Paragraph(f'<b>Заказчик:</b> {p.customer or CUSTOMER}'
                       f'<br/><b>Объект:</b> {p.object_full or OBJECT}', s['n']),
@@ -272,8 +282,8 @@ def _project_header(projects, designer_fallback: str = '') -> list:
     ]
 
 
-def _approval_sheet(when, month_ru, signers, rows, note_tom, header) -> bytes:
-    """Ядро листа: шапка + §1 подписанты + §2 перечень (rows: cipher, name, version) + примечание."""
+def _approval_sheet(when, month_ru, signers, rows, note_tom, header, details=()) -> bytes:
+    """Ядро листа: шапка + §1 подписанты + §2 перечень (короткие описания) + §3 детальные + примечание."""
     from django.utils import timezone
 
     s = _styles()
@@ -331,8 +341,15 @@ def _approval_sheet(when, month_ru, signers, rows, note_tom, header) -> bytes:
                             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                             ('TOPPADDING', (0, 0), (-1, -1), 6),
                             ('BOTTOMPADDING', (0, 0), (-1, -1), 12)]))
-    story += [t2, Spacer(1, 4 * mm),
-              Paragraph('<b>Примечание:</b>', s['nb'])]
+    story += [t2, Spacer(1, 4 * mm)]
+    if details:
+        story.append(Paragraph('<b>3. Детальное описание изменений</b>', s['nb']))
+        story.append(Spacer(1, 2 * mm))
+        for fname, detail in details:
+            story.append(Paragraph(f'<b>{fname}</b>', s['n']))
+            story.append(Paragraph(detail, s['n']))
+        story.append(Spacer(1, 4 * mm))
+    story += [Paragraph('<b>Примечание:</b>', s['nb'])]
     if note_tom:
         story.append(Paragraph(f'Все перечисленные разделы входят в общий том {note_tom}.', s['n']))
     story += [Paragraph('Подписи проставляются после фактического согласования документации.', s['n']),

@@ -175,21 +175,6 @@ body.dark-mode .thread-message .card-footer { background: var(--bg-table-header)
 body.dark-mode h1, body.dark-mode h2, body.dark-mode h3,
 body.dark-mode h4, body.dark-mode h5, body.dark-mode h6 { color: #e0e0e0; }
 
-.filter-header-clickable {
-    cursor: pointer;
-    user-select: none;
-    transition: background .12s;
-}
-.filter-header-clickable:hover {
-    background: var(--bg-table-row-hover);
-}
-.filter-header-clickable .chevron-icon {
-    transition: transform .2s;
-}
-.filter-header-clickable[aria-expanded="true"] .chevron-icon {
-    transform: rotate(180deg);
-}
-
 .modal-fullscreen .modal-content { border-radius: 0; border: none; min-height: 100vh; }
 .modal-fullscreen .modal-header { border-bottom: 1px solid var(--border-color); background: var(--bg-table-header); padding: 12px 20px; }
 .modal-fullscreen .modal-body { padding: 0; overflow-y: auto; }
@@ -824,6 +809,31 @@ window.initEmailPickers = function(scope) {
                 } catch (e) {}
             }
         }
+        // Подставить адреса, найденные в поиске пикера, и применить фильтр.
+        function applyAndSubmit() {
+            var shown = Array.from(list.querySelectorAll('button.list-group-item'));
+            if (!shown.length) { search.focus(); return; }
+            var model = shown.map(function(el) { return el.__epItem; }).filter(Boolean);
+            var group = model.find(function(it) { return it.group; });
+            if (group) {
+                var cur = parseTokens(input).map(function(t) { return t.toLowerCase(); });
+                group.group.forEach(function(a) {
+                    if (cur.indexOf(a.toLowerCase()) === -1) { cur.push(a); }
+                });
+                input.value = cur.join(', ');
+            } else {
+                shown[0].click();
+                var mainForm = document.getElementById('filter-form');
+                if (mainForm) mainForm.requestSubmit();
+                return;
+            }
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            search.value = '';
+            renderChips(); renderList('');
+            panel.style.display = 'none';
+            var f = document.getElementById('filter-form');
+            if (f) f.requestSubmit();
+        }
         function renderChips() {
             if (!chipsBox || !showChips) return;
             var tokens = parseTokens(input);
@@ -878,6 +888,7 @@ window.initEmailPickers = function(scope) {
                     tx.appendChild(badge);
                 }
                 el.appendChild(tx);
+                el.__epItem = it;
                 var isPicked = it.group
                     ? it.group.every(function(a) { return picked.indexOf(a.toLowerCase()) !== -1; })
                     : picked.indexOf(it.email.toLowerCase()) !== -1;
@@ -931,7 +942,21 @@ window.initEmailPickers = function(scope) {
         });
         if (closeBtn) closeBtn.addEventListener('click', function() { panel.style.display = 'none'; input.focus(); });
         search.addEventListener('input', function() { renderList(this.value); });
-        search.addEventListener('keydown', function(e) { if (e.key === 'Escape') { panel.style.display = 'none'; input.focus(); } });
+        search.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { e.preventDefault(); panel.style.display = 'none'; input.focus(); return; }
+            if (e.key !== 'Enter') return;
+            // Enter в поиске пикера: подставить первый найденный адрес (или все
+            // адреса группы) и сразу применить фильтр. Раньше Enter отправлял
+            // всю форму, но значение из пикера в поле не попадало.
+            e.preventDefault();
+            if (search.dataset.enter === 'apply' || root.dataset.enter === 'apply') { applyAndSubmit(); return; }
+            var first = list.querySelector('button.list-group-item');
+            if (first) first.click(); else search.focus();
+        });
+        // Основное поле адресов: Enter применяет фильтр (submit), как и раньше.
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { panel.style.display = 'none'; }
+        });
         input.addEventListener('input', renderChips);
         document.addEventListener('click', function(e) {
             if (e.target && e.target.isConnected === false) return;

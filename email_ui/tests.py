@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 from datetime import datetime, timedelta
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from email_ui.models import (
     Contact, ContactEmail, EmailEmailTag, EmailRule,
     EmailTag, EmailTaskLink, EmailTemplate, SavedFilter, SMTPAccount,
 )
+from email_ui.services.email_sender import EmailSenderService
 from email_ui.utils import sanitize_id, sanitize_id_list, clean_email_html
 from email_ui.utils import extract_email_address, extract_all_email_addresses, resolve_sender_to_email
 
@@ -1151,6 +1153,201 @@ class DateFilterFallbackTest(CategoryMixin, TestCase):
         self.assertEqual(set(found.values_list('id', flat=True)), {a.id, b.id, c.id})
 
 
+class AddressFilterNormalizationTest(CategoryMixin, TestCase):
+    """Адрес в фильтре ищется в любом оформлении.
+
+    Кейс пользователя: в «От кого» вставлен адрес в том виде, как он выглядит
+    в письме («Кунаев <kunaev@isetgroup.ru>», «<kunaev@isetgroup.ru>»,
+    «kunaev@isetgroup.ru.»), а фильтр отвечал «Нет писем», хотя письма есть:
+    в письме адрес хранится bare-адресом без скобок, кавычек и точек.
+    """
+
+    ADDRESS = 'kunaev@isetgroup.ru'
+
+    def setUp(self):
+        super().setUp()
+        self.sender_hit = Email.objects.create(
+            uid='addr-in', subject='Re: Замечания', sender=self.ADDRESS,
+            sender_name='Аркадий Кунаев', receiver='strahov@cimrus.com',
+            email_type='IN', folder='inbox', sent_status='sent')
+        self.receiver_hit = Email.objects.create(
+            uid='addr-out', subject='Ответ по М1',
+            sender='strahov@cimrus.com', receiver=f'Кунаев <{self.ADDRESS}>',
+            email_type='OUT', folder='sent', sent_status='sent')
+        self.foreign = Email.objects.create(
+            uid='addr-other', subject='Совсем другое', sender='other@cimrus.com',
+            receiver='strahov@cimrus.com', email_type='IN', folder='inbox',
+            sent_status='sent')
+
+    def _search(self, folder='inbox', **params):
+        from email_ui.forms import EmailFilterForm
+        from email_ui.views import filter_emails
+        params['folder'] = folder
+        form = EmailFilterForm(params)
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        qs = Email.objects.filter(folder=folder)
+        return set(filter_emails(qs, form.cleaned_data).values_list('pk', flat=True))
+
+    def test_sender_field_bare_address(self):
+        self.assertIn(self.sender_hit.pk, self._search(sender=self.ADDRESS))
+
+    def test_sender_field_address_with_copy_junk(self):
+        for value in (f'<{self.ADDRESS}>', f'"Кунаев" <{self.ADDRESS}>',
+                      f'Кунаев <{self.ADDRESS}>', f'{self.ADDRESS}.',
+                      f'{self.ADDRESS},', f' {self.ADDRESS} ',
+                      f'{self.ADDRESS};'):
+            with self.subTest(value=value):
+                self.assertIn(self.sender_hit.pk, self._search(sender=value))
+
+    def test_sender_field_space_separated_list(self):
+        found = self._search(sender=f'{self.ADDRESS} stasyuk@isetgroup.ru')
+        self.assertIn(self.sender_hit.pk, found)
+
+    def test_sender_field_does_not_match_other_letters(self):
+        found = self._search(sender=f'<{self.ADDRESS}>')
+        self.assertNotIn(self.foreign.pk, found)
+
+    def test_receiver_field_address_with_brackets(self):
+        self.assertIn(
+            self.receiver_hit.pk,
+            self._search(folder='sent', receiver=f'<{self.ADDRESS}>'))
+
+    def test_common_search_address_with_brackets(self):
+        self.assertIn(self.sender_hit.pk, self._search(search=f'<{self.ADDRESS}>'))
+
+    def test_common_search_name_and_address(self):
+        found = self._search(search=f'Аркадий Кунаев <{self.ADDRESS}>')
+        self.assertIn(self.sender_hit.pk, found)
+
+    def test_common_search_address_ignores_subject_scope(self):
+        """Адрес ищется по адресным полям даже при «Только тема»."""
+        self.assertIn(
+            self.sender_hit.pk,
+            self._search(search=self.ADDRESS, search_scope='subject'))
+
+    def test_common_search_word_still_respects_subject_scope(self):
+        found = self._search(search='Аркадий', search_scope='subject')
+        self.assertNotIn(self.sender_hit.pk, found)
+
+    def test_field_filters_ignore_scope(self):
+        self.assertIn(
+            self.sender_hit.pk,
+            self._search(sender=f'<{self.ADDRESS}>', search_scope='subject'))
+
+
+class FilterParamsRobustnessTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Пустые и накопленные параметры фильтра не ломают список."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('robustuser', 'rb@test.com', 'password')
+        self.client.login(username='robustuser', password='password')
+        self.letter = self.create_test_email(
+            uid='robust-1', subject='Замечания по М1', sender='kunaev@isetgroup.ru')
+
+    def test_empty_project_site_param_does_not_crash(self):
+        response = self.client.get(
+            reverse('email_ui:email_list_partial'),
+            {'folder': 'inbox', 'project_site': ''})
+        self.assertEqual(response.status_code, 200)
+
+    def test_empty_multi_params_do_not_drop_other_filters(self):
+        response = self.client.get(
+            reverse('email_ui:email_list_partial'),
+            {'folder': 'inbox', 'sender': 'kunaev@isetgroup.ru',
+             'category': '', 'info': '', 'contractor': '', 'building_type': ''})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'kunaev@isetgroup.ru')
+
+    def test_inbox_view_with_empty_project_site(self):
+        response = self.client.get(
+            reverse('email_ui:inbox', args=['inbox']), {'project_site': ''})
+        self.assertEqual(response.status_code, 200)
+
+    def test_clean_query_string_drops_paging_params(self):
+        from email_ui.views import _clean_query_string
+        request = self.client.get(
+            reverse('email_ui:email_list_partial'),
+            {'folder': 'inbox', 'search': 'смета', 'page': '2',
+             'sort': 'sender', '_infinite': '1'}).wsgi_request
+        cleaned = _clean_query_string(request)
+        self.assertNotIn('page=', cleaned)
+        self.assertNotIn('_infinite', cleaned)
+        self.assertNotIn('sort=', cleaned)
+        self.assertIn('search=', cleaned)
+
+    def test_infinite_marker_does_not_repeat_page(self):
+        # 120 писем = три страницы по PER_PAGE, на второй странице маркер есть.
+        for i in range(120):
+            self.create_test_email(uid=f'infinite-{i}', subject=f'Письмо {i}')
+        response = self.client.get(
+            reverse('email_ui:email_list_partial'),
+            {'folder': 'inbox', 'search': 'Письмо'})
+        self.assertContains(response, 'page=2')
+
+        response2 = self.client.get(
+            reverse('email_ui:email_list_partial'),
+            {'folder': 'inbox', 'search': 'Письмо', 'page': '2', '_infinite': '1'})
+        html = response2.content.decode()
+        pages = re.findall(r'page=(\d+)', html)
+        self.assertEqual(pages, ['3'])
+        self.assertNotIn('folder=&', html)
+
+    def test_marker_url_has_single_folder_and_no_double_ampersand(self):
+        """folder добавляет только шаблон, clean_params его не дублирует."""
+        for i in range(60):
+            self.create_test_email(uid=f'dup-{i}', subject=f'Дубль {i}')
+        response = self.client.get(
+            reverse('email_ui:email_list_partial'),
+            {'folder': 'inbox', 'search': 'Дубль', 'search_scope': 'subject'})
+        html = response.content.decode()
+        marker = re.search(r'id="load-marker"[\s\S]{0,400}?hx-get="([^"]+)"', html)
+        self.assertIsNotNone(marker, 'маркер бесконечной прокрутки не найден')
+        url = marker.group(1).replace('&amp;', '&')
+        self.assertEqual(url.count('folder='), 1, url)
+        self.assertEqual(url.count('search_scope='), 1, url)
+        self.assertNotIn('&&', url)
+
+    def test_marker_url_without_filters_is_clean(self):
+        for i in range(60):
+            self.create_test_email(uid=f'clean-{i}', subject=f'Чисто {i}')
+        response = self.client.get(
+            reverse('email_ui:email_list_partial'), {'folder': 'inbox'})
+        html = response.content.decode()
+        marker = re.search(r'id="load-marker"[\s\S]{0,400}?hx-get="([^"]+)"', html)
+        self.assertIsNotNone(marker)
+        url = marker.group(1).replace('&amp;', '&')
+        self.assertNotIn('&&', url)
+        self.assertNotIn('folder=&', url)
+
+    def test_sort_links_reset_page(self):
+        """Сортировка не тащит номер страницы — иначе список «залипает»."""
+        for i in range(60):
+            self.create_test_email(uid=f'sort-{i}', subject=f'Сорт {i}')
+        response = self.client.get(
+            reverse('email_ui:email_list_partial'),
+            {'folder': 'inbox', 'page': '2', 'sort': 'sender', 'order': 'asc'})
+        html = response.content.decode()
+        self.assertNotIn('page=2&folder', html)
+
+    def test_picker_search_submits_on_enter(self):
+        """Поиск в пикере адресов применяет фильтр по Enter."""
+        response = self.client.get(reverse('email_ui:inbox', args=['inbox']))
+        html = response.content.decode()
+        self.assertIn('data-enter="apply"', html)
+        self.assertIn('applyAndSubmit', html)
+
+    def test_filter_panel_opens_when_filters_active(self):
+        """Панель фильтров раскрывается, если в URL есть активные фильтры."""
+        response = self.client.get(reverse('email_ui:inbox', args=['inbox']))
+        self.assertContains(response, 'expandPanelIfFiltersActive')
+
+    def test_summary_refreshes_after_htmx_swap(self):
+        """Плашки активных фильтров пересобираются после htmx-подмены списка."""
+        response = self.client.get(reverse('email_ui:inbox', args=['inbox']))
+        self.assertContains(response, "htmx:afterSwap")
+
+
 class RuleViewTest(TestCase):
     """Tests for rule management views."""
 
@@ -1321,6 +1518,24 @@ class ExtractAllEmailAddressesTest(TestCase):
 
     def test_mixed(self):
         result = extract_all_email_addresses('Name <a@test.com>, b@test.com')
+        self.assertEqual(result, ['a@test.com', 'b@test.com'])
+
+    def test_semicolon_separated(self):
+        # Outlook-стиль: адреса через точку с запятой (кейс черновика 9175)
+        result = extract_all_email_addresses(
+            'aksenov.yu@cimrus.com; aliev.r@thgroupglobal.ru; andreev.ia@cimrus.com')
+        self.assertEqual(result, [
+            'aksenov.yu@cimrus.com', 'aliev.r@thgroupglobal.ru',
+            'andreev.ia@cimrus.com'])
+
+    def test_mixed_separators_and_newlines(self):
+        result = extract_all_email_addresses(
+            'a@test.com, b@test.com;\nc@test.com  d@test.com')
+        self.assertEqual(result,
+                         ['a@test.com', 'b@test.com', 'c@test.com', 'd@test.com'])
+
+    def test_semicolon_only_junk_between(self):
+        result = extract_all_email_addresses('a@test.com;; ;b@test.com;')
         self.assertEqual(result, ['a@test.com', 'b@test.com'])
 
     def test_empty(self):
@@ -1508,6 +1723,12 @@ class SendEmailViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         super().setUp()
         self.user = User.objects.create_user('senduser', 'send@test.com', 'password')
         self.client.login(username='senduser', password='password')
+        # Тесты обязаны мокать и IMAP-копию: мок smtplib не перехватывает
+        # _save_copy_to_imap_sent, и каждый «мокнутый» сенд реально аппендил
+        # письмо в Яндекс «Отправленные» (см. удаление мусора 2026-09-24).
+        _imap_mock = patch.object(EmailSenderService, '_save_copy_to_imap_sent')
+        _imap_mock.start()
+        self.addCleanup(_imap_mock.stop)
         self.smtp_account = SMTPAccount.objects.create(
             name='Test SMTP',
             host='smtp.test.com',
@@ -1589,6 +1810,9 @@ class ReplySendViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         super().setUp()
         self.user = User.objects.create_user('replysenduser', 'rs@test.com', 'password')
         self.client.login(username='replysenduser', password='password')
+        _imap_mock = patch.object(EmailSenderService, '_save_copy_to_imap_sent')
+        _imap_mock.start()
+        self.addCleanup(_imap_mock.stop)
         self.smtp_account = SMTPAccount.objects.create(
             name='Test SMTP',
             host='smtp.test.com',
@@ -1735,6 +1959,118 @@ class SaveDraftViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
     def test_save_draft_requires_post(self):
         response = self.client.get(reverse('email_ui:save_draft'))
         self.assertEqual(response.status_code, 405)
+
+
+class DraftUpdateViewTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Tests for draft_update view — тело обязано сохраняться и для
+    черновиков без link-каталога (иначе оно молча терялось)."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('upduser', 'upd@test.com', 'password')
+        self.client.login(username='upduser', password='password')
+
+    def _make_draft(self, **kw):
+        params = dict(email_type='OUT', subject='Subj', sender='',
+                      receiver='a@test.com', folder='drafts',
+                      sent_status='draft', link=None)
+        params.update(kw)
+        return Email.objects.create(**params)
+
+    @override_settings(DRAFT_DIRECTORY=os.path.join(tempfile.gettempdir(), 'test_drafts'))
+    def test_update_linkless_draft_creates_link_and_saves_body(self):
+        draft = self._make_draft(link=None)
+        response = self.client.post(
+            reverse('email_ui:draft_update', args=[draft.pk]), {
+                'to': 'a@test.com; b@test.com',
+                'subject': 'Subj',
+                'body': '<p>Добрый день, отправляю на согласование</p>',
+            })
+        self.assertEqual(response.status_code, 204)
+        draft.refresh_from_db()
+        self.assertTrue(draft.link)
+        self.assertTrue(os.path.isdir(draft.link))
+        with open(draft.get_html_file_path(), 'r', encoding='utf-8') as f:
+            self.assertIn('на согласование', f.read())
+
+    @override_settings(DRAFT_DIRECTORY=os.path.join(tempfile.gettempdir(), 'test_drafts'))
+    def test_update_preserves_body_on_reopen(self):
+        draft = self._make_draft(link=None)
+        self.client.post(
+            reverse('email_ui:draft_update', args=[draft.pk]), {
+                'to': 'a@test.com',
+                'subject': 'Subj',
+                'body': '<p>Сохранённое тело</p>',
+            })
+        response = self.client.get(
+            reverse('email_ui:draft_edit', args=[draft.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Сохранённое тело')
+
+
+class DraftSendSemicolonTest(CategoryMixin, TestCase, ViewTestCaseMixin):
+    """Отправка черновика с адресами через ';' — без реальной отправки
+    (smtplib.SMTP зам совпадает с SendEmailViewTest)."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user('draftsenduser', 'ds@test.com', 'password')
+        self.client.login(username='draftsenduser', password='password')
+        _imap_mock = patch.object(EmailSenderService, '_save_copy_to_imap_sent')
+        _imap_mock.start()
+        self.addCleanup(_imap_mock.stop)
+        self.smtp_account = SMTPAccount.objects.create(
+            name='Test SMTP',
+            host='smtp.test.com',
+            port=587,
+            username='user@test.com',
+            password='pass',
+            from_email='user@test.com',
+            from_name='Test User',
+            is_default=True,
+        )
+
+    def _make_draft(self, receiver):
+        return Email.objects.create(
+            email_type='OUT', subject='Draft', sender='',
+            receiver=receiver, folder='drafts', sent_status='draft')
+
+    @patch('email_ui.services.email_sender.smtplib.SMTP')
+    def test_draft_send_semicolon_recipients(self, mock_smtp):
+        mock_server = mock_smtp.return_value.__enter__.return_value
+        mock_server.sendmail.return_value = {}
+        draft = self._make_draft(
+            'aksenov.yu@cimrus.com; aliev.r@thgroupglobal.ru; murat.g@cimrus.com')
+
+        response = self.client.post(
+            reverse('email_ui:draft_send', args=[draft.pk]), {
+                'to': 'aksenov.yu@cimrus.com; aliev.r@thgroupglobal.ru; murat.g@cimrus.com',
+                'subject': 'Draft',
+                'body': '<p>Добрый день</p>',
+            })
+        self.assertEqual(response.status_code, 200)
+        mock_server.sendmail.assert_called_once()
+        recipients = mock_smtp.return_value.__enter__.return_value.sendmail.call_args[0][1]
+        for addr in ('aksenov.yu@cimrus.com', 'aliev.r@thgroupglobal.ru',
+                     'murat.g@cimrus.com'):
+            self.assertIn(addr, recipients)
+        # Черновик удалён, отправленное — в sent
+        self.assertFalse(Email.objects.filter(pk=draft.pk).exists())
+        sent = Email.objects.get(folder='sent', subject='Draft')
+        self.assertIn('murat.g@cimrus.com', sent.receiver)
+
+    def test_draft_send_semicolon_no_longer_400(self):
+        # До фикса форма отвечала 400 «Нет ни одного корректного email-адреса»
+        draft = self._make_draft('a@test.com; b@test.com')
+        with patch('email_ui.services.email_sender.smtplib.SMTP') as mock_smtp:
+            mock_smtp.return_value.__enter__.return_value.sendmail.return_value = {}
+            response = self.client.post(
+                reverse('email_ui:draft_send', args=[draft.pk]), {
+                    'to': 'a@test.com; b@test.com',
+                    'subject': 'Draft',
+                    'body': '<p>Hi</p>',
+                })
+        self.assertEqual(response.status_code, 200)
 
 
 class AdminTaskCreationLinkTest(CategoryMixin, TestCase):

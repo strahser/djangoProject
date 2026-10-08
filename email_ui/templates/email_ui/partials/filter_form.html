@@ -1,4 +1,4 @@
-{% load email_filters %}
+﻿{% load email_filters %}
 <div class="filter-section">
     <form method="get" id="filter-form"
           hx-get="{% url 'email_ui:email_list_partial' %}"
@@ -8,27 +8,22 @@
         <input type="hidden" id="filter-folder-input" name="folder" value="{{ folder }}">
 
         <div class="border rounded p-2 mb-2">
-            <div class="small text-muted mb-2"><i class="bi bi-envelope me-1"></i>Почта: общий поиск — «везде», «только тема» или «тема + тело письма»; остальные поля — строго в своём поле (комбинируются через И)</div>
+            <div class="small text-muted mb-2"><i class="bi bi-envelope me-1"></i>Почта: общий поиск — «везде», «только тема» или «тема + тело письма»; адрес (со знаком @) ищется по адресным полям при любой области, а скобки, кавычки и точки вокруг скопированного адреса не мешают поиску; остальные поля — строго в своём поле (комбинируются через И)</div>
             <div class="row g-2 mb-2">
-                <div class="col-md-5">
+                <div class="col-md-6">
                     <label class="form-label small text-muted mb-0" for="{{ filter_form.search.id_for_label }}" title="Ищет везде: тема, отправитель, получатель, копия (в т.ч. скрытая)">Общий поиск</label>
                     {{ filter_form.search }}
                 </div>
-                <div class="col-md-5">
+                <div class="col-md-6">
                     <label class="form-label small text-muted mb-0" for="{{ filter_form.search_scope.id_for_label }}" title="Где искать введённое: везде, только в теме, или в теме + теле письма">Область поиска</label>
                     {{ filter_form.search_scope }}
-                </div>
-                <div class="col-md-2 d-flex align-items-end">
-                    <button class="btn btn-primary w-100" type="submit">
-                        <i class="bi bi-search me-1"></i>Найти
-                    </button>
                 </div>
             </div>
 
             <div class="row g-2">
                 <div class="col-md-4">
                     <label class="form-label small text-muted mb-0" for="{{ filter_form.sender.id_for_label }}" title="Ищет только в поле «Отправитель». Несколько — через запятую (ИЛИ)">От кого</label>
-                    <div class="email-picker" data-picker="sender" data-input-id="id_sender" data-datalist="sender-datalist">
+                    <div class="email-picker" data-picker="sender" data-input-id="id_sender" data-datalist="sender-datalist" data-enter="apply">
                         <div class="input-group input-group-sm">
                             {{ filter_form.sender }}
                             {% include 'email_ui/partials/email_picker_button.html' %}
@@ -41,7 +36,7 @@
                 </div>
                 <div class="col-md-4">
                     <label class="form-label small text-muted mb-0" for="{{ filter_form.receiver.id_for_label }}" title="Ищет только в поле «Получатель». Несколько — через запятую (ИЛИ)">Кому</label>
-                    <div class="email-picker" data-picker="receiver" data-input-id="id_receiver" data-datalist="receiver-datalist">
+                    <div class="email-picker" data-picker="receiver" data-input-id="id_receiver" data-datalist="receiver-datalist" data-enter="apply">
                         <div class="input-group input-group-sm">
                             {{ filter_form.receiver }}
                             {% include 'email_ui/partials/email_picker_button.html' %}
@@ -54,7 +49,7 @@
                 </div>
                 <div class="col-md-4">
                     <label class="form-label small text-muted mb-0" for="{{ filter_form.cc.id_for_label }}" title="Ищет только в поле «Копия». Несколько — через запятую (ИЛИ)">Копия</label>
-                    <div class="email-picker" data-picker="cc" data-input-id="id_cc" data-datalist="cc-datalist">
+                    <div class="email-picker" data-picker="cc" data-input-id="id_cc" data-datalist="cc-datalist" data-enter="apply">
                         <div class="input-group input-group-sm">
                             {{ filter_form.cc }}
                             {% include 'email_ui/partials/email_picker_button.html' %}
@@ -115,57 +110,43 @@
         </div>
     </form>
 
-    <div id="selected-filters-summary" class="mb-2">
-        {% include "email_ui/partials/selected_filters_summary.html" %}
-    </div>
-
     <div class="row g-2 mb-2">
-        <div class="col-md-2 col-sm-4">
+        <div class="col">
             <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
                     hx-get="{% url 'email_ui:filter_field_modal' 'project_site' %}?folder={{ folder }}&selected={{ selected_project_sites|join:',' }}"
-                    hx-target="#dynamicModalContent" hx-trigger="click"
-                    hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                    hx-target="#dynamicModalContent" hx-trigger="click">
                 Проекты <span id="project_site_tags" class="badge bg-primary">{{ selected_project_sites|length }}</span>
             </button>
         </div>
-        <div class="col-md-2 col-sm-4">
+        <div class="col">
             <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
                     hx-get="{% url 'email_ui:filter_field_modal' 'contractor' %}"
                     hx-target="#dynamicModalContent" hx-trigger="click"
-                    hx-vals='js:{folder: "{{ folder }}", selected: getHiddenFieldValues("contractor").join(","), project_site: getHiddenFieldValues("project_site").join(",")}'
-                    hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                    hx-vals='js:{folder: "{{ folder }}", selected: getHiddenFieldValues("contractor").join(","), project_site: getHiddenFieldValues("project_site").join(",")}'>
                 Подрядчики <span id="contractor_tags" class="badge bg-primary">{{ selected_contractors|length }}</span>
             </button>
         </div>
-        <div class="col-md-2 col-sm-4">
+        <div class="col">
             <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
                     hx-get="{% url 'email_ui:filter_field_modal' 'building_type' %}"
                     hx-target="#dynamicModalContent" hx-trigger="click"
-                    hx-vals='js:{folder: "{{ folder }}", selected: getHiddenFieldValues("building_type").join(","), project_site: getHiddenFieldValues("project_site").join(",")}'
-                    hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                    hx-vals='js:{folder: "{{ folder }}", selected: getHiddenFieldValues("building_type").join(","), project_site: getHiddenFieldValues("project_site").join(",")}'>
                 Здания <span id="building_type_tags" class="badge bg-primary">{{ selected_building_types|length }}</span>
             </button>
         </div>
-        <div class="col-md-2 col-sm-4">
+        <div class="col">
             <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
                     hx-get="{% url 'email_ui:filter_field_modal' 'category' %}?folder={{ folder }}&selected={{ selected_categories|join:',' }}"
-                    hx-target="#dynamicModalContent" hx-trigger="click"
-                    hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                    hx-target="#dynamicModalContent" hx-trigger="click">
                 Категории <span id="category_tags" class="badge bg-primary">{{ selected_categories|length }}</span>
             </button>
         </div>
-        <div class="col-md-2 col-sm-4">
+        <div class="col">
             <button type="button" class="btn btn-outline-secondary w-100 btn-sm"
                     hx-get="{% url 'email_ui:filter_field_modal' 'info' %}?folder={{ folder }}&selected={{ selected_info|join:',' }}"
-                    hx-target="#dynamicModalContent" hx-trigger="click"
-                    hx-on::after-request="new bootstrap.Modal(document.getElementById('dynamicModal')).show()">
+                    hx-target="#dynamicModalContent" hx-trigger="click">
                 Тип инфо <span id="info_tags" class="badge bg-primary">{{ selected_info|length }}</span>
             </button>
-        </div>
-        <div class="col-md-2 col-sm-4">
-            <a href="{% url 'email_ui:inbox' folder %}" class="btn btn-outline-danger w-100 btn-sm">
-                <i class="bi bi-x-circle"></i> Сброс
-            </a>
         </div>
     </div>
 </div>
@@ -200,15 +181,19 @@ function updateTags(fieldName, values) {
     if (tagSpan) tagSpan.textContent = values.length;
 }
 function updateSummary() {
-    var filterData = JSON.parse(document.getElementById('filter-data').textContent);
+    var filterDataEl = document.getElementById('filter-data');
     var container = document.getElementById('selected-filters-summary');
+    if (!filterDataEl || !container) return;
+    var filterData = JSON.parse(filterDataEl.textContent);
     var html = '';
     // Почтовые поля — читаем прямо из инпутов
     function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
     var search = val('id_search'), sender = val('id_sender'),
         receiver = val('id_receiver'), cc = val('id_cc'),
         dFrom = val('id_date_from'), dTo = val('id_date_to');
-    if (search) html += '<span class="badge bg-info text-dark me-1 mb-1">Поиск: ' + search.replace(/</g, '&lt;') + '</span>';
+    var scopeLabels = {'subject': ' · только тема', 'subject_body': ' · тема + тело'};
+    var scopeLabel = scopeLabels[val('id_search_scope')] || '';
+    if (search) html += '<span class="badge bg-info text-dark me-1 mb-1">Поиск: ' + search.replace(/</g, '&lt;') + scopeLabel + '</span>';
     if (sender) html += '<span class="badge bg-info text-dark me-1 mb-1">От кого: ' + sender.replace(/</g, '&lt;') + '</span>';
     if (receiver) html += '<span class="badge bg-info text-dark me-1 mb-1">Кому: ' + receiver.replace(/</g, '&lt;') + '</span>';
     if (cc) html += '<span class="badge bg-info text-dark me-1 mb-1">Копия: ' + cc.replace(/</g, '&lt;') + '</span>';
@@ -226,6 +211,62 @@ function updateSummary() {
     container.innerHTML = html || '<span class="text-muted small">Фильтры не выбраны</span>';
 }
 document.addEventListener('DOMContentLoaded', updateSummary);
+/* htmx подменяет только #email-list-container, поэтому плашки активных
+   фильтров нужно пересобирать вручную — иначе они «залипают» от прошлого
+   запроса. */
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    var t = evt.detail && evt.detail.target;
+    if (t && (t.id === 'email-list-container' || t.id === 'load-marker')) updateSummary();
+});
+/* Фильтры живут в модальном окне: после применения закрываем его, отражаем
+   параметры в адресе (ссылкой можно делиться) и обновляем счётчик на кнопке. */
+function syncFilterModalState() {
+    var modalEl = document.getElementById('filterModal');
+    if (modalEl && window.bootstrap && bootstrap.Modal) {
+        var inst = bootstrap.Modal.getInstance(modalEl);
+        if (inst) inst.hide();
+    }
+    var form = document.getElementById('filter-form');
+    if (form) {
+        var params = new URLSearchParams(new FormData(form));
+        params.delete('page');
+        var url = window.location.pathname;
+        var qs = params.toString();
+        if (qs) url += '?' + qs;
+        try { window.history.replaceState(null, '', url); } catch (e) {}
+        var count = 0;
+        params.forEach(function(v, k) {
+            if (k === 'folder' || k === 'page' || k === 'sort' || k === 'order') return;
+            if (String(v).trim() !== '') count++;
+        });
+        var btn = document.querySelector('[data-bs-target="#filterModal"]');
+        if (btn) {
+            var badge = btn.querySelector('.badge');
+            if (count > 0) {
+                if (badge) { badge.textContent = count; }
+                else {
+                    badge = document.createElement('span');
+                    badge.className = 'badge bg-primary ms-1';
+                    badge.textContent = count;
+                    btn.appendChild(badge);
+                }
+            } else if (badge) { badge.remove(); }
+        }
+    }
+}
+document.body.addEventListener('htmx:afterRequest', function(evt) {
+    var elt = evt.detail && evt.detail.elt;
+    if (elt && elt.id === 'filter-form') syncFilterModalState();
+});
+/* Вложенная модалка (Проекты/Подрядчики/...): открываем только когда реально
+   подменился её контент. Единая точка вместо инлайн hx-on на кнопках —
+   иначе повторные after-request (ретраи htmx) самопроизвольно переоткрывали окно. */
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    var t = evt.detail && evt.detail.target;
+    if (t && t.id === 'dynamicModalContent' && window.bootstrap) {
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('dynamicModal')).show();
+    }
+});
 
 /* Пикеры почты: единый компонент из base.html (window.initEmailPickers). */
 document.addEventListener('DOMContentLoaded', function() {

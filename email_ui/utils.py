@@ -789,14 +789,17 @@ def extract_email_address(text: str) -> Optional[str]:
     m = _EMAIL_IN_ANGLE_RE.search(text)
     if m:
         return m.group(1).strip()
-    for part in (p.strip() for p in text.split(',') if p.strip()):
+    for part in (p.strip() for p in re.split(r'[,;\s]+', text) if p.strip()):
         if _EMAIL_STANDALONE_RE.match(part):
             return part
     return None
 
 
 def extract_all_email_addresses(text: str) -> List[str]:
-    """Извлекает все email-адреса из строки."""
+    """Извлекает все email-адреса из строки.
+
+    Разделители: запятая, точка с запятой (Outlook-стиль), пробелы/переносы строк.
+    """
     if not text:
         return []
     text = text.strip()
@@ -807,7 +810,7 @@ def extract_all_email_addresses(text: str) -> List[str]:
         addr = m.group(1).strip()
         if addr not in results:
             results.append(addr)
-    for part in text.split(','):
+    for part in re.split(r'[,;\s]+', text):
         part = part.strip()
         if _EMAIL_STANDALONE_RE.match(part) and part not in results:
             results.append(part)

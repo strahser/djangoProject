@@ -73,7 +73,7 @@
 {% endfor %}
 {% if page_obj.has_next %}
 <tr id="load-marker"
-    hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&folder={{ folder }}&{{ clean_params }}&_infinite=1"
+    hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&folder={{ folder }}{% if clean_params %}&{{ clean_params }}{% endif %}&_infinite=1"
     hx-trigger="revealed" hx-target="#load-marker" hx-swap="outerHTML">
     <td colspan="7" class="text-center py-3">
         <div class="spinner-border spinner-border-sm text-primary"></div>

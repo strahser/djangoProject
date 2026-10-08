@@ -145,11 +145,5 @@ function moveToFolder(folderName) {
     form.appendChild(actionInput);
     form.requestSubmit();
 }
-// Раскрытие фильтров при активных фильтрах в URL (модалка вместо старой панели).
-function expandPanelIfFiltersActive() {
-    var m = document.getElementById('filterModal');
-    if (m && window.bootstrap) { bootstrap.Modal.getOrCreateInstance(m).show(); }
-}
-{% if active_filter_count %}document.addEventListener('DOMContentLoaded', expandPanelIfFiltersActive);{% endif %}
 </script>
 {% endblock %}

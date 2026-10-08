@@ -402,6 +402,20 @@ class DocReferenceTest(TestCase):
         self.assertIn('Волоколамский район', text)
         self.assertIn('ИП РОДИН', text)
 
+    def test_approval_header_entry_developer_wins(self):
+        # CL-АПС-2026-10-06: единогласный разработчик записей важнее шапки проекта
+        # (Родин — дефолт по М1; ИСЕТ-запись при проекте РОДИН даёт ИСЕТ).
+        from .models import DocDeveloper, DocProject
+        from .pdf_forms import approval_sheet_multi
+        from .services import signers_for
+        DocProject.objects.update_or_create(
+            code='M1', defaults={'name': 'Волоколамск', 'designer': 'ИП РОДИН'})
+        dev = DocDeveloper.objects.create(code=99, name='Тест-Подрядчик')
+        e = M1Entry.objects.create(code=71, cipher='ВВ-17-9-ТСТ', developer=dev)
+        text = self._pdf_text(approval_sheet_multi([e], signers_for()))
+        self.assertIn('Тест-Подрядчик', text)
+        self.assertNotIn('ИП РОДИН', text)
+
     def test_approval_section2_from_registry(self):
         from .pdf_forms import approval_sheet_multi
         from .services import signers_for

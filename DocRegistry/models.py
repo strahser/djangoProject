@@ -169,7 +169,8 @@ class BaseRegistryEntry(models.Model):
     approval_status = models.CharField(max_length=50, blank=True, default='', verbose_name='Согласование', help_text='accdb: согласование')
     approval_date = models.DateField(null=True, blank=True, verbose_name='Дата согласования', help_text='accdb: дата согласования')
     submitted_flag = models.CharField(max_length=10, blank=True, default='', verbose_name='Подано', help_text='accdb: подано на согласование')
-    change_descr = models.TextField(blank=True, default='', verbose_name='Описание изменений', help_text='accdb: Описание изм')
+    change_descr = models.TextField(blank=True, default='', verbose_name='Описание изменений', help_text='accdb: Описание изм (короткое — в таблицу листа согласования)')
+    change_descr_detail = models.TextField(blank=True, default='', verbose_name='Детальное описание изменений', help_text='Технические изменения из листа изменений PDF — ниже таблицы листа согласования')
     submit_date = models.DateField(null=True, blank=True, verbose_name='Дата подачи', help_text='accdb: Дата подачи на согласование')
     acts = models.CharField(max_length=500, blank=True, default='', verbose_name='Акты', help_text='accdb: Акты (max 289 в live)')
     developer = models.ForeignKey(
@@ -265,7 +266,8 @@ class BaseRegistryRevision(models.Model):
     PROJECT_CODE = ''
 
     def __str__(self):
-        return f'{self.entry.code} rev{self.rev_no} [{self.get_status_display()}]'
+        code = self.entry.code if self.entry_id and self.entry else '—'
+        return f'{code} rev{self.rev_no} [{self.get_status_display()}]'
 
     class Meta:
         abstract = True

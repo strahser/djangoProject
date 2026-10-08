@@ -11,6 +11,18 @@ from email_ui.models import Contact, ContactEmail
 class DbEmailImapMessageSerializer:
     """Сериализатор IMAP-сообщения в модель Email."""
 
+    #: IMAP-флаг «прочитано». Сервер присылает его как '\\Seen'
+    #: (imaplib.ParseFlags декодирует в строку с бэкслэшем).
+    SEEN_FLAGS = frozenset({'\\seen', 'seen'})
+
+    @staticmethod
+    def is_seen_flags(flags) -> bool:
+        """True, если среди IMAP-флагов есть \\Seen (регистр не важен)."""
+        try:
+            return any(str(f).strip().lower() in DbEmailImapMessageSerializer.SEEN_FLAGS for f in (flags or ()))
+        except Exception:
+            return False
+
     def __init__(self, email_type: str, link: str, msg):
         self.uid = msg.uid
         self.email_type = email_type
@@ -25,6 +37,14 @@ class DbEmailImapMessageSerializer:
         self.message_id = self._get_header(msg, 'Message-ID')
         self.in_reply_to = self._get_header(msg, 'In-Reply-To')
         self.references = self._get_header(msg, 'References')
+        try:
+            self.server_seen = self.is_seen_flags(getattr(msg, 'flags', ()))
+        except Exception:
+            self.server_seen = False
+        # Исходящие (наши отправленные) всегда «прочитанные» — их читать не нужно.
+        # Входящие наследуют серверный флаг \Seen, чтобы уже прочитанные
+        # на сервере (телефон/веб) не всплывали как непрочитанные после загрузки.
+        self.initial_is_read = True if email_type == 'OUT' else bool(self.server_seen)
         try:
             self.attachment_names = [a.filename for a in (msg.attachments or ())]
         except Exception:
@@ -198,14 +218,29 @@ class DbEmailImapMessageSerializer:
             'message_id': self.message_id or None,
             'in_reply_to': self.in_reply_to or None,
             'references': self.references or None,
+            'is_read': self.initial_is_read,
         }
         if self.sender_contact:
             defaults['contact'] = self.sender_contact
 
-        email, created = Email.objects.get_or_create(
-            uid=self.uid,
-            defaults=defaults,
-        )
+        # UID уникален только в пределах одной IMAP-папки (у INBOX и
+        # «Отправленных» счётчики независимые), поэтому ищем/создаём строго
+        # в паре (uid, folder). Глобальный поиск по uid пропускал письма
+        # (UID из sent совпадал с уже загруженным из inbox) и портил чужие
+        # записи. filter().first() вместо get_or_create — защита от
+        # исторических дублей (MultipleObjectsReturned).
+        if not self.uid:
+            # Без UID надёжно дедуплицировать нельзя (uid=None совпадёт
+            # с любым из ~сотни служебных записей) — создаём как новое.
+            email = Email.objects.create(uid=self.uid, **defaults)
+            created = True
+        else:
+            email = Email.objects.filter(uid=self.uid, folder=folder).order_by('id').first()
+            if email is None:
+                email = Email.objects.create(uid=self.uid, **defaults)
+                created = True
+            else:
+                created = False
 
         if not created:
             from email_ui.utils import strip_tech_headers
@@ -239,6 +274,15 @@ class DbEmailImapMessageSerializer:
             if self.sender_contact and email.contact != self.sender_contact:
                 email.contact = self.sender_contact
                 update_fields.append('contact')
+            # Односторонняя синхронизация прочитанности сервер -> БД:
+            # прочитанное на сервере становится прочитанным локально.
+            # Обратное (True -> False) запрещено: локальное «прочитано»
+            # (открытие карточки, bulk-действие) никогда не сбрасывается
+            # повторной загрузкой — именно это и было жалобой
+            # «прочитанные становятся непрочитанными».
+            if self.server_seen and not email.is_read:
+                email.is_read = True
+                update_fields.append('is_read')
             if update_fields:
                 email.save(update_fields=update_fields)
 

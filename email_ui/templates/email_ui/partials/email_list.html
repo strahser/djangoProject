@@ -1,4 +1,4 @@
-{% load email_filters l10n %}
+﻿{% load email_filters l10n %}
 {% if oob_sync %}
 {# OOB: синхронизация скрытых folder/filter_params после htmx-смены папки. #}
 <input type="hidden" id="filter-folder-input" name="folder" value="{{ folder }}" hx-swap-oob="true">
@@ -14,14 +14,14 @@
         <th style="width:200px">
             {% if folder == 'sent' or folder == 'drafts' %}
             <a href="#" class="text-decoration-none" style="color:inherit;"
-               hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'receiver' and current_order == 'asc' %}sort=receiver&order=desc{% else %}sort=receiver&order=asc{% endif %}&folder={{ folder }}&{{ clean_params }}"
+               hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'receiver' and current_order == 'asc' %}sort=receiver&order=desc{% else %}sort=receiver&order=asc{% endif %}&folder={{ folder }}{% if clean_params %}&{{ clean_params }}{% endif %}"
                hx-target="#email-list-container" hx-swap="innerHTML" hx-push-url="false">
                 Кому
                 {% if current_sort == 'receiver' %}<i class="bi bi-caret-{% if current_order == 'asc' %}up{% else %}down{% endif %}"></i>{% endif %}
             </a>
             {% else %}
             <a href="#" class="text-decoration-none" style="color:inherit;"
-               hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'sender' and current_order == 'asc' %}sort=sender&order=desc{% else %}sort=sender&order=asc{% endif %}&folder={{ folder }}&{{ clean_params }}"
+               hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'sender' and current_order == 'asc' %}sort=sender&order=desc{% else %}sort=sender&order=asc{% endif %}&folder={{ folder }}{% if clean_params %}&{{ clean_params }}{% endif %}"
                hx-target="#email-list-container" hx-swap="innerHTML" hx-push-url="false">
                 Отправитель
                 {% if current_sort == 'sender' %}<i class="bi bi-caret-{% if current_order == 'asc' %}up{% else %}down{% endif %}"></i>{% endif %}
@@ -30,7 +30,7 @@
         </th>
         <th>
             <a href="#" class="text-decoration-none" style="color:inherit;"
-               hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'subject' and current_order == 'asc' %}sort=subject&order=desc{% else %}sort=subject&order=asc{% endif %}&folder={{ folder }}&{{ clean_params }}"
+               hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'subject' and current_order == 'asc' %}sort=subject&order=desc{% else %}sort=subject&order=asc{% endif %}&folder={{ folder }}{% if clean_params %}&{{ clean_params }}{% endif %}"
                hx-target="#email-list-container" hx-swap="innerHTML" hx-push-url="false">
                 Тема
                 {% if current_sort == 'subject' %}<i class="bi bi-caret-{% if current_order == 'asc' %}up{% else %}down{% endif %}"></i>{% endif %}
@@ -38,7 +38,7 @@
         </th>
         <th style="width:100px">
             <a href="#" class="text-decoration-none" style="color:inherit;"
-               hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'email_stamp' and current_order == 'asc' %}sort=email_stamp&order=desc{% else %}sort=email_stamp&order=asc{% endif %}&folder={{ folder }}&{{ clean_params }}"
+               hx-get="{% url 'email_ui:email_list_partial' %}?{% if current_sort == 'email_stamp' and current_order == 'asc' %}sort=email_stamp&order=desc{% else %}sort=email_stamp&order=asc{% endif %}&folder={{ folder }}{% if clean_params %}&{{ clean_params }}{% endif %}"
                hx-target="#email-list-container" hx-swap="innerHTML" hx-push-url="false">
                 Дата
                 {% if current_sort == 'email_stamp' %}<i class="bi bi-caret-{% if current_order == 'asc' %}up{% else %}down{% endif %}"></i>{% endif %}
@@ -120,11 +120,15 @@
         </td>
     </tr>
     {% empty %}
-    <tr><td colspan="7" class="text-center text-muted py-5">Нет писем</td></tr>
+    <tr><td colspan="7" class="text-center text-muted py-5">
+        Нет писем
+        <div class="small mt-2">Проверьте активные фильтры: разные поля комбинируются через И
+            (лишние снимаются кнопкой «Сброс»), а слова в общем поиске — каждое должно найтись в письме.</div>
+    </td></tr>
     {% endfor %}
     {% if page_obj.has_next %}
     <tr id="load-marker"
-        hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&folder={{ folder }}&{{ clean_params }}&_infinite=1"
+        hx-get="{% url 'email_ui:email_list_partial' %}?page={{ page_obj.next_page_number }}&folder={{ folder }}{% if clean_params %}&{{ clean_params }}{% endif %}&_infinite=1"
         hx-trigger="revealed" hx-target="#load-marker" hx-swap="outerHTML">
         <td colspan="7" class="text-center py-3">
             <div class="spinner-border spinner-border-sm text-primary"></div> Загрузка...

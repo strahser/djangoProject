@@ -6,6 +6,30 @@ from StaticData.models import ProjectSite, Category, BuildingType
 from .models import Contact, ContactEmail, ContactGroup, EmailTag, EmailTemplate, EmailRule, SMTPAccount, SavedFilter
 
 
+def _without_blanks(values):
+    """Убирает пустые значения из списка.
+
+    Пустой параметр в query string (project_site=, category= при устаревшей
+    ссылке или сохранённом фильтре) не должен ни ронять форму, ни делать её
+    невалидной: иначе фильтр молча перестаёт применяться вовсе.
+    """
+    return [v for v in (values or []) if str(v).strip()]
+
+
+class _LenientModelMultipleChoiceField(forms.ModelMultipleChoiceField):
+    """ModelMultipleChoiceField, игнорирующий пустые значения."""
+
+    def clean(self, value):
+        return super().clean(_without_blanks(value))
+
+
+class _LenientMultipleChoiceField(forms.MultipleChoiceField):
+    """MultipleChoiceField, игнорирующий пустые значения."""
+
+    def clean(self, value):
+        return super().clean(_without_blanks(value))
+
+
 class EmailFilterForm(forms.Form):
     search = forms.CharField(
         required=False,
@@ -53,37 +77,37 @@ class EmailFilterForm(forms.Form):
             'autocomplete': 'off',
         })
     )
-    project_site = forms.ModelMultipleChoiceField(
+    project_site = _LenientModelMultipleChoiceField(
         queryset=ProjectSite.objects.all(),
         required=False,
         label='Проекты',
         widget=forms.SelectMultiple(attrs={'class': 'form-select'})
     )
-    contractor = forms.ModelMultipleChoiceField(
+    contractor = _LenientModelMultipleChoiceField(
         queryset=Contractor.objects.all(),
         required=False,
         label='Подрядчики',
         widget=forms.SelectMultiple(attrs={'class': 'form-select'})
     )
-    category = forms.ModelMultipleChoiceField(
+    category = _LenientModelMultipleChoiceField(
         queryset=Category.objects.all(),
         required=False,
         label='Категории',
         widget=forms.SelectMultiple(attrs={'class': 'form-select'})
     )
-    building_type = forms.ModelMultipleChoiceField(
+    building_type = _LenientModelMultipleChoiceField(
         queryset=BuildingType.objects.all(),
         required=False,
         label='Здания',
         widget=forms.SelectMultiple(attrs={'class': 'form-select'})
     )
-    info = forms.MultipleChoiceField(
+    info = _LenientMultipleChoiceField(
         choices=InfoChoices.choices,
         required=False,
         label='Тип информации',
         widget=forms.SelectMultiple(attrs={'class': 'form-select'})
     )
-    tags = forms.ModelMultipleChoiceField(
+    tags = _LenientModelMultipleChoiceField(
         queryset=EmailTag.objects.all(),
         required=False,
         label='Теги',
@@ -138,6 +162,10 @@ class EmailFilterForm(forms.Form):
             else:
                 _v = self.data.get('project_site')
                 selected_projects = _v if isinstance(_v, list) else ([_v] if _v else [])
+            # Пустые значения (project_site= в устаревшей ссылке) отбрасываем:
+            # иначе Contractor.objects.filter(email__project_site__in=[''])
+            # падал ValueError и запрос отдавал 500.
+            selected_projects = _without_blanks(selected_projects)
             if selected_projects:
                 self.fields['contractor'].queryset = Contractor.objects.filter(
                     email__project_site__in=selected_projects

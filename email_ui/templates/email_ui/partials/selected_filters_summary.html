@@ -1,6 +1,6 @@
 {% load email_filters %}
 <div class="selected-filters">
-    {% if filter_form.search.value %}<span class="badge bg-info text-dark me-1">Поиск: {{ filter_form.search.value }}</span>{% endif %}
+    {% if filter_form.search.value %}<span class="badge bg-info text-dark me-1">Поиск: {{ filter_form.search.value }}{% if filter_form.search_scope.value == 'subject' %} · только тема{% elif filter_form.search_scope.value == 'subject_body' %} · тема + тело{% endif %}</span>{% endif %}
     {% if filter_form.sender.value %}<span class="badge bg-info text-dark me-1">От кого: {{ filter_form.sender.value }}</span>{% endif %}
     {% if filter_form.receiver.value %}<span class="badge bg-info text-dark me-1">Кому: {{ filter_form.receiver.value }}</span>{% endif %}
     {% if filter_form.cc.value %}<span class="badge bg-info text-dark me-1">Копия: {{ filter_form.cc.value }}</span>{% endif %}

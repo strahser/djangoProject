@@ -96,7 +96,7 @@
             </div>
             <div class="mb-2">
                 <label class="form-label small text-muted mb-1">Скрытая копия</label>
-                {% include 'email_ui/partials/contact_picker.html' with picker='contacts-bcc' input_id='compose-bcc' input_name='bcc' placeholder='email@example.com' %}
+                {% include 'email_ui/partials/contact_picker.html' with picker='contacts-bcc' input_id='compose-bcc' input_name='bcc' placeholder='email@example.com' value=bcc %}
             </div>
             {{ contacts_json|json_script:"contacts-data" }}
             {{ groups_json|json_script:"groups-data" }}
@@ -193,6 +193,9 @@ function toggleSection(header) {
 function saveDraftUpdate() {
     var form = document.getElementById('compose-form');
     if (!form) return;
+    // TinyMCE держит текст в своём iframe — без triggerSave в FormData
+    // уйдёт старое значение textarea и тело черновика не сохранится.
+    if (typeof tinymce !== 'undefined') tinymce.triggerSave();
     var params = new FormData(form);
     fetch(form.action.replace('draft-send', 'draft-update'), {
         method: 'POST',
@@ -201,8 +204,10 @@ function saveDraftUpdate() {
     }).then(r => {
         if (r.ok || r.status === 204) {
             window.location.href = '{{ next|default:"/"|escapejs }}';
+        } else {
+            alert('Не удалось сохранить черновик (ошибка ' + r.status + ')');
         }
-    });
+    }).catch(() => alert('Не удалось сохранить черновик (сеть)'));
 }
 
 function insertSignature() {
