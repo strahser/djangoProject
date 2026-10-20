@@ -1,0 +1,97 @@
+"""Тесты импорта реестра К1 из xlsx (МТФ/ФД/КЦ) и поля «проект».
+
+Проверяем то, что важно для реестра:
+- разбор xlsx: строки/здания/разделы по комплексам;
+- нормализация раздела и вывод шифра из имени файла;
+- поле «проект» у записи и здания, фильтр и колонка в админке;
+- команда импорта в режиме --dry-run ничего не пишет.
+"""
+from __future__ import annotations
+
+from io import BytesIO, StringIO
+from pathlib import Path
+
+from django.core.management import call_command
+from django.test import TestCase
+
+from DocRegistry.management.commands import import_k1_xlsx_registry as imp
+from DocRegistry.models import K1Building, K1Entry
+
+XLSX_DIR = Path(r'd:\ПлагиныРевит\DesignBase\data\registry')
+
+
+class K1XlsxParseTest(TestCase):
+    """Разбор xlsx и чистые хелперы — без БД."""
+
+    def test_cipher_strips_revision_and_date(self):
+        self.assertEqual(imp._cipher('308.17.02-1КМ Коровник Изм.1 19.03.2020.pdf'),
+                         '308.17.02-1КМ Коровник')
+        self.assertEqual(imp._cipher('306.17-11-КЖ_изм.1_20.10.21.pdf'), '306.17-11-КЖ')
+        self.assertEqual(imp._cipher('13-03-2025-10-ВК_03.04.2025.pdf'), '13-03-2025-10-ВК')
+        self.assertEqual(imp._cipher('307.17- РТ.pdf'), '307.17- РТ')
+
+    def test_section_normalization(self):
+        self.assertEqual(imp._norm_section(' кж '), 'КЖ')
+        self.assertEqual(imp._norm_section('АР1'), 'АР1')
+        self.assertEqual(imp._norm_section('КЖ1 К2'), 'КЖ1 К2')
+        self.assertEqual(imp._norm_section(None), '')
+
+    def test_type_key_and_garbage_guard(self):
+        self.assertEqual(imp._type_key('Коровник №5 (с родильным отделением)'), 'Коровник')
+        self.assertEqual(imp._type_key('Доильно-молочный блок( админ. корпус)'),
+                         'Доильно-молочный блок')
+        # код раздела и «список номеров» — не имя здания → тип не назначаем
+        self.assertIsNone(imp._building_type('ГП', {'ГП'}))
+        self.assertIsNone(imp._building_type('2, 4.1-4.4, 6.1, 6.2', set()))
+
+    def test_txt_cleans_excel_garbage(self):
+        self.assertEqual(imp._txt('#N/A'), '')
+        self.assertEqual(imp._txt(None), '')
+        self.assertEqual(imp._txt(7.0), '7')
+        self.assertEqual(imp._txt(7.1), '7.1')
+
+
+class K1XlsxImportTest(TestCase):
+    """Команда импорта: --dry-run не пишет, реальный импорт заполняет."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from StaticData.models import ProjectSite
+        cls.site = ProjectSite.objects.create(name='МТФ')
+
+    def test_dry_run_writes_nothing(self):
+        if not (XLSX_DIR / 'k1_mtf_2025-10-30.xlsx').exists():
+            self.skipTest('нет копий xlsx')
+        out = StringIO()
+        call_command('import_k1_xlsx_registry', '--dry-run', stdout=out)
+        self.assertIn('DRY-RUN', out.getvalue())
+        self.assertEqual(K1Entry.objects.count(), 0)
+        self.assertEqual(K1Building.objects.count(), 0)
+
+    def test_entry_has_project_field(self):
+        """Поле «проект» есть и у записи, и у здания."""
+        from DocRegistry.models import BaseRegistryBuilding, BaseRegistryEntry
+        for model in (BaseRegistryEntry, BaseRegistryBuilding):
+            names = {f.name for f in model._meta.get_fields()}
+            self.assertIn('project_site', names)
+        entry = K1Entry.objects.create(code=1, file_name='x.pdf', project_site=self.site)
+        self.assertEqual(entry.project_site_id, self.site.id)
+        bld = K1Building.objects.create(code=1, name='Коровник №1', project_site=self.site)
+        self.assertEqual(bld.project_site_id, self.site.id)
+
+    def test_admin_lists_project_column_and_filter(self):
+        from DocRegistry.admin import K1EntryAdmin
+        from django.contrib import admin
+        ma = K1EntryAdmin(K1Entry, admin.site)
+        self.assertIn('project_site', ma.list_display)
+        self.assertIn('project_site', [f for f in ma.list_filter
+                                       if isinstance(f, str)])
+
+    def test_export_has_project_column(self):
+        from openpyxl import load_workbook
+        from DocRegistry.exports import build_registry_xlsx
+        entry = K1Entry.objects.create(code=1, file_name='x.pdf', project_site=self.site)
+        wb = load_workbook(BytesIO(build_registry_xlsx([entry], 'K1')))
+        ws = wb.active
+        self.assertEqual(ws.cell(row=2, column=2).value, 'Проект')
+        self.assertEqual(ws.cell(row=3, column=2).value, 'МТФ')

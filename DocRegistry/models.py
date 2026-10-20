@@ -72,6 +72,10 @@ class BaseRegistryBuilding(models.Model):
     Конкретная таблица принадлежит одному объекту (M1Building/K1Building),
     поэтому поля project нет: смешивание невозможно конструктивно.
     Тип здания — общий справочник StaticData (один на всё приложение).
+
+    project_site — площадка объекта (StaticData.ProjectSite): у М1 одна
+    («M1»), у К1 три (МТФ/ФД/КЦ) — по ней здание однозначно опознаётся
+    внутри объекта: «Коровник №1» есть и в МТФ, и в ФД.
     """
 
     code = models.IntegerField(unique=True, db_index=True, verbose_name='Код здания')
@@ -80,6 +84,12 @@ class BaseRegistryBuilding(models.Model):
         null=True, blank=True, related_name='+',
         verbose_name='Тип здания',
         help_text='Общий справочник (Справочники → Здания Тип); номер — свой у объекта',
+    )
+    project_site = models.ForeignKey(
+        'StaticData.ProjectSite', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+        verbose_name='Проект',
+        help_text='Площадка объекта: M1 — одна, K1 — МТФ/ФД/КЦ',
     )
     number = models.CharField(max_length=20, blank=True, default='', verbose_name='№ здания')
     name = models.CharField(max_length=200, blank=True, default='', verbose_name='Наименование здания')
@@ -177,6 +187,23 @@ class BaseRegistryEntry(models.Model):
         DocDeveloper, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='+',
         verbose_name='Разраб.', help_text='accdb: разраб_нов (код)',
+    )
+    project_site = models.ForeignKey(
+        'StaticData.ProjectSite', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+        verbose_name='Проект',
+        help_text='Площадка объекта: М1 — одна (M1), К1 — МТФ/ФД/КЦ '
+                  '(три комплекса одной фермы); по ней фильтруют и строят отчёт',
+    )
+    volume = models.CharField(
+        max_length=200, blank=True, default='',
+        verbose_name='Наименование тома',
+        help_text='accdb: —; xlsx К1: «Наименование тома» (альбом/том раздела)',
+    )
+    contractor = models.CharField(
+        max_length=200, blank=True, default='',
+        verbose_name='Подрядчик',
+        help_text='accdb: —; xlsx К1: «Подрядчик» (кто получал документацию)',
     )
     contract = models.ForeignKey(
         'ProjectContract.Contract', on_delete=models.SET_NULL,

@@ -617,6 +617,7 @@ class DocSplitTest(TestCase):
         self.assertEqual(self.client.get('/admin-m1/DocRegistry/docsection/').status_code, 200)
         self.assertEqual(self.client.get('/admin-k1/DocRegistry/docsection/').status_code, 200)
 
+
     def test_main_admin_index_grouped(self):
         from django.contrib.auth.models import User
         User.objects.create_superuser('idx', 'ix@ix.ix', 'pw')
@@ -630,6 +631,159 @@ class DocSplitTest(TestCase):
         r = self.client.get('/admin/DocRegistry/')
         self.assertEqual(r.status_code, 200)
 
+
+class RegistryXlsxExportTest(TestCase):
+    """Выгрузка реестра М1/К1 в Excel с шапкой (exports.build_registry_xlsx)."""
+
+    def _data(self):
+        import datetime
+        from StaticData.models import ProjectSite
+        from .models import DocDeveloper, DocSection
+        sec = DocSection.objects.create(code=8, short='КЖ', name='Конструкции')
+        dev = DocDeveloper.objects.create(code=7, name='Иванов')
+        site = ProjectSite.objects.create(name='МТФ')
+        b1 = M1Building.objects.create(code=49, number='5.24', name='Площадка')
+        M1Building.objects.create(code=50, number='', name='Без номера')
+        M1Entry.objects.create(
+            code=379, cipher='ВВ-17-5.24-КЖ1', building=b1, building_no=b1,
+            section=sec, file_name='379_план.dwg', developer=dev,
+            project_site=site, submit_date=datetime.date(2026, 10, 1))
+        M1Entry.objects.create(code=380, cipher='голый', file_name='x.dwg')
+        return M1Entry.objects.order_by('code')
+
+    def _wb(self, entries, code='M1'):
+        from io import BytesIO
+        import openpyxl
+        from .exports import build_registry_xlsx
+        return openpyxl.load_workbook(BytesIO(build_registry_xlsx(list(entries), code)))
+
+    def test_title_headers_rows(self):
+        import datetime
+        ws = self._wb(self._data()).active
+        self.assertEqual(ws.title, 'Реестр M1')
+        self.assertIn('Реестр РД — M1', ws['A1'].value)
+        self.assertTrue(ws['A1'].font.bold)
+        self.assertEqual(
+            [ws.cell(row=2, column=i).value for i in range(1, 9)],
+            ['Код', 'Проект', 'Наименование здания', 'Раздел', 'Номер здания',
+             'Имя эл. файла', 'Разраб.', 'Дата подачи'])
+        self.assertTrue(ws.cell(row=2, column=1).font.bold)
+        row = [ws.cell(row=3, column=i).value for i in range(1, 9)]
+        self.assertEqual(row[0], 379)
+        self.assertEqual(row[1], 'МТФ')
+        self.assertEqual(row[2], 'Площадка')
+        self.assertEqual(row[3], 'КЖ')
+        self.assertEqual(row[4], '5.24')
+        self.assertEqual(row[5], '379_план.dwg')
+        self.assertEqual(row[6], 'Иванов')
+        stamp = row[7]
+        if isinstance(stamp, datetime.datetime):
+            stamp = stamp.date()
+        self.assertEqual(stamp, datetime.date(2026, 10, 1))
+        bare = [ws.cell(row=4, column=i).value in (None, '') for i in (2, 3, 4, 7, 8)]
+        self.assertTrue(all(bare), 'пустые FK/дата — пустые ячейки')
+
+    def test_chrome_freeze_filter_widths(self):
+        ws = self._wb(self._data()).active
+        self.assertEqual(ws.freeze_panes, 'A3')
+        self.assertEqual(ws.auto_filter.ref, f'A2:H{ws.max_row}')
+        self.assertEqual(ws.max_row, 4)  # титул + шапка + 2 строки
+        self.assertGreater(ws.column_dimensions['F'].width, 50)
+
+    def test_admin_action_returns_xlsx(self):
+        from django.contrib import admin
+        from django.test import RequestFactory
+        from .admin import M1EntryAdmin
+        ma = M1EntryAdmin(M1Entry, admin.site)
+        req = RequestFactory().get('/admin/DocRegistry/m1entry/')
+        resp = ma.export_registry_xlsx(req, self._data())
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('spreadsheetml.sheet', resp['Content-Type'])
+        self.assertTrue(
+            resp['Content-Disposition'].startswith('attachment; filename="reestr_M1_'))
+
+    def test_admin_action_empty_selection(self):
+        from django.contrib import admin
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from django.test import RequestFactory
+        from .admin import M1EntryAdmin
+        ma = M1EntryAdmin(M1Entry, admin.site)
+        req = RequestFactory().get('/admin/DocRegistry/m1entry/')
+        req.session = {}
+        req._messages = FallbackStorage(req)
+        self.assertIsNone(ma.export_registry_xlsx(req, M1Entry.objects.none()))
+
+
+class RegistryChangelistExportTest(TestCase):
+    """Полный экспорт выборки и селектор записей на страницу."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from .models import DocSection
+        sec = DocSection.objects.create(code=8, short='КЖ', name='Конструкции')
+        for i in range(1, 6):
+            M1Entry.objects.create(code=400 + i, cipher=f'C{i}', section=sec,
+                                   file_name=f'f{i}.dwg')
+        self.user = get_user_model().objects.create_superuser('cl', 'cl@cl.cl', 'pw')
+
+    def test_per_page_cookie_and_all(self):
+        self.client.force_login(self.user)
+        # cookie per_page=2 → 2 записи на страницу из 5
+        self.client.cookies['registry_per_page'] = '2'
+        r = self.client.get('/admin-m1/DocRegistry/m1entry/')
+        cl = r.context['cl']
+        self.assertEqual(cl.list_per_page, 2)
+        self.assertEqual(len(cl.result_list), 2)
+        # per_page=all — без пагинации (реализовано большим лимитом)
+        self.client.cookies['registry_per_page'] = 'all'
+        r = self.client.get('/admin-m1/DocRegistry/m1entry/')
+        cl = r.context['cl']
+        self.assertGreaterEqual(cl.list_per_page, 100000)
+        self.assertEqual(len(cl.result_list), 5)
+        # дефолт — 50
+        self.client.cookies['registry_per_page'] = '50'
+        r = self.client.get('/admin-m1/DocRegistry/m1entry/')
+        self.assertEqual(r.context['cl'].list_per_page, 50)
+
+    def test_full_export_ignores_selection_and_page(self):
+        from django.contrib import admin
+        from django.test import RequestFactory
+        from .admin import M1EntryAdmin
+        ma = M1EntryAdmin(M1Entry, admin.site)
+        rf = RequestFactory()
+        # выбрана одна запись — экспорт должен взять все 5 (без select_across)
+        req = rf.post('/admin-m1/DocRegistry/m1entry/', {
+            'action': 'export_all_filtered',
+            '_selected_action': [str(M1Entry.objects.first().pk)],
+        })
+        req.user = self.user
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        req.session = {}
+        req._messages = FallbackStorage(req)
+        resp = ma.export_all_filtered(req, M1Entry.objects.all())
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('_ALL_', resp['Content-Disposition'])
+
+    def test_select_across_exports_everything(self):
+        """Галочка в шапке таблицы (select_across=1) — экспорт всей выборки
+        на текущих фильтрах, без обхода страниц."""
+        from io import BytesIO
+        from django.contrib import admin
+        from django.test import RequestFactory
+        from .admin import M1EntryAdmin
+        import openpyxl
+
+        ma = M1EntryAdmin(M1Entry, admin.site)
+        rf = RequestFactory()
+        req = rf.post('/admin-m1/DocRegistry/m1entry/', {
+            'action': 'export_registry_xlsx',
+            'select_across': '1',  # «выбрать все N по фильтрам»
+        })
+        req.user = self.user
+        resp = ma.export_registry_xlsx(req, M1Entry.objects.all())
+        self.assertEqual(resp.status_code, 200)
+        ws = openpyxl.load_workbook(BytesIO(resp.content)).active
+        self.assertEqual(ws.max_row - 2, 5)  # 5 записей реестра
 
 class DocDriftMappingTest(TestCase):
     def test_compare_ok(self):

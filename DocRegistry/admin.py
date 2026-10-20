@@ -4,7 +4,7 @@
 Смешивание невозможно: у каждой таблицы свой ModelAdmin со своим queryset.
 """
 from django.contrib import admin
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 
 from .models import (
     DocDeveloper,
@@ -98,18 +98,94 @@ class BuildingNoFilter(admin.SimpleListFilter):
 
 
 class _EntryAdminBase(admin.ModelAdmin):
-    """Порядок колонок — как в исходнике accdb: код, здание, раздел, № здания, файл, разраб., согласование."""
+    """Порядок колонок — как в исходнике accdb: код, здание, раздел, № здания, файл, разраб., согласование.
 
-    list_display = ('code', 'get_building', 'get_section', 'get_building_no',
+    Проект (площадка) — колонка рядом с кодом: у К1 их три (МТФ/ФД/КЦ),
+    у М1 одна, и по нему фильтруют реестр и считают отчёт.
+    """
+
+    list_display = ('code', 'project_site', 'get_building', 'get_section', 'get_building_no',
                     'file_name', 'get_developer', 'approval_status', 'submit_date', 'contract')
-    list_filter = ('approval_status', 'section',
+    list_filter = ('approval_status', 'section', 'project_site',
                    ('building', admin.RelatedOnlyFieldListFilter),
                    BuildingNoFilter,
                    'developer')
     search_fields = ('cipher', 'file_name', 'change_descr',
-                     'building__name', 'section__short', 'developer__name')
-    list_select_related = ('contract', 'section', 'building', 'building_no', 'developer')
-    actions = ('make_approval_sheet',)
+                     'building__name', 'section__short', 'developer__name',
+                     'project_site__name', 'volume', 'contractor')
+    list_select_related = ('contract', 'section', 'building', 'building_no', 'developer',
+                           'project_site')
+    list_per_page = 50
+    list_max_show_all = 100000  # реестр целиком выбирается галочкой «select all»
+    show_full_result_count = True
+    actions = ('make_approval_sheet', 'export_registry_xlsx', 'export_all_filtered')
+
+    @admin.action(description='Выгрузить выбранные в Excel (реестр с шапкой)')
+    def export_registry_xlsx(self, request, queryset):
+        from django.utils import timezone
+
+        from .exports import build_registry_xlsx
+
+        entries = list(queryset.select_related(
+            'building', 'building_no', 'section', 'developer').order_by('code'))
+        if not entries:
+            self.message_user(request, 'Ничего не выбрано', level='error')
+            return None
+        code = self.model.PROJECT_CODE or 'XX'
+        data = build_registry_xlsx(entries, project_code=code)
+        stamp = timezone.now().strftime('%Y%m%d_%H%M')
+        resp = HttpResponse(
+            data,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        resp['Content-Disposition'] = (
+            f'attachment; filename="reestr_{code}_{stamp}.xlsx"')
+        return resp
+
+    @admin.action(description='Выгрузить ВСЕ отфильтрованные (Excel, без учёта страниц)')
+    def export_all_filtered(self, request, queryset):
+        """Экспорт всей выборки по текущим фильтрам/поиску, игнорируя
+        выделение и пагинацию (в отличие от export_registry_xlsx)."""
+        from django.utils import timezone
+
+        from .exports import build_registry_xlsx
+
+        cl = self.get_changelist_instance(request)
+        entries = list(cl.get_queryset(request).select_related(
+            'building', 'building_no', 'section', 'developer').order_by('code'))
+        if not entries:
+            self.message_user(request, 'Нет данных по фильтрам', level='error')
+            return None
+        code = self.model.PROJECT_CODE or 'XX'
+        data = build_registry_xlsx(entries, project_code=code)
+        stamp = timezone.now().strftime('%Y%m%d_%H%M')
+        resp = HttpResponse(
+            data,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        resp['Content-Disposition'] = (
+            f'attachment; filename="reestr_{code}_ALL_{stamp}.xlsx"')
+        self.message_user(request, f'Выгружено {len(entries)} записей')
+        return resp
+
+    #: «all» — не 0 (Paginator падает с ZeroDivisionError), а большой лимит:
+    #: реестр больше не влезет, пагинация фактически отключена.
+    PER_PAGE_ALL = 100000
+
+    def changelist_view(self, request, extra_context=None):
+        """Селектор «записей на страницу» через cookie (GET-параметр нельзя:
+        неизвестные ключи Django трактует как lookup-фильтр и шлёт ?e=1)."""
+        # ModelAdmin — синглтон на процесс: сбрасываем к дефолту, иначе
+        # значение от прошлого запроса протекает в следующий.
+        self.list_per_page = 50
+        per_page = request.COOKIES.get('registry_per_page')
+        if per_page:
+            if per_page == 'all':
+                self.list_per_page = self.PER_PAGE_ALL
+            else:
+                try:
+                    self.list_per_page = int(per_page)
+                except (ValueError, TypeError):
+                    pass
+        return super().changelist_view(request, extra_context)
 
     @admin.action(description='Сформировать лист согласования (PDF) для выбранных')
     def make_approval_sheet(self, request, queryset):
@@ -156,10 +232,10 @@ class K1EntryAdmin(_EntryAdminBase):
 
 
 class _BuildingAdminBase(admin.ModelAdmin):
-    list_display = ('code', 'building_type', 'number', 'name')
-    list_filter = ('building_type',)
+    list_display = ('code', 'project_site', 'building_type', 'number', 'name')
+    list_filter = ('building_type', 'project_site')
     search_fields = ('number', 'name')
-    list_select_related = ('building_type',)
+    list_select_related = ('building_type', 'project_site')
 
 
 @admin.register(M1Building)
