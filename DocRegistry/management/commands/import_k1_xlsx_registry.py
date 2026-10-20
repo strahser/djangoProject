@@ -168,6 +168,7 @@ def resolve_building(site, poz, name, fname='', by_poz=None, by_name=None):
     Пустой № п/гп при единственном совпадении по имени — тоже то же здание.
     """
     name = TYPO_BUILDINGS.get(name, name)
+    poz = TYPO_BUILDINGS.get(poz, poz)
     fix = FIX_BUILDING_BY_FILE.get((site, fname))
     if fix:
         name = fix
@@ -366,6 +367,7 @@ class Command(BaseCommand):
             by_poz, by_name = {}, {}
             for poz, name in d['buildings']:
                 name = TYPO_BUILDINGS.get(name, name)
+                poz = TYPO_BUILDINGS.get(poz, poz)
                 by_poz.setdefault(poz, name)
                 by_name.setdefault(name, poz)
             sheet_by_poz[site] = by_poz
@@ -381,7 +383,7 @@ class Command(BaseCommand):
         seen = set()
         for d in data:
             site = d['site']
-            cands = [(poz, TYPO_BUILDINGS.get(name, name))
+            cands = [(TYPO_BUILDINGS.get(poz, poz), TYPO_BUILDINGS.get(name, name))
                      for poz, name in d['buildings']]
             for r in d['rows']:
                 fname = _txt(r.get('file_name'))
