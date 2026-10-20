@@ -55,6 +55,36 @@ CODE_OFFSET = {'МТФ': 0, 'ФД': 1000, 'КЦ': 2000}
 #: (реестры К1 ведёт ИСЕТ — см. договор «ДС 5 РД МТФ (ISSET K1)»).
 DEFAULT_DEVELOPER = 'ИСЕТ'
 
+#: Опечатки в наименованиях зданий (как в источнике) — правим при импорте,
+#: чтобы справочник зданий не плодил дубли и фильтры были честными.
+TYPO_BUILDINGS = {
+    'Насоная станция': 'Насосная станция',
+    'Искуственный водоем с водосливом': 'Искусственный водоем с водосливом',
+    'Все зданя': 'Все здания',
+    'Малый дмб': 'Малый ДМБ',
+    'Доильно-молочный блок( административным корпусом)':
+        'Доильно-молочный блок (административным корпусом)',
+    'Площадки силоса  и сенажа': 'Площадки силоса и сенажа',
+    'ТП 100кВа': 'ТП 100 кВА',
+}
+
+#: Точечная правка привязки к зданию: (площадка, файл) → наименование здания.
+#: В xlsx в графе «Наименование здания» стоит чужое имя, а файл — общий план.
+FIX_BUILDING_BY_FILE = {
+    ('ФД', '306.17-ГП_изм.9-11_05.24.pdf'): 'Генеральный план',
+}
+
+#: Точечная правка статуса: (площадка, файл) → статус.
+#: В xlsx в графу «Статус» попало имя разработчика; по «передаче в производство
+#: работ» и датам документ действующий.
+FIX_STATUS_BY_FILE = {
+    ('КЦ', '307.17-ЭМ.ЭО.pdf'): 'актуален',
+}
+
+#: Известные статусы реестра — что-то иное в графе «Статус» считаем опечаткой
+#: источника и не путаем с настоящим статусом.
+KNOWN_STATUSES = {'актуален', 'не актуален', 'остановлен', ''}
+
 #: Колонки листов реестра: ключ → варианты заголовка.
 COLS = {
     'row_no': ('№п/п', '№ п/п'),
@@ -128,6 +158,28 @@ def _cipher(file_name: str) -> str:
 def _type_key(building_name: str) -> str:
     """Ключ типа здания: до «№» и «(» («Коровник №5 (род.)» → «Коровник»)."""
     return re.split(r'[№(]', _txt(building_name))[0].strip()
+
+
+def resolve_building(site, poz, name, fname='', by_poz=None, by_name=None):
+    """(№ п/гп, имя) строки реестра → (№ п/гп, имя) здания по справочнику.
+
+    Справочник зданий комплекса (лист «Здания …») — источник истины для
+    наименования: графа реестра заполнена руками, и в ней есть опечатки.
+    Пустой № п/гп при единственном совпадении по имени — тоже то же здание.
+    """
+    name = TYPO_BUILDINGS.get(name, name)
+    fix = FIX_BUILDING_BY_FILE.get((site, fname))
+    if fix:
+        name = fix
+    if not name:
+        return None
+    by_poz = by_poz or {}
+    by_name = by_name or {}
+    if poz and poz in by_poz:
+        return (poz, by_poz[poz])
+    if not poz and name in by_name:
+        return (by_name[name], name)
+    return (poz, name)
 
 
 def _building_type(building_name: str, section_shorts):
@@ -304,14 +356,39 @@ class Command(BaseCommand):
         say(f'разработчики: {", ".join(sorted(dev_names.values(), key=str.lower))}')
 
         # --- здания ------------------------------------------------------
-        # ключ: (площадка, поз, наименование) → модель
+        # Справочник зданий комплекса (лист «Здания …») — источник истины для
+        # наименования: если № п/гп строки реестра есть в справочнике, берём
+        # имя оттуда (в реестре графа заполнена руками и в ней есть опечатки).
+        # Если № п/гп пуст, а имя в справочнике единственное — здание то же.
+        sheet_by_poz, sheet_by_name = {}, {}
+        for d in data:
+            site = d['site']
+            by_poz, by_name = {}, {}
+            for poz, name in d['buildings']:
+                name = TYPO_BUILDINGS.get(name, name)
+                by_poz.setdefault(poz, name)
+                by_name.setdefault(name, poz)
+            sheet_by_poz[site] = by_poz
+            sheet_by_name[site] = by_name
+
+        def resolve(site, poz, name, fname=''):
+            return resolve_building(
+                site, poz, name, fname,
+                by_poz=sheet_by_poz.get(site, {}),
+                by_name=sheet_by_name.get(site, {}))
+
         bld_keys = []
         seen = set()
         for d in data:
             site = d['site']
-            cands = [(poz, name) for poz, name in d['buildings']]
+            cands = [(poz, TYPO_BUILDINGS.get(name, name))
+                     for poz, name in d['buildings']]
             for r in d['rows']:
-                cands.append((_txt(r.get('poz')), _txt(r.get('building'))))
+                fname = _txt(r.get('file_name'))
+                res = resolve(site, _txt(r.get('poz')),
+                              _txt(r.get('building')), fname)
+                if res:
+                    cands.append(res)
             for poz, name in cands:
                 if not name:
                     continue
@@ -342,12 +419,13 @@ class Command(BaseCommand):
         with transaction.atomic():
             # --- здания: код = offset площадки + позиция ------------------
             blds = {}
-            by_name = {}
             bpos = {}
+            written_codes = set()
             section_shorts = {s.short.upper() for s in DocSection.objects.all()}
             for site, poz, name in bld_keys:
                 bpos[site] = bpos.get(site, 0) + 1
                 code = CODE_OFFSET[site] + bpos[site]
+                written_codes.add(code)
                 btype = _building_type(name, section_shorts)
                 obj, is_new = K1Building.objects.update_or_create(
                     code=code,
@@ -358,21 +436,23 @@ class Command(BaseCommand):
                 else:
                     updated_b += 1
                 blds[(site, poz, name)] = obj
-                by_name.setdefault((site, name), obj)
             # --- записи: код = offset площадки + позиция -------------------
             pos_by_site = {}
             for site, r, fname in entries:
                 pos_by_site[site] = pos_by_site.get(site, 0) + 1
-                poz = _txt(r.get('poz'))
-                name = _txt(r.get('building'))
-                bld = blds.get((site, poz, name))
-                if bld is None and not poz:
-                    bld = by_name.get((site, name))
+                res = resolve(site, _txt(r.get('poz')),
+                              _txt(r.get('building')), fname)
+                bld = blds.get((site, res[0], res[1])) if res else None
                 sec_short = _norm_section(r.get('section'))
                 section = (DocSection.objects.filter(short=sec_short).first()
                            if sec_short else None)
                 appr = _date(r.get('approved_date')) or _date(r.get('transfer_date'))
                 subm = _date(r.get('transfer_date'))
+                status = _txt(r.get('status'))
+                status = FIX_STATUS_BY_FILE.get((site, fname), status)
+                if status.lower() not in KNOWN_STATUSES:
+                    status_count[f'НЕИЗВЕСТНЫЙ СТАТУС: {status}'] += 1
+                    status = ''
                 acts = []
                 for key, label in (('act_no', ''), ('issue_tsg', 'ТСГ'),
                                    ('issue_energo', 'Энергомонтаж')):
@@ -395,12 +475,12 @@ class Command(BaseCommand):
                 values = {
                     'project_site': sites[site],
                     'building': bld,
-                    'building_no': bld if bld and bld.number == poz else None,
+                    'building_no': bld if bld and bld.number == (res[0] if res else '') else None,
                     'section': section,
                     'volume': _txt(r.get('volume'))[:200],
                     'cipher': _cipher(fname),
                     'file_name': fname[:1000],
-                    'approval_status': _txt(r.get('status'))[:50],
+                    'approval_status': status[:50],
                     'approval_date': appr,
                     'submit_date': subm,
                     'submitted_flag': _txt(r.get('work_status'))[:10],
@@ -420,11 +500,20 @@ class Command(BaseCommand):
                 if section is None:
                     no_sec += 1
                 status_count[values['approval_status'] or '—'] += 1
+            # здания, оставшиеся от прошлого прогона (состав справочника
+            # изменился — номера сдвинулись): удаляем те, на которые больше
+            # не ссылается ни одна запись; записи перелинкованы выше
+            stale = (K1Building.objects.exclude(code__in=written_codes)
+                     .filter(entries__isnull=True, entries_by_number__isnull=True))
+            stale_count = stale.count()
+            if stale_count:
+                stale.delete()
             K1ChangeLog.objects.create(
                 field='import', old_value='', source='import',
                 new_value=(f'xlsx МТФ/ФД/КЦ: зданий +{created_b}/{updated_b}, '
                            f'записей +{created_e}/{updated_e}'))
-        say(f'здания: создано {created_b}, обновлено {updated_b}')
+        say(f'здания: создано {created_b}, обновлено {updated_b}'
+            + (f', удалено устаревших {stale_count}' if stale_count else ''))
         say(f'записи: создано {created_e}, обновлено {updated_e}')
         say(f'записей без здания: {no_bld}; без раздела: {no_sec}')
         say('статусы: ' + ', '.join(f'{k} — {v}'

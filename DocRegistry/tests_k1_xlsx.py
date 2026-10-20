@@ -50,6 +50,52 @@ class K1XlsxParseTest(TestCase):
         self.assertEqual(imp._txt(7.0), '7')
         self.assertEqual(imp._txt(7.1), '7.1')
 
+    def test_typo_fixes_applied(self):
+        """Опечатки источника правим при импорте."""
+        self.assertEqual(imp.TYPO_BUILDINGS['Насоная станция'], 'Насосная станция')
+        self.assertEqual(imp.TYPO_BUILDINGS['Все зданя'], 'Все здания')
+        self.assertEqual(imp.TYPO_BUILDINGS['ТП 100кВа'], 'ТП 100 кВА')
+        self.assertEqual(imp.TYPO_BUILDINGS['Малый дмб'], 'Малый ДМБ')
+        self.assertEqual(imp.TYPO_BUILDINGS['Площадки силоса  и сенажа'],
+                         'Площадки силоса и сенажа')
+        self.assertEqual(imp.TYPO_BUILDINGS['Искуственный водоем с водосливом'],
+                         'Искусственный водоем с водосливом')
+
+    def test_resolve_building_prefers_directory(self):
+        """Справочник зданий — источник истины для наименования."""
+        by_poz = {'1': 'Телятник от 3 до 6 мес', '2': 'Телятник от 7 до 10 мес',
+                  '0': 'Генеральный план'}
+        by_name = {'Телятник от 3 до 6 мес': '1', 'Телятник от 7 до 10 мес': '2',
+                   'Генеральный план': '0'}
+        # в реестре имя перепутано — справочник знает правильное
+        self.assertEqual(
+            imp.resolve_building('ФД', '1', 'Телятник от 7 до 10 мес',
+                                 by_poz=by_poz, by_name=by_name),
+            ('1', 'Телятник от 3 до 6 мес'))
+        # № пустой, имя единственное — то же здание
+        self.assertEqual(
+            imp.resolve_building('ФД', '', 'Телятник от 7 до 10 мес',
+                                 by_poz=by_poz, by_name=by_name),
+            ('2', 'Телятник от 7 до 10 мес'))
+        # опечатка в имени правится
+        self.assertEqual(
+            imp.resolve_building('МТФ', '27.1', 'Насоная станция'),
+            ('27.1', 'Насосная станция'))
+        # имя пустое — здания нет
+        self.assertIsNone(imp.resolve_building('МТФ', 'ГП', ''))
+        # точечная правка по файлу: имя здания — из правки, номер — из справочника
+        self.assertEqual(
+            imp.resolve_building('ФД', '', 'Телятник от 7 до 10 мес',
+                                 '306.17-ГП_изм.9-11_05.24.pdf',
+                                 by_poz=by_poz, by_name=by_name),
+            ('0', 'Генеральный план'))
+
+    def test_status_fix(self):
+        self.assertEqual(imp.FIX_STATUS_BY_FILE[('КЦ', '307.17-ЭМ.ЭО.pdf')],
+                         'актуален')
+        self.assertIn('актуален', imp.KNOWN_STATUSES)
+        self.assertIn('не актуален', imp.KNOWN_STATUSES)
+
 
 class K1XlsxImportTest(TestCase):
     """Команда импорта: --dry-run не пишет, реальный импорт заполняет."""
