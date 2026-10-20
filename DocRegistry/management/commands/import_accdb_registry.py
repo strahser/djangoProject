@@ -24,6 +24,7 @@ from DocRegistry.models import (
     get_registry_or_404,
 )
 from DocRegistry.services import get_building_type
+from StaticData.models import ProjectSite
 
 EXPECTED_COUNTS = {
     'M1': {
@@ -101,6 +102,9 @@ class Command(BaseCommand):
         # 1. Справочники. Здания — в таблицу объекта; разделы/разработчики/подписанты — общие.
         proj, _ = DocProject.objects.update_or_create(
             code=project, defaults={'name': {'M1': 'Волоколамск', 'K1': 'Калуга'}[project]})
+        # Площадка-проект объекта: у М1 одна («M1»), у К1 три (МТФ/ФД/КЦ) —
+        # в accdb их нет, они приходят из xlsx (см. import_k1_xlsx_registry).
+        site, _ = ProjectSite.objects.get_or_create(name=project)
         if project == 'M1':
             DocProject.objects.update_or_create(
                 code='M1',
@@ -113,7 +117,8 @@ class Command(BaseCommand):
                     'designer': 'ИП РОДИН'})
         for r in ref['Здания']:
             code = _to_int(r.get('Код здания'))
-            vals = {'number': r.get('№ Здания', ''), 'name': r.get('Наименование здания', '')}
+            vals = {'number': r.get('№ Здания', ''), 'name': r.get('Наименование здания', ''),
+                    'project_site': site}
             btype = get_building_type(vals['name'])
             if btype is not None:
                 vals['building_type'] = btype
@@ -156,7 +161,8 @@ class Command(BaseCommand):
                                    ('разработчик', dev, raw['contractor_new'])):
                 if obj is None and (rv or '').strip():
                     warns.add(f'{label}={rv}')
-            values.update(section=sec, building_no=bno, building=bld, developer=dev)
+            values.update(section=sec, building_no=bno, building=bld, developer=dev,
+                          project_site=site)
             _obj, is_new = Entry.objects.update_or_create(
                 code=values['code'], defaults=values)
             created, updated = created + (1 if is_new else 0), updated + (0 if is_new else 1)
