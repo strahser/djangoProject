@@ -147,6 +147,35 @@ def _mark_unread(email: Email, **kwargs):
     return 'marked as unread'
 
 
+@RuleExecutor.register_action('create_task')
+def _create_task(email: Email, owner_id: Optional[int] = None,
+                 project_id: Optional[int] = None,
+                 name: Optional[str] = None):
+    """Правило «Создать задачу»: превратить письмо в задачу и прикрепить его.
+
+    Владелец — owner_id из params, иначе первый активный суперпользователь
+    (в базе это ssg). Проект — project_id из params, иначе проект письма или
+    активный проект владельца. Повторный прогон правила дубль не создаёт.
+    """
+    from django.contrib.auth import get_user_model
+    from email_ui.services.email_tasks import create_task_from_email
+
+    User = get_user_model()
+    owner = None
+    if owner_id:
+        owner = User.objects.filter(pk=owner_id, is_active=True).first()
+    if owner is None:
+        owner = (User.objects.filter(is_superuser=True, is_active=True)
+                 .order_by('id').first())
+    if owner is None:
+        return 'no task owner (superuser) found'
+
+    task, created = create_task_from_email(
+        email, owner, name=name, project_site_id=project_id)
+    return (f'task #{task.pk} created' if created
+            else f'task #{task.pk} already exists')
+
+
 class RuleEngine:
     """
     Processes emails through the rules engine.

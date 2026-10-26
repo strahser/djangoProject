@@ -1,5 +1,6 @@
 from django.urls import path
 from email_ui import views
+from email_ui import views_contacts, views_filters, views_rules
 
 app_name = 'email_ui'
 
@@ -40,6 +41,8 @@ urlpatterns = [
 
     # --- Phase 2: Compose & Send ---
     path('compose/', views.compose_modal, name='compose_modal'),
+    path('templates/list/', views.template_list, name='template_list'),
+    path('templates/<int:pk>/render/', views.template_render, name='template_render'),
     path('email/<int:pk>/reply/<str:reply_type>/', views.reply_modal, name='reply_modal'),
     path('send/', views.send_email, name='send_email'),
     path('email/<int:pk>/reply-send/', views.reply_send, name='reply_send'),
@@ -47,39 +50,38 @@ urlpatterns = [
     path('email/<int:pk>/draft-send/', views.draft_send, name='draft_send'),
     path('email/<int:pk>/draft-update/', views.draft_update, name='draft_update'),
     path('save-draft/', views.save_draft, name='save_draft'),
+    path('autosave-draft/', views.autosave_draft, name='autosave_draft'),
     path('email/<int:pk>/copy-to-draft/', views.copy_to_draft, name='copy_to_draft'),
 
-    # --- Phase 7: Contacts ---
-    path('contacts/', views.contact_list, name='contact_list'),
-    path('contacts/<int:pk>/', views.contact_detail, name='contact_detail'),
-    path('contacts/create-modal/', views.contact_create_modal, name='contact_create_modal'),
-    path('contacts/create/', views.contact_create, name='contact_create'),
-    path('contacts/<int:pk>/edit-modal/', views.contact_edit_modal, name='contact_edit_modal'),
-    path('contacts/<int:pk>/edit/', views.contact_edit, name='contact_edit'),
-    path('contacts/<int:pk>/delete/', views.contact_delete, name='contact_delete'),
-    path('contacts/search/', views.contact_search, name='contact_search'),
+    # --- Contacts / groups / tags (views_contacts) ---
+    path('contacts/', views_contacts.contact_list, name='contact_list'),
+    path('contacts/<int:pk>/', views_contacts.contact_detail, name='contact_detail'),
+    path('contacts/create-modal/', views_contacts.contact_create_modal, name='contact_create_modal'),
+    path('contacts/create/', views_contacts.contact_create, name='contact_create'),
+    path('contacts/<int:pk>/edit-modal/', views_contacts.contact_edit_modal, name='contact_edit_modal'),
+    path('contacts/<int:pk>/edit/', views_contacts.contact_edit, name='contact_edit'),
+    path('contacts/<int:pk>/delete/', views_contacts.contact_delete, name='contact_delete'),
+    path('contacts/search/', views_contacts.contact_search, name='contact_search'),
 
-    # --- Contact Groups ---
-    path('groups/', views.group_list, name='group_list'),
-    path('groups/<int:pk>/', views.group_detail, name='group_detail'),
-    path('groups/create-modal/', views.group_create_modal, name='group_create_modal'),
-    path('groups/create/', views.group_create, name='group_create'),
-    path('groups/<int:pk>/edit-modal/', views.group_edit_modal, name='group_edit_modal'),
-    path('groups/<int:pk>/edit/', views.group_edit, name='group_edit'),
-    path('groups/<int:pk>/delete/', views.group_delete, name='group_delete'),
-    path('groups/<int:pk>/add-contact/', views.group_add_contact, name='group_add_contact'),
-    path('groups/<int:pk>/remove-contact/', views.group_remove_contact, name='group_remove_contact'),
-    path('groups/<int:pk>/add-subgroup/', views.group_add_subgroup, name='group_add_subgroup'),
-    path('groups/<int:pk>/remove-subgroup/', views.group_remove_subgroup, name='group_remove_subgroup'),
+    path('groups/', views_contacts.group_list, name='group_list'),
+    path('groups/<int:pk>/', views_contacts.group_detail, name='group_detail'),
+    path('groups/create-modal/', views_contacts.group_create_modal, name='group_create_modal'),
+    path('groups/create/', views_contacts.group_create, name='group_create'),
+    path('groups/<int:pk>/edit-modal/', views_contacts.group_edit_modal, name='group_edit_modal'),
+    path('groups/<int:pk>/edit/', views_contacts.group_edit, name='group_edit'),
+    path('groups/<int:pk>/delete/', views_contacts.group_delete, name='group_delete'),
+    path('groups/<int:pk>/add-contact/', views_contacts.group_add_contact, name='group_add_contact'),
+    path('groups/<int:pk>/remove-contact/', views_contacts.group_remove_contact, name='group_remove_contact'),
+    path('groups/<int:pk>/add-subgroup/', views_contacts.group_add_subgroup, name='group_add_subgroup'),
+    path('groups/<int:pk>/remove-subgroup/', views_contacts.group_remove_subgroup, name='group_remove_subgroup'),
 
-    # --- Phase 3: Tags ---
-    path('tags/', views.tag_list, name='tag_list'),
-    path('tags/create-modal/', views.tag_create_modal, name='tag_create_modal'),
-    path('tags/create/', views.tag_create, name='tag_create'),
-    path('tags/<int:pk>/delete/', views.tag_delete, name='tag_delete'),
-    path('tags/assign/', views.assign_tag, name='assign_tag'),
-    path('tags/<int:email_id>/remove/<int:tag_id>/', views.remove_tag, name='remove_tag'),
-    path('tags/bulk-assign/', views.bulk_assign_tag, name='bulk_assign_tag'),
+    path('tags/', views_contacts.tag_list, name='tag_list'),
+    path('tags/create-modal/', views_contacts.tag_create_modal, name='tag_create_modal'),
+    path('tags/create/', views_contacts.tag_create, name='tag_create'),
+    path('tags/<int:pk>/delete/', views_contacts.tag_delete, name='tag_delete'),
+    path('tags/assign/', views_contacts.assign_tag, name='assign_tag'),
+    path('tags/<int:email_id>/remove/<int:tag_id>/', views_contacts.remove_tag, name='remove_tag'),
+    path('tags/bulk-assign/', views_contacts.bulk_assign_tag, name='bulk_assign_tag'),
     path('email/<int:pk>/toggle-important/', views.toggle_important, name='toggle_important'),
 
     # --- Phase 4: Email ↔ Task ---
@@ -97,20 +99,23 @@ urlpatterns = [
     path('export-modal/', views.export_modal, name='export_modal'),
     path('export/', views.do_export, name='do_export'),
 
-    # --- Phase 3: Saved Filters ---
-    path('saved-filters/', views.saved_filters_list, name='saved_filters_list'),
-    path('saved-filters/save/', views.save_current_filter, name='save_current_filter'),
-    path('saved-filters/<int:pk>/apply/', views.apply_saved_filter, name='apply_saved_filter'),
-    path('saved-filters/<int:pk>/delete/', views.delete_saved_filter, name='delete_saved_filter'),
+    # --- Saved filters (views_filters) ---
+    path('saved-filters/', views_filters.saved_filters_list, name='saved_filters_list'),
+    path('saved-filters/modal/', views_filters.saved_filters_modal, name='saved_filters_modal'),
+    path('saved-filters/save-modal/', views_filters.save_filter_modal, name='save_filter_modal'),
+    path('saved-filters/save/', views_filters.save_current_filter, name='save_current_filter'),
+    path('saved-filters/<int:pk>/toggle-pin/', views_filters.toggle_pin_filter, name='toggle_pin_filter'),
+    path('saved-filters/<int:pk>/apply/', views_filters.apply_saved_filter, name='apply_saved_filter'),
+    path('saved-filters/<int:pk>/delete/', views_filters.delete_saved_filter, name='delete_saved_filter'),
 
-    # --- Phase 8: Automation Rules ---
-    path('rules/', views.rules_list, name='rules_list'),
-    path('rules/create-modal/', views.rule_create_modal, name='rule_create_modal'),
-    path('rules/create/', views.rule_create, name='rule_create'),
-    path('rules/<int:pk>/edit-modal/', views.rule_edit_modal, name='rule_edit_modal'),
-    path('rules/<int:pk>/edit/', views.rule_edit, name='rule_edit'),
-    path('rules/<int:pk>/toggle/', views.rule_toggle, name='rule_toggle'),
-    path('rules/<int:pk>/run-now/', views.rule_run_now, name='rule_run_now'),
+    # --- Automation rules (views_rules) ---
+    path('rules/', views_rules.rules_list, name='rules_list'),
+    path('rules/create-modal/', views_rules.rule_create_modal, name='rule_create_modal'),
+    path('rules/create/', views_rules.rule_create, name='rule_create'),
+    path('rules/<int:pk>/edit-modal/', views_rules.rule_edit_modal, name='rule_edit_modal'),
+    path('rules/<int:pk>/edit/', views_rules.rule_edit, name='rule_edit'),
+    path('rules/<int:pk>/toggle/', views_rules.rule_toggle, name='rule_toggle'),
+    path('rules/<int:pk>/run-now/', views_rules.rule_run_now, name='rule_run_now'),
 
     # --- Fetch emails (existing) ---
     path('fetch-emails/', views.fetch_emails, name='fetch_emails'),

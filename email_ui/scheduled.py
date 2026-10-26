@@ -75,6 +75,12 @@ def start_email_fetch_scheduler():
     if _SCHEDULER_STARTED:
         logger.warning("[EmailAutoFetch] Планировщик уже запущен — повторный старт пропущен")
         return
+    if not getattr(settings, 'EMAIL_AUTO_FETCH_ENABLED', True):
+        logger.info(
+            "[EmailAutoFetch] Автозагрузка почты отключена "
+            "(EMAIL_AUTO_FETCH_ENABLED=0) — планировщик не запускается"
+        )
+        return
     try:
         scheduler = BackgroundScheduler()
         scheduler.add_job(

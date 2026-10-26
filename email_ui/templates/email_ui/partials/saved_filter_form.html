@@ -1,0 +1,36 @@
+<form hx-post="{% url 'email_ui:save_current_filter' %}"
+      hx-target="#emailModalContent" hx-swap="innerHTML"
+      hx-on::after-request="if(event.detail.successful){ showToast('Фильтр сохранён','success'); htmx.ajax('GET','{% url 'email_ui:saved_filters_modal' %}',{target:'#emailModalContent',swap:'innerHTML'}); }">
+    {% csrf_token %}
+    <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-plus-lg me-1"></i>Сохранить фильтр</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+    </div>
+    <div class="modal-body">
+        <input type="hidden" name="filter_params" value="{{ filter_params }}">
+        <div class="mb-2">
+            <label class="form-label small text-muted mb-1">Название</label>
+            {{ form.name }}
+        </div>
+        <div class="row g-2">
+            <div class="col">
+                <label class="form-label small text-muted mb-1">Папка</label>
+                {{ form.folder }}
+            </div>
+            <div class="col d-flex align-items-end gap-3 pb-1">
+                <div class="form-check mb-0">
+                    {{ form.is_default }}
+                    <label class="form-check-label small" for="{{ form.is_default.id_for_label }}">По умолчанию</label>
+                </div>
+                <div class="form-check mb-0">
+                    {{ form.is_shared }}
+                    <label class="form-check-label small" for="{{ form.is_shared.id_for_label }}">Общий</label>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-footer py-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+        <button type="submit" class="btn btn-primary btn-sm">Сохранить</button>
+    </div>
+</form>

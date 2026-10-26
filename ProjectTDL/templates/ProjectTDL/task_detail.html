@@ -321,7 +321,13 @@ function tdSave(field, value){
     body:'task_id={{ task.pk }}&field=' + field + '&value=' + encodeURIComponent(value)
   }).then(function(res){
     if (!res.ok) { throw new Error(field + ': HTTP ' + res.status); }
-    return res;
+    return res.json();
+  }).then(function(data){
+    // Бэкенд отдаёт HTTP 200 даже при отказе (нет прав/пустое имя) —
+    // без этой проверки страница молча редиректила «без изменений».
+    if (!data || data.status !== 'ok') {
+      throw new Error((data && data.message) || (field + ': не сохранено'));
+    }
   });
 }
 document.getElementById('td-save-btn').addEventListener('click', function(){
@@ -339,7 +345,7 @@ document.getElementById('td-save-btn').addEventListener('click', function(){
     console.error('Ошибка сохранения задачи:', err);
     btn.disabled = false;
     var msg = document.getElementById('td-save-msg');
-    if (msg) { msg.style.display = 'inline'; }
+    if (msg) { msg.textContent = 'Ошибка сохранения: ' + (err && err.message ? err.message : 'проверьте соединение'); msg.style.display = 'inline'; }
   });
 });
 $(function(){

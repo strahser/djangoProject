@@ -34,7 +34,7 @@ class EmailFilterForm(forms.Form):
     search = forms.CharField(
         required=False,
         label='Общий поиск',
-        help_text='Ищет везде: тема, отправитель, получатель, копия (в т.ч. скрытая)',
+        help_text='Ищет везде: тема, отправитель, получатель, копия (в т.ч. скрытая). "Точная фраза", -исключение',
         widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Тема, отправитель, получатель, копия...'})
     )
     search_scope = forms.ChoiceField(
@@ -74,6 +74,16 @@ class EmailFilterForm(forms.Form):
         widget=forms.TextInput(attrs={
             'class': 'form-control',
             'placeholder': 'Почты через запятую...',
+            'autocomplete': 'off',
+        })
+    )
+    attachment_name = forms.CharField(
+        required=False,
+        label='Имя вложения',
+        help_text='Ищет по имени файла вложения, несколько через запятую',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'смета.pdf, договор...',
             'autocomplete': 'off',
         })
     )
@@ -118,6 +128,11 @@ class EmailFilterForm(forms.Form):
         label='С вложениями',
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
     )
+    has_disk_links = forms.BooleanField(
+        required=False,
+        label='С Диском',
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
+    )
     is_important = forms.BooleanField(
         required=False,
         label='Важные',
@@ -126,6 +141,11 @@ class EmailFilterForm(forms.Form):
     is_unread = forms.BooleanField(
         required=False,
         label='Непрочитанные',
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
+    )
+    in_files = forms.BooleanField(
+        required=False,
+        label='Искать в файлах',
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
     )
     date_from = forms.DateField(

@@ -43,30 +43,6 @@ class TaskAdminUpdateDate(forms.Form):
         task.save()
 
 
-class TaskUpdateValuesForm(ModelForm):
-    due_date = forms.DateField(label='Выберите дату завершения')
-    due_date.widget = forms.widgets.DateInput(attrs={'type': 'date',
-                                                     'class': 'form-control',
-                                                     'placeholder': "Date",
-                                                     'onfocus': "(this.type='date')",
-                                                     'onblur': "if(this.value==''){this.type='text'}"
-                                                     })
-
-    class Meta:
-        model = TaskNode
-        fields = '__all__'
-
-    def __init__(self, *args, **kwargs):
-        super(TaskUpdateValuesForm, self).__init__(*args, **kwargs)
-
-        for key in self.fields:
-            self.fields[key].required = False
-
-    helper = FormHelper()
-    helper.form_method = 'POST'
-    helper.add_input(Submit('submit', 'Подтвердить', css_class='btn-success'))
-
-
 class TaskAdminUpdate(forms.Form):
     price = forms.FloatField()
 

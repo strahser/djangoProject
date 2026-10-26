@@ -1,56 +1,248 @@
 {% load i18n %}
-<details data-filter-title="{{ title }}" open>
-  <summary>{{ title }}</summary>
-  <div class="multi-select-combo-wrap" data-param="{{ spec.parameter_name }}">
-    <select multiple class="multi-select-combo" style="width:100%;">
-      {% for choice in choices %}
-        {% if not choice.is_all %}
-          <option value="{{ choice.value }}"{% if choice.selected %} selected{% endif %}>{{ choice.display }}</option>
-        {% endif %}
-      {% endfor %}
-    </select>
-    <div style="margin-top:4px;">
-      <a href="{{ choices.0.query_string|iriencode }}">{% translate 'All' %}</a>
+{# Фильтр-мультиселект через модальное окно: в панели — компактная кнопка #}
+{# с кратким итогом выбора, полный список с поиском — в отдельном окне. #}
+{# Используется всеми фильтрами MultiSelectFilterMixin (ConceptContractorFilter, #}
+{# ConceptContractFilter, ConceptEstimateFilter и т.д.) #}
+<div class="ms-filter-root" data-param="{{ spec.parameter_name }}">
+  <button type="button" class="btn btn-sm btn-outline-secondary ms-filter-btn" data-msf-open>
+    <span class="ms-filter-btn-title">{{ title }}</span>:
+    <span class="ms-filter-summary">{% translate 'Все' %}</span>
+  </button>
+
+  <div class="msf-overlay" data-msf-overlay role="dialog" aria-modal="true" aria-label="{{ title }}">
+    <div class="msf-dialog">
+      <div class="msf-header">
+        <span class="msf-title">{{ title }}</span>
+        <button type="button" class="msf-close" data-msf-close title="{% translate 'Закрыть' %}">&times;</button>
+      </div>
+      <div class="msf-search-wrap">
+        <input type="text"
+               class="msf-search form-control form-control-sm"
+               placeholder="{% translate 'Поиск…' %}"
+               autocomplete="off">
+      </div>
+      <div class="msf-list">
+        {% for choice in choices %}
+          {% if not choice.is_all %}
+          <label class="msf-item">
+            <input type="checkbox"
+                   class="msf-cb"
+                   value="{{ choice.value }}"
+                   {% if choice.selected %}checked{% endif %}>
+            <span class="msf-label">{{ choice.display }}</span>
+          </label>
+          {% endif %}
+        {% endfor %}
+        <div class="msf-empty text-muted small py-2 d-none">
+          {% translate 'Ничего не найдено' %}
+        </div>
+      </div>
+      <div class="msf-footer">
+        <a href="{{ choices.0.query_string|iriencode }}" class="btn btn-sm btn-outline-secondary">
+          {% translate 'Сбросить' %}
+        </a>
+        <div>
+          <button type="button" class="btn btn-sm btn-outline-secondary me-2" data-msf-close>
+            {% translate 'Отмена' %}
+          </button>
+          <button type="button" class="btn btn-sm btn-primary" data-msf-apply>
+            {% translate 'Применить' %}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
-</details>
+</div>
+
+<style>
+.ms-filter-root { display: inline-block; }
+.ms-filter-btn { max-width: 260px; }
+.ms-filter-btn .ms-filter-summary {
+  font-weight: 600;
+  max-width: 160px;
+  display: inline-block;
+  vertical-align: bottom;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msf-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.5);
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh 12px 12px;
+}
+.msf-overlay.open { display: flex; }
+.msf-dialog {
+  background: #fff;
+  color: #212529;
+  border-radius: 8px;
+  width: min(560px, 94vw);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.msf-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #dee2e6;
+  font-weight: 600;
+  font-size: 15px;
+}
+.msf-close {
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: #6c757d;
+  padding: 0 4px;
+}
+.msf-close:hover { color: #000; }
+.msf-search-wrap { padding: 10px 14px 6px; }
+.msf-search { font-size: 13px !important; }
+.msf-list {
+  overflow-y: auto;
+  padding: 4px 14px;
+  min-height: 120px;
+}
+.msf-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  margin: 0;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.msf-item:hover { background: #f0f4ff; }
+.msf-item input[type="checkbox"] { flex-shrink: 0; margin: 0; cursor: pointer; }
+.msf-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msf-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-top: 1px solid #dee2e6;
+}
+/* тёмная тема (Jazzmin darkly / data-bs-theme) */
+:is(body.dark-mode, body.theme-darkly, [data-bs-theme="dark"]) .msf-dialog {
+  background: #343a40;
+  color: #fff;
+}
+:is(body.dark-mode, body.theme-darkly, [data-bs-theme="dark"]) .msf-header,
+:is(body.dark-mode, body.theme-darkly, [data-bs-theme="dark"]) .msf-footer {
+  border-color: #6c757d;
+}
+:is(body.dark-mode, body.theme-darkly, [data-bs-theme="dark"]) .msf-close { color: #adb5bd; }
+:is(body.dark-mode, body.theme-darkly, [data-bs-theme="dark"]) .msf-close:hover { color: #fff; }
+:is(body.dark-mode, body.theme-darkly, [data-bs-theme="dark"]) .msf-item:hover { background: rgba(255, 255, 255, 0.08); }
+:is(body.dark-mode, body.theme-darkly, [data-bs-theme="dark"]) .msf-search {
+  background-color: #343a40 !important;
+  color: #fff !important;
+  border-color: #6c757d !important;
+}
+</style>
+
 <script>
 (function() {
-  if (window.__multiSelectComboInit) return;
-  window.__multiSelectComboInit = true;
-  function applyCombo(sel) {
-    var wrap = sel.closest('.multi-select-combo-wrap');
-    var param = wrap.getAttribute('data-param');
-    var sp = new URLSearchParams(window.location.search);
-    sp.delete(param);
-    Array.prototype.forEach.call(sel.selectedOptions, function(opt) {
-      sp.append(param, opt.value);
-    });
-    var next = sp.toString();
-    var cur = window.location.search.replace(/^\?/, '');
-    if (next !== cur) window.location.search = next;
+  if (window.__msfInit) return;
+  window.__msfInit = true;
+
+  function summaryText(root) {
+    var checked = root.querySelectorAll('.msf-cb:checked');
+    if (!checked.length) return '{% translate "Все"|escapejs %}';
+    if (checked.length === 1) {
+      return checked[0].closest('.msf-item').querySelector('.msf-label').textContent.trim();
+    }
+    return '{% translate "Выбрано"|escapejs %}: ' + checked.length;
   }
+
+  function refreshSummary(root) {
+    root.querySelector('.ms-filter-summary').textContent = summaryText(root);
+  }
+
+  function openModal(root) {
+    root.querySelector('[data-msf-overlay]').classList.add('open');
+    var s = root.querySelector('.msf-search');
+    s.value = '';
+    s.dispatchEvent(new Event('input'));
+    setTimeout(function() { s.focus(); }, 50);
+  }
+
+  function closeModal(root) {
+    root.querySelector('[data-msf-overlay]').classList.remove('open');
+    refreshSummary(root);
+  }
+
   function init() {
-    document.querySelectorAll('select.multi-select-combo').forEach(function(sel) {
-      if (sel.dataset.msInit) return;
-      sel.dataset.msInit = '1';
-      sel.addEventListener('change', function() { applyCombo(sel); });
-      try {
-        if (window.jQuery && jQuery.fn && jQuery.fn.select2) {
-          jQuery(sel).select2({
-            placeholder: '',
-            allowClear: true,
-            closeOnSelect: false,
-            width: '100%'
-          }).on('change', function() { applyCombo(sel); });
+    document.querySelectorAll('.ms-filter-root').forEach(function(root) {
+      if (root.dataset.msfInit) { refreshSummary(root); return; }
+      root.dataset.msfInit = '1';
+      var param = root.getAttribute('data-param');
+      var overlay = root.querySelector('[data-msf-overlay]');
+      var search = root.querySelector('.msf-search');
+      var items = root.querySelectorAll('.msf-item');
+      var empty = root.querySelector('.msf-empty');
+
+      root.querySelector('[data-msf-open]').addEventListener('click', function(e) {
+        e.preventDefault();
+        openModal(root);
+      });
+      root.querySelectorAll('[data-msf-close]').forEach(function(btn) {
+        btn.addEventListener('click', function() { closeModal(root); });
+      });
+      overlay.addEventListener('mousedown', function(e) {
+        if (e.target === overlay) closeModal(root);
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal(root);
+      });
+
+      search.addEventListener('input', function() {
+        var q = search.value.toLowerCase();
+        var visible = 0;
+        items.forEach(function(item) {
+          var label = item.querySelector('.msf-label').textContent.toLowerCase();
+          var show = label.indexOf(q) !== -1;
+          item.style.display = show ? '' : 'none';
+          if (show) visible++;
+        });
+        empty.classList.toggle('d-none', visible > 0);
+      });
+      // Enter в поиске — не сабмитить форму changelist, а применить фильтр
+      search.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          root.querySelector('[data-msf-apply]').click();
         }
-      } catch (e) { /* fallback: native multiselect */ }
+      });
+
+      root.querySelector('[data-msf-apply]').addEventListener('click', function() {
+        var checked = root.querySelectorAll('.msf-cb:checked');
+        var sp = new URLSearchParams(window.location.search);
+        sp.delete(param);
+        checked.forEach(function(cb) { sp.append(param, cb.value); });
+        var next = sp.toString();
+        var cur = window.location.search.replace(/^\?/, '');
+        if (next !== cur) { window.location.search = next; return; }
+        closeModal(root);
+      });
+
+      refreshSummary(root);
     });
   }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+
+  document.addEventListener('DOMContentLoaded', init);
+  document.body.addEventListener('htmx:afterSwap', init);
+  init();
 })();
 </script>

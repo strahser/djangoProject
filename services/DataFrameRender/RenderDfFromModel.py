@@ -1,5 +1,6 @@
 from datetime import datetime
 from functools import reduce
+from loguru import logger
 import pandas as pd
 from dataclasses import dataclass, asdict
 from django.db import models
@@ -139,7 +140,7 @@ def create_filter(request, _df: pd.DataFrame, column_name: str) -> pd.Series:
             res = _df[column_name].isin(request_data)
             return res
         except Exception as e:
-            print(e)
+            logger.exception(f'create_filter({column_name}): {e}')
             return pd.Series()
     else:
         return _df[column_name].apply(lambda x: True)
@@ -160,7 +161,7 @@ def apply_filter(request, _df: pd.DataFrame, _filtered_value_list: list[str]) ->
         if not dt_query.empty:  # если есть только data filter
             return dt_query
     except Exception as e:
-        print(e)
+        logger.exception(f'apply_filter: {e}')
         return pd.Series()
 
 

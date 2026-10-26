@@ -1,5 +1,4 @@
 import re
-import sys
 from loguru import logger
 from django.utils import timezone
 
@@ -10,8 +9,8 @@ from .html_importer import ensure_tag, link_tags_to_message
 
 
 def _log(msg):
-    print(f"[TGParser] {msg}", flush=True)
-    sys.stdout.flush()
+    # Лог в файл (logs/telegram_parser.log), а не в консоль runserver.
+    logger.info(f"[TGParser] {msg}")
 
 
 def extract_tags_from_entities(message):

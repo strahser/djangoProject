@@ -162,7 +162,7 @@ def record_draft_attachments(email_obj, attachment_objs):
             Attachment.objects.create(
                 email=email_obj,
                 filename=att.filename,
-                file_path=att.file_path,
+                file_path=att.resolved_path,
                 size=att.size,
                 content_type=att.content_type,
             )

@@ -1,4 +1,3 @@
-import sys
 import threading
 import traceback
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -6,8 +5,9 @@ from loguru import logger
 
 
 def _log(msg):
-    print(f"[TGParser-Scheduler] {msg}", flush=True)
-    sys.stdout.flush()
+    # Лог в файл (logs/telegram_parser.log), а не в консоль runserver:
+    # прогресс парсинга не должен мешать работе приложения.
+    logger.info(f"[TGParser-Scheduler] {msg}")
 
 
 def _run_parse_in_thread(channel_username):

@@ -11,7 +11,7 @@ from import_export.fields import Field
 
 from AdminUtils import duplicate_event, get_standard_display_list, get_filtered_registered_models
 from email_ui.models import EmailTaskLink
-from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog
+from ProjectContract.models import Contract, ContractPayments, PaymentCalendar, ConcretePaymentCalendar, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog, Act, EstimateTaskLink
 from ProjectTDL.Tables import StaticFilterSettings
 from mptt.admin import MPTTModelAdmin
 from ProjectTDL.models import TaskDueDateHistory, TaskNode
@@ -34,7 +34,7 @@ class TaskNodeResource(resources.ModelResource):
     building_number__name__name = Field(attribute='building_number__name__name', column_name='building')
     building_number__building_number = Field(attribute='building_number__building_number')
     design_chapter__short_name = Field(attribute='design_chapter__short_name', column_name='design chapter')
-    design_chapter__full_name = Field(attribute='design_chapter__name', column_name='design chapter')
+    design_chapter__full_name = Field(attribute='design_chapter__name', column_name='design chapter full')
     name = Field(attribute='name')
     description = Field(attribute='description')
     status__name = Field(attribute='status__name')
@@ -43,11 +43,14 @@ class TaskNodeResource(resources.ModelResource):
 
     class Meta:
         model = TaskNode
+        # Поля, объявленные выше через Field(), должны попасть в whitelist —
+        # иначе django-import-export ругается warning'ом и молча не выгружает
+        # их (было: design_chapter__full_name и price).
         fields = ('id', 'project_site__name',
                   'building_number__name__name',
                   'building_number__building_number',
-                  'design_chapter__short_name', 'name', 'description',
-                  'status__name', 'due_date'
+                  'design_chapter__short_name', 'design_chapter__full_name',
+                  'name', 'description', 'status__name', 'due_date', 'price'
                   )
         export_order = ('id', 'project_site__name')
 
@@ -84,6 +87,15 @@ class TaskInline(admin.StackedInline):
         return field
 
 
+class TaskEstimateLinkInline(admin.TabularInline):
+    """Inline для связей позиций смет с задачей (EstimateTaskLink)."""
+    model = EstimateTaskLink
+    fk_name = 'task_node'
+    extra = 0
+    fields = ['estimate_concept', 'link_type', 'note']
+    autocomplete_fields = ('estimate_concept',)
+
+
 class TaskEmailLinkInline(admin.TabularInline):
     """Inline для связей писем с задачей (EmailTaskLink)."""
     model = EmailTaskLink
@@ -109,7 +121,7 @@ class TaskEmailLinkInline(admin.TabularInline):
         pass
 
 
-excluding_list = [TaskNode, Contract, DesignChapter, ContractPayments, PaymentCalendar, ConcretePaymentCalendar, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog]
+excluding_list = [TaskNode, Contract, DesignChapter, ContractPayments, PaymentCalendar, ConcretePaymentCalendar, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog, Act, EstimateTaskLink]
 
 
 @admin.register(*get_filtered_registered_models('ProjectContract', excluding_list))
@@ -142,7 +154,7 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
     list_filter = ['project_site__name', 'building_number',
                    'status', 'category', 'contractor', 'contract', 'node_type', ]
     search_fields = ['name', 'project_site__name', 'contractor__name']
-    inlines = [TaskInline, TaskEmailLinkInline, TaskDueDateHistoryInline]
+    inlines = [TaskInline, TaskEmailLinkInline, TaskEstimateLinkInline, TaskDueDateHistoryInline]
     resource_classes = [TaskNodeResource]
     list_per_page = 20
     actions_on_bottom = True
@@ -161,9 +173,30 @@ class TaskNodeAdmin(MPTTModelAdmin, ImportExportModelAdmin):
                     email=email, task_node=obj,
                     link_type='created_from', created_by=request.user,
                 )
+                # M2M «Задачи письма» читает email.tasks, а не EmailTaskLink —
+                # без этой строки созданная из письма задача в блоке не видна.
+                email.tasks.add(obj)
             except Exception as e:
                 # Раньше молча терялась связь «задача из письма» — теперь в лог.
                 logger.warning(f'Не linked email {email_id} к задаче {obj.pk}: {e}')
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == 'owner':
+            # Владельцы задач — только суперпользователи (в базе это ssg).
+            # Раньше в селект попадали сервисные и тестовые учётки
+            # (docagent, tmpcheck, tmpcheck2) — «много суперпользователей».
+            from django.contrib.auth import get_user_model
+            kwargs['queryset'] = (get_user_model().objects
+                                  .filter(is_superuser=True, is_active=True)
+                                  .order_by('username'))
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        # Владелец по умолчанию — текущий пользователь.
+        if request.user.is_authenticated:
+            initial.setdefault('owner', request.user.pk)
+        return initial
 
     def response_add(self, request, obj, post_url_continue=None):
         next_url = request.POST.get('_next')

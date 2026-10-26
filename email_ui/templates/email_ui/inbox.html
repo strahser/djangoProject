@@ -30,6 +30,10 @@
             <i class="bi bi-funnel me-1"></i> Фильтры и поиск
             {% if active_filter_count %}<span class="badge bg-primary ms-1">{{ active_filter_count }}</span>{% endif %}
         </button>
+        <button type="button" id="preview-toggle-btn" class="btn btn-outline-secondary btn-sm" title="Панель просмотра рядом со списком"
+                onclick="if(window.EmailPreview) EmailPreview.toggle();">
+            <i class="bi bi-layout-split me-1"></i> Просмотр
+        </button>
         <div id="selected-filters-summary" class="flex-grow-1">
             {% include "email_ui/partials/selected_filters_summary.html" %}
         </div>
@@ -54,6 +58,10 @@
                     <a href="{% url 'email_ui:inbox' folder %}" class="btn btn-outline-danger btn-sm">
                         <i class="bi bi-x-circle"></i> Сброс
                     </a>
+                    <button type="button" class="btn btn-outline-primary btn-sm"
+                            onclick="EmailApp.openModal('{% url 'email_ui:saved_filters_modal' %}'); return false;">
+                        <i class="bi bi-bookmark-star"></i> Сохранённые
+                    </button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Закрыть</button>
                     <button type="submit" class="btn btn-primary btn-sm" form="filter-form">
                         <i class="bi bi-search me-1"></i>Найти
@@ -105,10 +113,22 @@
         </form>
     </div>
 
-    <div class="card">
+    <div id="inbox-split">
+    <div class="card" id="email-list-card">
         <div class="card-body p-0" id="email-list-container">
             {% include "email_ui/partials/email_list.html" %}
         </div>
+    </div>
+    <div class="card" id="preview-pane-card">
+        <div class="card-header py-2 d-flex align-items-center">
+            <h6 class="mb-0"><i class="bi bi-eye me-1"></i>Просмотр</h6>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto py-0" title="Закрыть просмотр"
+                    onclick="if(window.EmailPreview) EmailPreview.close();">×</button>
+        </div>
+        <div class="card-body" id="preview-pane">
+            <div class="text-muted small">Включите «Просмотр» и выберите письмо в списке</div>
+        </div>
+    </div>
     </div>
 </div>
 
@@ -145,5 +165,58 @@ function moveToFolder(folderName) {
     form.appendChild(actionInput);
     form.requestSubmit();
 }
+/* Панель просмотра рядом со списком: клик по строке грузит модальный
+   контент письма в боковую панель вместо перехода. Состояние — в localStorage. */
+window.EmailPreview = (function() {
+    var KEY = 'email-preview-pane';
+    function enabled() {
+        try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+    }
+    function apply() {
+        var split = document.getElementById('inbox-split');
+        var btn = document.getElementById('preview-toggle-btn');
+        if (split) split.classList.toggle('preview-on', enabled());
+        if (btn) btn.classList.toggle('active', enabled());
+    }
+    return {
+        enabled: enabled,
+        apply: apply,
+        toggle: function() {
+            try { localStorage.setItem(KEY, enabled() ? '0' : '1'); } catch (e) {}
+            apply();
+        },
+        open: function(id, row) {
+            document.querySelectorAll('.email-row.preview-active').forEach(function(r) {
+                r.classList.remove('preview-active');
+            });
+            if (row) {
+                row.classList.add('preview-active');
+                row.classList.remove('unread');
+            }
+            var url = '{% url "email_ui:email_detail" 0 %}'.replace('/0/', '/' + id + '/') + 'modal/';
+            htmx.ajax('GET', url, {target: '#preview-pane', swap: 'innerHTML'});
+        },
+        close: function() {
+            var pane = document.getElementById('preview-pane');
+            if (pane) pane.innerHTML = '<div class="text-muted small">Выберите письмо в списке</div>';
+            document.querySelectorAll('.email-row.preview-active').forEach(function(r) {
+                r.classList.remove('preview-active');
+            });
+        }
+    };
+})();
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.EmailPreview) EmailPreview.apply();
+    var list = document.getElementById('email-list-container');
+    if (list) list.addEventListener('click', function(e) {
+        if (!window.EmailPreview || !EmailPreview.enabled()) return;
+        if (e.target.closest('input,a,button,select,textarea')) return;
+        var row = e.target.closest('tr.email-row');
+        if (!row || !row.dataset.emailId) return;
+        e.stopPropagation();
+        e.preventDefault();
+        EmailPreview.open(row.dataset.emailId, row);
+    }, true);
+});
 </script>
 {% endblock %}

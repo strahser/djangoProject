@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from loguru import logger
 from imap_tools import AND, MailBox
+from imap_tools.errors import MailboxLoginError
 
 from Emails.models import Email, Attachment
 from Emails.ЕmailParser.EmailImapMessage import EmailImapMessage
@@ -101,7 +102,7 @@ class ParsingImapEmailToDB:
 
             if saved_path and not self._is_skippable_attachment(attach.filename):
                 try:
-                    Attachment.objects.get_or_create(
+                    obj, created = Attachment.objects.get_or_create(
                         email=email_obj,
                         filename=attach.filename,
                         defaults={
@@ -112,6 +113,14 @@ class ParsingImapEmailToDB:
                             'is_inline': bool(getattr(attach, 'is_inline', False)),
                         },
                     )
+                    if created:
+                        try:
+                            from email_ui.services.file_text import index_attachment
+                            index_attachment(obj)
+                        except FileNotFoundError:
+                            pass
+                        except Exception as e:
+                            logger.error(f"Ошибка индексации текста {attach.filename}: {e}")
                 except Exception as e:
                     logger.error(f"Ошибка создания записи вложения {attach.filename}: {e}")
 
@@ -139,6 +148,18 @@ class ParsingImapEmailToDB:
             YA_USER, YA_PASSWORD, initial_folder=folder
         )
 
+    @staticmethod
+    def _is_transient_login_error(exc: MailboxLoginError) -> bool:
+        """Ошибка входа, которую стоит повторить.
+
+        Яндекс периодически отвечает ``[UNAVAILABLE] LOGIN internal server
+        error`` — это его временная внутренняя ошибка, а не проблема с
+        паролем. Настоящая ошибка учётных данных выглядит иначе
+        (``AUTHENTICATIONFAILED``) — её повторять бессмысленно.
+        """
+        text = str(exc).upper()
+        return 'UNAVAILABLE' in text or 'INTERNAL SERVER ERROR' in text
+
     def _login_with_retry(self, folder: str) -> MailBox:
         """Вход с ретраями: Яндекс регулярно рвёт соединение (BYE).
 
@@ -149,6 +170,25 @@ class ParsingImapEmailToDB:
         for attempt in range(1, self.LOGIN_RETRIES + 1):
             try:
                 return self._login(folder)
+            except MailboxLoginError as e:
+                # Ошибка входа: либо временная ошибка сервера Яндекса
+                # (повторяем), либо неверные учётные данные (не повторяем).
+                if not self._is_transient_login_error(e):
+                    logger.warning(
+                        f"IMAP ({folder}): вход отклонён ({e}) — проверьте "
+                        "пароль приложения Яндекс.Почты"
+                    )
+                    raise
+                last_exc = e
+                if attempt < self.LOGIN_RETRIES:
+                    delay = self.LOGIN_RETRY_DELAYS[min(attempt - 1, len(self.LOGIN_RETRY_DELAYS) - 1)]
+                    logger.warning(
+                        f"IMAP ({folder}): сервер Яндекса временно недоступен "
+                        f"({e}), вход {attempt}/{self.LOGIN_RETRIES}, "
+                        f"повтор через {delay} c..."
+                    )
+                    time.sleep(delay)
+                continue
             except self._CONN_ERRORS as e:
                 last_exc = e
                 if attempt < self.LOGIN_RETRIES:
@@ -318,6 +358,14 @@ class ParsingImapEmailToDB:
             # Папка пропускается, следующий прогон (или ретрай) её доберёт.
             logger.warning(f"IMAP ({folder}): нет соединения с сервером ({e}) — пропускаю")
             self.error_list.append(f'IMAP connection ({folder}): {e}')
+        except MailboxLoginError as e:
+            # Отказ во входе: проблема на стороне сервера Яндекса или в
+            # учётных данных. Это НЕ ошибка нашего кода — короткое
+            # сообщение без traceback, иначе лог забивается стеком.
+            logger.warning(
+                f"IMAP ({folder}): вход не выполнен ({e}) — папка пропущена"
+            )
+            self.error_list.append(f'IMAP login ({folder}): {e}')
         except Exception as e:
             logger.exception(f"Ошибка подключения к IMAP ({folder}): {e}")
             self.error_list.append(f'IMAP connection ({folder}): {e}')

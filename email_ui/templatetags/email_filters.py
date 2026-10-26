@@ -2,6 +2,8 @@ import hashlib
 import re
 
 from django import template
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
 
 register = template.Library()
 
@@ -109,6 +111,25 @@ def canon_emails(value):
     """Список через запятую (receiver/cc): только твёрдые почты."""
     from email_ui.utils import canonical_address_list
     return canonical_address_list(value or '')
+
+
+@register.filter
+def hl(value, words):
+    """Подсветка слов поиска (<mark>) в строке списка писем.
+
+    words — список из highlight_words (минус-токены уже исключены).
+    Вход сначала экранируется, совпадения — регистронезависимо
+    (Python re корректно складывает и кириллицу).
+    """
+    if not value or not words:
+        return value
+    if isinstance(words, str):
+        words = [words]
+    words = sorted({w for w in (words or []) if w}, key=len, reverse=True)
+    if not words:
+        return value
+    pattern = re.compile('(' + '|'.join(re.escape(w) for w in words) + ')', re.IGNORECASE)
+    return mark_safe(pattern.sub(r'<mark>\1</mark>', escape(str(value))))
 
 
 @register.filter

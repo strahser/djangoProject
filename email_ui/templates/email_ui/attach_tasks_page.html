@@ -107,9 +107,12 @@
         <div class="d-flex align-items-center justify-content-between p-3 border-top">
           <span class="text-muted small">Выбрано: <b id="task-pick-count">0</b></span>
           <div>
-            <a href="{% url 'admin:ProjectTDL_tasknode_add' %}?_next={{ request.GET.next|default:''|urlencode }}&amp;email_id={{ email.pk }}" class="btn btn-outline-success btn-sm me-2">
+            <button type="submit" class="btn btn-outline-success btn-sm me-2"
+                    formaction="{% url 'email_ui:create_task_from_email' email.pk %}"
+                    formmethod="post"
+                    title="Создать задачу с темой письма и сразу прикрепить письмо">
               <i class="bi bi-plus-circle me-1"></i>Создать задачу
-            </a>
+            </button>
             <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ request.GET.next|default:'/'|urlencode }}" class="btn btn-outline-secondary btn-sm me-2">Отмена</a>
             <button type="submit" class="btn btn-primary" id="task-attach-submit" disabled>
               <i class="bi bi-link-45deg me-1"></i>Прикрепить выбранные

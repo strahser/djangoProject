@@ -145,8 +145,9 @@ class EmailSenderService:
                 msg.attach(part)
                 return
 
-            if hasattr(att, 'file_path') and att.file_path and os.path.exists(att.file_path):
-                with open(att.file_path, 'rb') as f:
+            att_path = getattr(att, 'resolved_path', None)
+            if att_path and os.path.exists(att_path):
+                with open(att_path, 'rb') as f:
                     part = MIMEApplication(f.read(), Name=att.filename)
                 part['Content-Disposition'] = f'attachment; filename="{att.filename}"'
                 if hasattr(att, 'content_id') and att.content_id:
@@ -194,8 +195,9 @@ class EmailSenderService:
         if attachments:
             for att in attachments:
                 try:
-                    if hasattr(att, 'file_path') and os.path.exists(att.file_path):
-                        mail.Attachments.Add(att.file_path)
+                    att_path = getattr(att, 'resolved_path', None)
+                    if att_path and os.path.exists(att_path):
+                        mail.Attachments.Add(att_path)
                 except Exception as e:
                     logger.warning(f'Не удалось прикрепить {getattr(att, "filename", "?")}: {e}')
 

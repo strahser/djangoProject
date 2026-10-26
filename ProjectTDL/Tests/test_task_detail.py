@@ -2,6 +2,7 @@
 наименование/описание, привязка писем из вкладки «Письма» (DMX-5).
 """
 import json
+from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -59,6 +60,40 @@ class TaskDetailTest(TestCase):
         self.assertEqual(json.loads(r.content)['status'], 'error')
         self.task.refresh_from_db()
         self.assertEqual(self.task.name, 'Задача')
+
+    def test_update_status_due_price(self):
+        url = reverse('update_task_field')
+        closed = Status.objects.create(name='Закрыто')
+        r = self.client.post(url, {'task_id': self.task.pk,
+                                   'field': 'status',
+                                   'value': str(closed.pk)})
+        self.assertEqual(json.loads(r.content)['status'], 'ok')
+        r = self.client.post(url, {'task_id': self.task.pk,
+                                   'field': 'due_date', 'value': '2026-12-31'})
+        self.assertEqual(json.loads(r.content)['status'], 'ok')
+        r = self.client.post(url, {'task_id': self.task.pk,
+                                   'field': 'price', 'value': '12,34'})
+        self.assertEqual(json.loads(r.content)['status'], 'ok')
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, closed)
+        self.assertEqual(str(self.task.due_date), '2026-12-31')
+        self.assertEqual(self.task.price, Decimal('12.34'))
+
+    def test_update_stranger_forbidden(self):
+        other = User.objects.create_user(username='td_stranger', password='pw')
+        self.client.force_login(other)
+        url = reverse('update_task_field')
+        r = self.client.post(url, {'task_id': self.task.pk,
+                                   'field': 'name', 'value': 'Чужое'})
+        self.assertEqual(json.loads(r.content)['status'], 'error')
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.name, 'Задача')
+
+    def test_update_unknown_field_rejected(self):
+        url = reverse('update_task_field')
+        r = self.client.post(url, {'task_id': self.task.pk,
+                                   'field': 'hacker', 'value': 'x'})
+        self.assertEqual(json.loads(r.content)['status'], 'error')
 
     def test_list_header_has_select_all_checkbox(self):
         # Регрессия «отвалился чекбокс выбрать все»: CheckBoxColumn рисует

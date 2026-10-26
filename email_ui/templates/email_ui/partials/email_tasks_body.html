@@ -1,8 +1,20 @@
 {% for task in email.tasks.all %}
-<span class="badge bg-info mb-1 me-1">{{ task.name }}
-  <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white ms-1">&times;</a>
+<span class="badge bg-info mb-1 me-1">
+  <a href="{% url 'task_detail' task.pk %}" class="text-white text-decoration-none me-1" title="Открыть задачу">
+    {{ task.name }} <i class="bi bi-box-arrow-up-right" style="font-size:10px;"></i>
+  </a>
+  <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white ms-1" title="Отвязать от письма">&times;</a>
 </span>
 {% empty %}<span class="text-muted">Нет привязанных задач</span>
 {% endfor %}
-<a href="{% url 'email_ui:attach_tasks_page' email.pk %}" class="btn btn-outline-primary btn-sm ms-2">
-        <i class="bi bi-plus-lg"></i> Прикрепить задачу</a>
+<div class="mt-2 d-flex gap-1 flex-wrap">
+  <a href="{% url 'email_ui:attach_tasks_page' email.pk %}?next={{ request.GET.next|default:''|urlencode }}" class="btn btn-outline-primary btn-sm">
+    <i class="bi bi-link-45deg"></i> Прикрепить задачу</a>
+  <button type="button" class="btn btn-outline-success btn-sm"
+          hx-post="{% url 'email_ui:create_task_from_email' email.pk %}"
+          hx-target="#email-tasks-body-{{ email.pk }}"
+          hx-swap="innerHTML"
+          hx-disabled-elt="this"
+          title="Создать задачу с темой письма и сразу прикрепить письмо">
+    <i class="bi bi-plus-circle"></i> Создать задачу</button>
+</div>

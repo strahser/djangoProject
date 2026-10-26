@@ -26,7 +26,13 @@
         <button class="btn btn-outline-primary btn-sm" id="thread-btn" onclick="toggleThread();return false;" title="Показать цепочку сообщений по теме">
             <i class="bi bi-chat-left-text me-1"></i>Цепочка
         </button>
-        <button class="btn btn-outline-primary btn-sm {% if email.is_important %}text-warning{% endif %}"
+        <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#metaModal" title="Дополнительные данные письма">
+            <i class="bi bi-info-circle me-1"></i>Данные
+        </button>
+        <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#emailTasksModal" title="Привязанные задачи">
+            <i class="bi bi-list-task me-1"></i>Задачи ({{ email.tasks.count|default:"0" }})
+        </button>
+        <button class="btn btn-outline-primary btn-sm {% if email.is_important %}text-warning{% endif %}" id="star-btn"
                 hx-post="{% url 'email_ui:toggle_important' email.pk %}" hx-target="this" hx-swap="outerHTML">
             <i class="bi {% if email.is_important %}bi-star-fill{% else %}bi-star{% endif %}"></i>
         </button>
@@ -68,84 +74,45 @@
 
     <div class="card mb-3">
         <div class="card-body">
-            <table class="table table-sm table-borderless mb-0">
-                <tr><td class="text-muted" style="width:80px;font-size:13px;">От:</td>
-                    <td class="fw-semibold">{{ email.sender|canon_email|default:"—" }}</td></tr>
-                <tr><td class="text-muted" style="font-size:13px;">Кому:</td>
-                    <td>{{ email.receiver|canon_emails|default:"—" }}</td></tr>
-                {% if email.cc|canon_emails %}
-                <tr><td class="text-muted" style="font-size:13px;">Копия:</td><td>{{ email.cc|canon_emails }}</td></tr>
-                {% endif %}
-                <tr><td class="text-muted" style="font-size:13px;">Дата:</td>
-                    <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td></tr>
-            </table>
+            <div class="d-flex gap-3 flex-wrap">
+                <table class="table table-sm table-borderless mb-0 flex-grow-1" style="min-width:280px;flex-basis:0;">
+                    <tr><td class="text-muted" style="width:80px;font-size:13px;">От:</td>
+                        <td class="fw-semibold">{{ email.sender|canon_email|default:"—" }}</td></tr>
+                    <tr><td class="text-muted" style="font-size:13px;">Кому:</td>
+                        <td>{{ email.receiver|canon_emails|default:"—" }}</td></tr>
+                    {% if email.cc|canon_emails %}
+                    <tr><td class="text-muted" style="font-size:13px;">Копия:</td><td>{{ email.cc|canon_emails }}</td></tr>
+                    {% endif %}
+                    <tr><td class="text-muted" style="font-size:13px;">Дата:</td>
+                        <td>{{ email.email_stamp|date:"d.m.Y H:i" }}</td></tr>
+                </table>
 
-            <div class="collapsible-section mt-3">
-                <div class="section-header collapsed" onclick="toggleSection(this)">
-                    <span><i class="bi bi-info-circle me-1"></i>Дополнительные данные</span>
-                    <i class="bi bi-chevron-down"></i>
-                </div>
-                <div class="section-body" id="metadata-block-{{ email.pk }}">
-                    {% include "email_ui/partials/metadata_display.html" %}
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card mb-3">
-        <div class="card-body">
-            <div class="collapsible-section">
-                <div class="section-header" onclick="toggleSection(this)">
-                    <span><i class="bi bi-list-task me-1"></i>Задачи ({{ email.tasks.count|default:"0" }})</span>
-                    <i class="bi bi-chevron-down"></i>
-                </div>
-                <div class="section-body" id="email-tasks-body-{{ email.pk }}">
-                    {% for task in email.tasks.all %}
-                    <span class="badge bg-info mb-1 me-1">
-                        <a href="{% url 'task_detail' task.pk %}" class="text-white text-decoration-none me-1" title="Просмотреть задачу">
-                            {{ task.name }} <i class="bi bi-box-arrow-up-right" style="font-size:10px;"></i>
-                        </a>
-                        <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white ms-1">&times;</a>
-                    </span>
-                    {% empty %}<span class="text-muted">Нет привязанных задач</span>
-                    {% endfor %}
-                    <div class="mt-2 d-flex gap-1 flex-wrap">
-                    <a href="{% url 'email_ui:attach_tasks_page' email.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-plus-lg"></i> Прикрепить задачу</a>
-                    <a href="{% url 'admin:ProjectTDL_tasknode_add' %}?_next={{ request.get_full_path|urlencode }}&amp;email_id={{ email.pk }}" class="btn btn-outline-success btn-sm">
-                            <i class="bi bi-plus-circle"></i> Создать задачу</a>
-                    <a href="{% url 'admin:ProjectTDL_tasknode_changelist' %}" class="btn btn-outline-info btn-sm">
-                            <i class="bi bi-list-task"></i> Просмотреть задачи</a>
+                <div class="flex-grow-1" style="min-width:300px;flex-basis:0;">
+                    <div class="collapsible-section mb-0">
+                        <div class="section-header" onclick="toggleSection(this)">
+                            <span><i class="bi bi-paperclip me-1"></i>Вложения ({{ email.attachments.count|default:"0" }})</span>
+                            <i class="bi bi-chevron-down"></i>
+                        </div>
+                        <div class="section-body">
+                            {% include "email_ui/partials/attachments_list.html" %}
+                            <form method="post" action="{% url 'email_ui:add_attachment' email.pk %}?next={{ next_url|urlencode }}" enctype="multipart/form-data" class="mt-2">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ next_url }}">
+                                <div class="input-group input-group-sm">
+                                    <input type="file" name="attachment_file" class="form-control" required>
+                                    <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-circle"></i></button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="collapsible-section">
-                <div class="section-header" onclick="toggleSection(this)">
-                    <span><i class="bi bi-paperclip me-1"></i>Вложения ({{ email.attachments.count|default:"0" }})</span>
-                    <i class="bi bi-chevron-down"></i>
-                </div>
-                <div class="section-body">
-                    {% include "email_ui/partials/attachments_list.html" %}
-                    <form method="post" action="{% url 'email_ui:add_attachment' email.pk %}?next={{ next_url|urlencode }}" enctype="multipart/form-data" class="mt-2">
-                        {% csrf_token %}
-                        <input type="hidden" name="next" value="{{ next_url }}">
-                        <div class="input-group input-group-sm">
-                            <input type="file" name="attachment_file" class="form-control" required>
-                            <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-circle"></i></button>
-                        </div>
-                    </form>
-                </div>
-            </div>
         </div>
     </div>
 
-    <div class="card">
-        <div class="card-body p-4">
-            <div class="border rounded p-4" style="border-color:var(--border-light)!important;min-height:200px;"
-                 hx-get="{% url 'email_ui:email_body' email.pk %}" hx-trigger="load" hx-target="this">
-                <div class="text-center p-4"><div class="spinner-border" style="color:var(--ya-yellow);"></div></div>
-            </div>
-        </div>
+    <div class="mb-3" style="min-height:200px;"
+         hx-get="{% url 'email_ui:email_body' email.pk %}" hx-trigger="load" hx-target="this">
+        <div class="text-center p-4"><div class="spinner-border" style="color:var(--ya-yellow);"></div></div>
     </div>
 </div>
 
@@ -153,6 +120,36 @@
 var detailIsDirty = false;
 var detailNextUrl = '{{ next_url|default:"/"|escapejs }}';
 var threadLoaded = false;
+/* Клавиши деталки: r/a/f — ответить/всем/переслать, e — в архив и назад,
+   s — звезда, u — непрочитанное и назад. В полях ввода молчат. */
+(function() {
+    function csrf() { return '{{ csrf_token }}'; }
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        var t = e.target;
+        if (t && t.closest && t.closest('input,textarea,select,[contenteditable="true"]')) return;
+        if (document.querySelector('.modal.show')) return;
+        var k = e.key;
+        if (k === 'r') EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'reply' %}');
+        else if (k === 'a') EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'reply_all' %}');
+        else if (k === 'f') EmailApp.openModal('{% url 'email_ui:reply_modal' email.pk 'forward' %}');
+        else if (k === 's') { var b = document.getElementById('star-btn'); if (b) b.click(); }
+        else if (k === 'e') {
+            fetch('{% url 'email_ui:move_to_folder' email.pk %}', {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrf(), 'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'folder=archive'
+            }).then(function() { window.location.href = detailNextUrl; });
+        }
+        else if (k === 'u') {
+            fetch('{% url 'email_ui:bulk_action' %}', {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrf(), 'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'selected_emails={{ email.pk|unlocalize }}&action=mark_unread&folder={{ email.folder }}'
+            }).then(function() { window.location.href = detailNextUrl; });
+        }
+    });
+})();
 function toggleThread() {
     var panel = document.getElementById('thread-panel');
     panel.classList.toggle('d-none');
@@ -167,27 +164,6 @@ function handleDetailClose() {
     if (!detailIsDirty) { window.location.href = detailNextUrl; return; }
     new bootstrap.Modal(document.getElementById('detailDraftModal')).show();
 }
-function assignTag(emailId, tagId, tagName, tagColor) {
-    fetch('{% url "email_ui:assign_tag" %}', {
-        method: 'POST',
-        headers: {'X-CSRFToken':'{{ csrf_token }}','Content-Type':'application/x-www-form-urlencoded'},
-        body: 'email_id='+emailId+'&tag_id='+tagId
-    }).then(r=>r.json()).then(data => {
-        markDetailDirty();
-        const container = document.getElementById('email-tags-'+emailId);
-        if (container) {
-            const badge = document.createElement('span');
-            badge.className = 'badge rounded-pill bg-warning text-dark'; badge.style.backgroundColor = tagColor;
-            badge.innerHTML = tagName+' <a href="#" class="text-white text-decoration-none">&times;</a>';
-            badge.querySelector('a').addEventListener('click', function(e){e.preventDefault();badge.remove();});
-            container.appendChild(badge);
-        }
-    });
-}
-function toggleSection(header) {
-    header.classList.toggle('collapsed');
-    header.nextElementSibling.classList.toggle('show');
-}
 function saveEmailChanges() {
     var el = document.querySelector('[id^="metadata-block-"]');
     var form = el ? el.querySelector('form') : null;
@@ -195,9 +171,13 @@ function saveEmailChanges() {
         htmx.trigger(form, 'submit');
     }
     clearDetailDirty();
-    showSaveToast('Изменения сохранены');
+    showToast('Изменения сохранены', 'success');
 }
 function saveEmailToDraft() {
+    clearDetailDirty();
+    postToDraft();
+}
+function postToDraft() {
     var form = document.createElement('form');
     form.method = 'POST';
     form.action = '{% url "email_ui:copy_to_draft" email.pk %}';
@@ -206,23 +186,35 @@ function saveEmailToDraft() {
     document.body.appendChild(form);
     form.submit();
 }
-function showSaveToast(msg) {
-    var container = document.getElementById('toast-container');
-    if (!container) {
-        container = document.createElement('div');
-        container.id = 'toast-container';
-        container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
-        container.style.zIndex = '9999';
-        document.body.appendChild(container);
-    }
-    var toast = document.createElement('div');
-    toast.className = 'toast show align-items-center text-bg-success border-0';
-    toast.role = 'alert';
-    toast.innerHTML = '<div class="d-flex"><div class="toast-body">' + msg + '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
-    container.appendChild(toast);
-    setTimeout(function(){ toast.remove(); }, 3000);
-}
 </script>
+
+<div class="modal fade" id="metaModal" tabindex="-1" aria-labelledby="metaModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="metaModalLabel"><i class="bi bi-info-circle me-1"></i>Дополнительные данные</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body" id="metadata-block-{{ email.pk }}">
+                {% include "email_ui/partials/metadata_display.html" %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="emailTasksModal" tabindex="-1" aria-labelledby="emailTasksModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="emailTasksModalLabel"><i class="bi bi-list-task me-1"></i>Задачи письма</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body" id="email-tasks-body-{{ email.pk }}">
+                {% include "email_ui/partials/email_tasks_body.html" %}
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="modal fade" id="detailDraftModal" tabindex="-1">
     <div class="modal-dialog modal-sm modal-dialog-centered">
@@ -242,11 +234,7 @@ function showSaveToast(msg) {
     document.getElementById('detail-draft-save-btn').addEventListener('click', function() {
         bootstrap.Modal.getInstance(document.getElementById('detailDraftModal')).hide();
         clearDetailDirty();
-        const form = document.createElement('form');
-        form.method = 'POST'; form.action = '{% url "email_ui:copy_to_draft" email.pk %}';
-        form.innerHTML = '<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">' +
-                         '<input type="hidden" name="next" value="' + detailNextUrl + '">';
-        document.body.appendChild(form); form.submit();
+        postToDraft();
     });
     document.getElementById('detail-draft-discard-btn').addEventListener('click', function() {
         bootstrap.Modal.getInstance(document.getElementById('detailDraftModal')).hide();

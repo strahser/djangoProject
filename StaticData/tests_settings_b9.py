@@ -25,7 +25,13 @@ class EnvFlagTest(TestCase):
         # 'testserver' сам — других быть не должно), пути продовые.
         # DEBUG в файле True (раннер тестов форсит False — его не проверяем).
         self.assertLessEqual(set(dj_settings.ALLOWED_HOSTS), {'testserver'})
-        self.assertTrue(dj_settings.MEDIA_ROOT.endswith('Переписка'))
+        # MEDIA_ROOT: продовый default либо локальный override DJANGO_MEDIA_ROOT
+        # (машинно-локальный .env, e:\ на dev-машине отсутствует).
+        media_override = os.environ.get('DJANGO_MEDIA_ROOT')
+        if media_override:
+            self.assertEqual(dj_settings.MEDIA_ROOT, media_override)
+        else:
+            self.assertTrue(dj_settings.MEDIA_ROOT.endswith('Переписка'))
         self.assertTrue(dj_settings.SECRET_KEY)
         with patch.dict(os.environ, {'DJANGO_DEBUG': 'False'}):
             self.assertFalse(_env_flag('DJANGO_DEBUG', True))

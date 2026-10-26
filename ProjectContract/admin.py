@@ -3,13 +3,12 @@ import sys
 from django.contrib import admin, messages
 
 from django.forms import Textarea
-from ProjectContract.models import ContractPayments, Contractor, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog
+from ProjectContract.models import ContractPayments, Contractor, ContractChangeLog, ContractReminder, TaskComment, Tag, TaggedItem, Attachment, CashflowEntry, PaymentTaskLink, ContractEstimate, EstimateConcept, ContractStageLog, Act, EstimateTaskLink
 from AdminUtils import get_standard_display_list, duplicate_event, duplicate_object
 from ProjectContract.PivotTableUtility import create_calendar_list_view, create_payment_calendar
 from ProjectContract.services import log_change
 
 from ProjectContract.form import ContractPaymentsAdminForm
-from ProjectContract.models import ContractPayments, Contractor, ContractChangeLog, CashflowEntry
 from django.db import models
 from django.db.models import Sum, Value, DecimalField
 from django.db.models.functions import Coalesce
@@ -22,91 +21,15 @@ from urllib.parse import urlencode
 from django.http import HttpResponseRedirect
 from django.shortcuts import redirect
 from django.urls import reverse, path
-from django.utils.translation import gettext_lazy as _
 logger.add(sys.stderr, format="{time} {level} {message}", filter="my_module", level="INFO")
 
 
-def _extract_scale(request):
-    """Забрать scale из GET, чтобы админ не считал его lookup-фильтром (?e=1).
-
-    Возвращает (scale, original_get). После super().changelist_view()
-    нужно вернуть request.GET обратно, чтобы шаблоны видели полный querystring.
-    """
-    original = request.GET
-    params = original.copy()
-    scale = params.pop('scale', ['day'])[0]
-    request.GET = params
-    return scale, original
-
-
-class ProjectSiteFilter(admin.SimpleListFilter):
-    title = _('Project Site')
-    parameter_name = 'project_site'
-
-    def lookups(self, request, model_admin):
-        project_sites = Contract.objects.values('project_site').distinct().order_by('project_site')
-        return [(str(ProjectSite.objects.get(id=site['project_site']).id),
-                 str(ProjectSite.objects.get(id=site['project_site']))) for site in project_sites]
-
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(contract__project_site=self.value())
-        return queryset
-
-
-class ContractorFilter(admin.SimpleListFilter):
-    title = _('Contractor')
-    parameter_name = 'contractor'
-
-    def lookups(self, request, model_admin):
-        project_site = request.GET.get('project_site')
-        contractors = Contract.objects.values('contractor').distinct().order_by('contractor')
-        if project_site:
-            contractors = contractors.filter(project_site=project_site)
-        return [(str(Contractor.objects.get(id=contractor['contractor']).id),
-                 str(Contractor.objects.get(id=contractor['contractor']))) for contractor in contractors]
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(contract__contractor=self.value())
-        return queryset
-
-
-class ContractFilter(admin.SimpleListFilter):
-    title = _('Contract')
-    parameter_name = 'contract'
-    def lookups(self, request, model_admin):
-        project_site = request.GET.get('project_site')
-        contractor = request.GET.get('contractor')
-        contracts = Contract.objects.all().order_by('name')
-        if project_site:
-           contracts = contracts.filter(project_site=project_site)
-        if contractor:
-           contracts = contracts.filter(contractor=contractor)
-        return contracts.values_list('id', 'name')
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(contract=self.value())
-        return queryset
-
-
-class PaymentTypeFilter(admin.SimpleListFilter):
-    title = _('Payment Type')
-    parameter_name = 'payment_type'
-
-
-    def lookups(self, request, model_admin):
-        contract_filter = request.GET.get('contract')
-        payment_types = ContractPayments.objects.values('payment_type').distinct().order_by('payment_type')
-        if contract_filter:
-            payment_types = payment_types.filter(contract=contract_filter)
-        return [(str(payment['payment_type']),
-                 str(ContractPayments.objects.filter(payment_type=payment['payment_type']).first().get_payment_type_display())) for payment in payment_types]
-
-
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(payment_type=self.value())
-        return queryset
+from .admin_filters import (
+    ConceptActFilter, ConceptContractFilter, ConceptContractorFilter,
+    ConceptEstimateFilter, ContractFilter, ContractorFilter,
+    EstimateContractFilter, EstimateContractorFilter, PaymentTypeFilter,
+    ProjectSiteFilter, _extract_scale,
+)
 
 
 class BaseAdmin(admin.ModelAdmin):
@@ -479,114 +402,6 @@ class EstimateConceptInline(admin.TabularInline):
     extra = 0
     fields = ('name', 'building_number', 'design_chapter', 'amount', 'task_node')
     autocomplete_fields = ('task_node',)
-    autocomplete_fields = ('task_node',)
-
-
-class MultiSelectFilterMixin:
-    """Мультиселект для SimpleListFilter: ?contract=73&contract=74.
-
-    Значения берутся из request.GET.getlist, в шаблоне — чекбоксы
-    (templates/admin/multi_select_filter.html).
-    """
-    template = 'admin/multi_select_filter.html'
-    lookup_arg = None  # например 'estimate__contract__in'
-
-    def value(self):
-        return [v for v in self.request.GET.getlist(self.parameter_name) if v]
-
-    def queryset(self, request, queryset):
-        vals = self.value()
-        if vals:
-            return queryset.filter(**{self.lookup_arg: vals})
-        return queryset
-
-    def choices(self, changelist):
-        vals = set(self.value())
-        yield {
-            'selected': not vals,
-            'query_string': changelist.get_query_string(remove=[self.parameter_name]),
-            'display': _('Все'),
-            'value': '',
-            'is_all': True,
-        }
-        for lookup, title in self.lookup_choices:
-            yield {
-                'selected': str(lookup) in vals,
-                'value': lookup,
-                'display': title,
-                'is_all': False,
-            }
-
-
-class EstimateContractorFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
-    """Подрядчик -> сужает договоры и сметы (каскад)."""
-    title = 'Подрядчик'
-    parameter_name = 'contractor'
-    lookup_arg = 'contract__contractor__in'
-
-    def lookups(self, request, model_admin):
-        ids = ContractEstimate.objects.values_list('contract__contractor', flat=True).distinct()
-        contractors = Contractor.objects.filter(id__in=ids).order_by('name')
-        return [(str(c.id), str(c)) for c in contractors]
-
-
-class EstimateContractFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
-    """Договор (только выбранного подрядчика)."""
-    title = 'Договор'
-    parameter_name = 'contract'
-    lookup_arg = 'contract__in'
-
-    def lookups(self, request, model_admin):
-        contracts = Contract.objects.all().order_by('name')
-        contractors = [v for v in request.GET.getlist('contractor') if v]
-        if contractors:
-            contracts = contracts.filter(contractor__in=contractors)
-        contracts = contracts.filter(estimates__isnull=False).distinct()
-        return [(str(c.id), str(c)) for c in contracts]
-
-
-class ConceptContractorFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
-    """Подрядчик -> сужает договоры и сметы (каскад)."""
-    title = 'Подрядчик'
-    parameter_name = 'contractor'
-    lookup_arg = 'estimate__contract__contractor__in'
-
-    def lookups(self, request, model_admin):
-        ids = EstimateConcept.objects.values_list('estimate__contract__contractor', flat=True).distinct()
-        contractors = Contractor.objects.filter(id__in=ids).order_by('name')
-        return [(str(c.id), str(c)) for c in contractors]
-
-
-class ConceptContractFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
-    """Договор (только выбранного подрядчика)."""
-    title = 'Договор'
-    parameter_name = 'contract'
-    lookup_arg = 'estimate__contract__in'
-
-    def lookups(self, request, model_admin):
-        contracts = Contract.objects.all().order_by('name')
-        contractors = [v for v in request.GET.getlist('contractor') if v]
-        if contractors:
-            contracts = contracts.filter(contractor__in=contractors)
-        contracts = contracts.filter(estimates__concepts__isnull=False).distinct()
-        return [(str(c.id), str(c)) for c in contracts]
-
-
-class ConceptEstimateFilter(MultiSelectFilterMixin, admin.SimpleListFilter):
-    """Смета (только выбранного договора/подрядчика)."""
-    title = 'Смета'
-    parameter_name = 'estimate'
-    lookup_arg = 'estimate__in'
-
-    def lookups(self, request, model_admin):
-        estimates = ContractEstimate.objects.all().order_by('name')
-        contractors = [v for v in request.GET.getlist('contractor') if v]
-        contracts = [v for v in request.GET.getlist('contract') if v]
-        if contractors:
-            estimates = estimates.filter(contract__contractor__in=contractors)
-        if contracts:
-            estimates = estimates.filter(contract__in=contracts)
-        return [(str(e.id), f'{e.name} ({e.contract})') for e in estimates]
 
 
 @admin.register(ContractEstimate)
@@ -618,11 +433,178 @@ class ContractEstimateAdmin(admin.ModelAdmin):
         self.message_user(request, f'Утверждено смет: {updated}')
 
 
+class EstimateTaskLinkInline(admin.TabularInline):
+    model = EstimateTaskLink
+    fk_name = 'estimate_concept'
+    extra = 0
+    fields = ('task_node', 'link_type', 'note', 'created_by')
+    readonly_fields = ('created_by',)
+    autocomplete_fields = ('task_node',)
+
+
 @admin.register(EstimateConcept)
 class EstimateConceptAdmin(admin.ModelAdmin):
-    list_display = ['id', 'name', 'building_number', 'design_chapter', 'estimate', 'amount', 'task_node']
-    list_filter = ['estimate__status', ConceptContractorFilter, ConceptContractFilter, ConceptEstimateFilter, 'building_number', 'design_chapter']
-    search_fields = ['name', 'estimate__name', 'task_node__name']
-    fields = ['name', 'building_number', 'design_chapter', 'estimate', 'amount', 'task_node']
+    list_display = ['id', 'name', 'building_number', 'design_chapter', 'contract_name', 'amount', 'act', 'task_node']
+    list_filter = ['estimate__status', ConceptContractorFilter, ConceptContractFilter, ConceptEstimateFilter, ConceptActFilter, 'building_number', 'design_chapter']
+    search_fields = ['name', 'estimate__name', 'task_node__name', 'act__number']
+    fields = ['name', 'building_number', 'design_chapter', 'estimate', 'amount', 'act', 'task_node']
     autocomplete_fields = ('estimate', 'task_node')
+    list_per_page = 20
+    inlines = (EstimateTaskLinkInline,)
+    actions = ('create_tasks_from_concepts',)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'estimate__contract__contractor', 'building_number__name',
+            'design_chapter', 'act__contract')
+
+    @admin.display(description='Договор', ordering='estimate__contract__name')
+    def contract_name(self, obj):
+        est = obj.estimate
+        return est.contract if est and est.contract else None
+
+    @admin.action(description='Создать задачи из позиций (незакрытые, без задач)')
+    def create_tasks_from_concepts(self, request, queryset):
+        """Массовое создание задач TaskNode из позиций сметы.
+
+        Только позиции без акта (act__isnull) И без задач (нет связок
+        EstimateTaskLink и пустое task_node) — «которых нет сейчас».
+        Группировка под родительскую суммарную задачу («<Договор> — работы
+        по смете», одна на договор, переиспользуется) — ОПЦИЯ, по умолчанию
+        выключена: плоские корневые задачи. Цена родителя = сумме позиций
+        под ним. Поле task_node ставится только при первом создании
+        (основная задача); все создания фиксируются в EstimateTaskLink.
+        """
+        from django.shortcuts import render
+        from ProjectTDL.services.task_mutations import (
+            create_task_with_defaults, get_or_create_contract_summary,
+        )
+
+        ids = request.POST.getlist('_selected_action')
+        if 'apply' in request.POST and ids:
+            group = request.POST.get('group_by_contract') == '1'
+            concepts = EstimateConcept.objects.filter(
+                pk__in=ids, act__isnull=True).select_related(
+                'estimate__contract__contractor',
+                'estimate__contract__project_site',
+                'building_number', 'design_chapter', 'estimate__contract'
+            ).prefetch_related('task_links')
+            # Группируем по договору в порядке позиций (стабильно).
+            groups = {}
+            no_contract, skipped_closed, skipped_linked = 0, 0, 0
+            for concept in concepts.order_by('id'):
+                est = concept.estimate
+                contract = est.contract if est else None
+                if contract is None:
+                    no_contract += 1
+                    continue
+                groups.setdefault(contract.pk, (contract, []))[1].append(concept)
+            skipped_closed = len(ids) - concepts.count()
+            created_parents, created_children = 0, 0
+            for contract, group_concepts in groups.values():
+                parent = None
+                if group:
+                    parent, was_created = get_or_create_contract_summary(
+                        owner=request.user, contract=contract)
+                    if was_created:
+                        created_parents += 1
+                        log_change(task=parent, action='task:summary_created',
+                                   details=f'суммарная задача договора {contract} '
+                                           f'для позиций сметы',
+                                   user=request.user)
+                for concept in group_concepts:
+                    if (concept.task_node_id is not None
+                            or concept.task_links.exists()):
+                        skipped_linked += 1
+                        continue
+                    task = create_task_with_defaults(
+                        owner=request.user,
+                        name=(concept.name or '')[:150],
+                        project_site_id=contract.project_site_id,
+                        contractor_id=contract.contractor_id,
+                        building_number_id=concept.building_number_id,
+                        parent=parent,
+                        node_type='subtask' if group else 'task',
+                    )
+                    task.design_chapter_id = concept.design_chapter_id
+                    task.contract_id = contract.pk
+                    task.price = concept.amount or 0
+                    task.save(update_fields=['design_chapter', 'contract', 'price'])
+                    EstimateTaskLink.objects.get_or_create(
+                        estimate_concept=concept, task_node=task,
+                        defaults={'link_type': 'created_from',
+                                  'created_by': request.user})
+                    concept.task_node = task
+                    concept.save(update_fields=['task_node'])
+                    created_children += 1
+                    log_change(task=task, action='task:created_from_estimate',
+                               details=f'из позиции сметы {concept.pk} '
+                                       f'({concept.estimate})'
+                                       + (f', родитель {parent.pk}' if parent else ''),
+                               user=request.user)
+                if parent is not None:
+                    self._refresh_summary_price(parent)
+            if group:
+                self.message_user(
+                    request,
+                    f'Родительских задач: {created_parents} (создано), '
+                    f'дочерних: {created_children}. Пропущено: закрыты актом — '
+                    f'{skipped_closed}, уже с задачами — {skipped_linked}, '
+                    f'без договора — {no_contract}.')
+            else:
+                self.message_user(
+                    request,
+                    f'Создано задач: {created_children}. Пропущено: закрыты '
+                    f'актом — {skipped_closed}, уже с задачами — '
+                    f'{skipped_linked}, без договора — {no_contract}.')
+            return redirect(request.get_full_path())
+
+        concepts = queryset.select_related(
+            'estimate__contract', 'building_number__name', 'design_chapter',
+            'act').prefetch_related('task_links').order_by('id')
+        rows = []
+        for c in concepts:
+            est = c.estimate
+            contract = est.contract if est else None
+            if c.act_id:
+                reason = 'пропуск (акт)'
+            elif c.task_node_id is not None or c.task_links.exists():
+                reason = 'пропуск (есть задачи)'
+            elif contract is None:
+                reason = 'пропуск (нет договора)'
+            else:
+                reason = None
+            rows.append({
+                'concept': c,
+                'reason': reason,
+                'parent_name': (f'{contract.name} — работы по смете'
+                                if contract else '—'),
+            })
+        return render(request, 'admin/ProjectContract/estimateconcept_create_tasks.html', {
+            'concepts': [r['concept'] for r in rows],
+            'reasons': {r['concept'].pk: r['reason'] for r in rows},
+            'parents': {r['concept'].pk: r['parent_name'] for r in rows},
+            'opts': self.model._meta,
+            'action': 'create_tasks_from_concepts',
+        })
+
+    @staticmethod
+    def _refresh_summary_price(parent):
+        """Цена родителя = сумме позиций под ним (self-healing при повторах)."""
+        from django.db.models import Sum
+        child_ids = list(parent.children.values_list('pk', flat=True))
+        concept_ids = EstimateTaskLink.objects.filter(
+            task_node_id__in=child_ids).values_list('estimate_concept_id', flat=True)
+        total = EstimateConcept.objects.filter(
+            pk__in=concept_ids).aggregate(total=Sum('amount'))['total'] or 0
+        parent.price = total
+        parent.save(update_fields=['price'])
+
+
+@admin.register(Act)
+class ActAdmin(admin.ModelAdmin):
+    list_display = ['id', 'number', 'act_date', 'contract']
+    list_filter = ['contract']
+    search_fields = ['number', 'contract__name']
+    fields = ['number', 'act_date', 'contract', 'file']
     list_per_page = 20

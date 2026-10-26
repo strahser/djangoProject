@@ -88,20 +88,11 @@
     <div class="px-3">
     <div class="collapsible-section">
         <div class="section-header" onclick="toggleSection(this)">
-            <span><i class="bi bi-list-task"></i> Задачи ({% if email.tasks.all %}{{ email.tasks.count }}{% else %}0{% endif %})</span>
+            <span><i class="bi bi-list-task"></i> Задачи (<span id="email-tasks-count-{{ email.pk }}">{{ email.tasks.count }}</span>)</span>
             <i class="bi bi-chevron-down"></i>
         </div>
-        <div class="section-body">
-            {% for task in email.tasks.all %}
-                <span class="badge bg-info mb-1 me-1">
-                    {{ task.name }}
-                    <a href="#" hx-post="{% url 'email_ui:detach_task' email.pk task.pk %}" hx-target="closest span" hx-swap="outerHTML" class="text-white text-decoration-none ms-1">&times;</a>
-                </span>
-            {% empty %}
-                <span class="text-muted">Нет привязанных задач</span>
-            {% endfor %}
-            <a href="{% url 'email_ui:attach_tasks_page' email.pk %}" class="btn btn-sm btn-outline-primary ms-2">
-                    <i class="bi bi-plus-lg"></i> Прикрепить задачу</a>
+        <div class="section-body" id="email-tasks-body-{{ email.pk }}">
+            {% include "email_ui/partials/email_tasks_body.html" %}
         </div>
     </div>
 
@@ -130,26 +121,7 @@
 </div>
 
 <script>
-function assignTag(emailId, tagId, tagName, tagColor) {
-    fetch('{% url "email_ui:assign_tag" %}', {
-        method: 'POST',
-        headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'email_id=' + emailId + '&tag_id=' + tagId
-    }).then(r => r.json()).then(data => {
-        let container = document.getElementById('email-tags-' + emailId);
-        if (container) {
-            let badge = document.createElement('span');
-            badge.className = 'badge rounded-pill';
-            badge.style.backgroundColor = tagColor;
-            badge.innerHTML = tagName + ' <a href="#" class="text-white text-decoration-none ms-1">&times;</a>';
-            badge.querySelector('a').addEventListener('click', function(e) {
-                e.preventDefault();
-                badge.remove();
-            });
-            container.appendChild(badge);
-        }
-    });
-}
+/* assignTag — глобальный из base.html. */
 
 (function() {
     window.addEventListener('beforeunload', function() {
@@ -157,9 +129,4 @@ function assignTag(emailId, tagId, tagName, tagColor) {
     });
 })();
 
-function toggleSection(header) {
-    header.classList.toggle('collapsed');
-    const body = header.nextElementSibling;
-    body.classList.toggle('show');
-}
 </script>

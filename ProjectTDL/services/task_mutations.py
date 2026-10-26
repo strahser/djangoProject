@@ -127,12 +127,17 @@ def _inherit_enabled(user_settings):
 
 def create_task_with_defaults(*, owner, name, project_site_id=None,
                               status_id=None, category_id=None,
-                              contractor_id=None, building_number_id=None):
+                              contractor_id=None, building_number_id=None,
+                              parent=None, node_type='task'):
     """Быстрое создание задачи + наследование от последней задачи проекта.
 
     Правило (бывший quick_create_task): при включённом inherit_props/любом
     default_* незаполненные поля берутся из последней задачи проекта
     (order_by -pk). Гонка двух созданий сохраняется как есть (см. гарды).
+
+    parent/node_type — для дочерних subtask'ов из позиций сметы: уходят
+    прямо в objects.create (MPTT-корректная вставка за 1 save; присваивание
+    parent + save() дерево НЕ двигает).
     """
     user_settings = UserSettings.objects.filter(user=owner).first()
     if _inherit_enabled(user_settings) and project_site_id:
@@ -147,7 +152,8 @@ def create_task_with_defaults(*, owner, name, project_site_id=None,
                                   or last_task.building_number_id or None)
     return TaskNode.objects.create(
         name=name,
-        node_type='task',
+        node_type=node_type,
+        parent=parent,
         owner=owner,
         project_site_id=project_site_id,
         status_id=status_id,
@@ -155,3 +161,99 @@ def create_task_with_defaults(*, owner, name, project_site_id=None,
         contractor_id=contractor_id,
         building_number_id=building_number_id,
     )
+
+
+def summary_task_name(contract) -> str:
+    """Имя родительской суммарной задачи договора (канон группировки
+    позиций сметы — один родитель на договор)."""
+    return f'{contract.name} — работы по смете'
+
+
+def get_or_create_contract_summary(*, owner, contract):
+    """Родительская суммарная задача договора: найти по договору+имени
+    (parent__isnull, node_type='task') или создать. Возвращает (task, created)."""
+    name = summary_task_name(contract)
+    existing = TaskNode.objects.filter(
+        contract=contract, parent__isnull=True,
+        node_type='task', name=name).first()
+    if existing is not None:
+        return existing, False
+    task = create_task_with_defaults(
+        owner=owner,
+        name=name,
+        project_site_id=contract.project_site_id,
+        contractor_id=contract.contractor_id,
+    )
+    task.contract = contract
+    task.price = 0
+    task.description = (
+        f'Суммарная задача договора {contract.name}: группировка работ '
+        f'из позиций сметы (дочерние subtask\'и создаются экшеном '
+        f'«Создать задачи из позиций»).')
+    task.save(update_fields=['contract', 'price', 'description'])
+    return task, True
+
+
+def _do_move(task, parent):
+    """Ядро перемещения (без валидации): parent=None — в корень."""
+    with transaction.atomic():
+        if parent is None:
+            task.parent = None
+            task.node_type = 'task'
+            task.save()
+            # Прямое присваивание parent + save() дерево не двигает —
+            # пересчитываем lft/rght (дерево маленькое, дёшево и надёжно).
+            TaskNode.objects.rebuild()
+        else:
+            task.node_type = 'subtask'
+            task.move_to(parent, 'last-child')
+
+
+def move_task(task, parent):
+    """Перемещение задачи в дереве (drag-and-drop со страницы списка).
+
+    parent=None — открепить в корень (самостоятельная задача,
+    node_type='task'); иначе — дочерняя subtask указанного родителя.
+    Циклы (сам в себя / в своего потомка) запрещены.
+    Возвращает dict(ok, message).
+    """
+    if parent is not None:
+        if parent.pk == task.pk:
+            return {'ok': False,
+                    'message': 'Нельзя переместить задачу саму в себя'}
+        descendant_ids = set(
+            task.get_descendants().values_list('pk', flat=True))
+        if parent.pk in descendant_ids:
+            return {'ok': False,
+                    'message': 'Нельзя переместить задачу в её подзадачу'}
+    with transaction.atomic():
+        _do_move(task, parent)
+    where = 'в корень (самостоятельная)' if parent is None else f'в «{parent.name}»'
+    return {'ok': True,
+            'message': f'Задача «{task.name}» перемещена {where}'}
+
+
+def indent_task(task):
+    """Понизить уровень (как в MS Project): сделать дочерней предыдущей
+    соседней задачи. У первой в списке соседей нет — ошибка."""
+    prev = task.get_previous_sibling()
+    if prev is None:
+        return {'ok': False,
+                'message': 'Нет предыдущей соседней задачи — некуда вложить'}
+    _do_move(task, prev)
+    return {'ok': True,
+            'message': f'Задача «{task.name}» вложена в «{prev.name}»'}
+
+
+def outdent_task(task):
+    """Повысить уровень (как в MS Project): на уровень родителя.
+    Дочерняя корневой становится самостоятельной. Корневая — уже верх."""
+    if task.parent_id is None:
+        return {'ok': False,
+                'message': 'Задача уже в корне — повышать некуда'}
+    grandparent = task.parent.parent if task.parent else None
+    _do_move(task, grandparent)
+    where = ('в корень (самостоятельная)' if grandparent is None
+             else f'в «{grandparent.name}»')
+    return {'ok': True,
+            'message': f'Задача «{task.name}» перемещена {where}'}

@@ -53,7 +53,13 @@ class BuildingNumber(models.Model):
 		verbose_name_plural = 'Здания Номер'
 
 	def __str__(self):
-		return f'{self.name.name}- {self.building_number}'
+		tname = (self.name.name if self.name else '') or ''
+		num = (self.building_number or '').strip()
+		if not num or num == '-':
+			return tname or '—'
+		if not tname:
+			return num
+		return f'{tname}- {self.building_number}'
 
 
 class DesignChapter(models.Model):

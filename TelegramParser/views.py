@@ -1,4 +1,3 @@
-import sys
 import threading
 import traceback
 from django.contrib import admin, messages
@@ -12,8 +11,8 @@ from .models import TelegramChannel, ParseLog
 
 
 def _log(msg):
-    print(f"[TGParser] {msg}", flush=True)
-    sys.stdout.flush()
+    # Лог в файл (logs/telegram_parser.log), а не в консоль runserver.
+    logger.info(f"[TGParser] {msg}")
 
 
 def _run_parse_in_thread(channel_username, log_id=None):

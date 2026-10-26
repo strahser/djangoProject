@@ -86,7 +86,7 @@ def persist_uploaded_files(email_obj, uploaded_files) -> None:
                 content_type=f.content_type or '',
                 file_path='',
             )
-            target_dir = email_obj.link
+            target_dir = email_obj.resolved_link
             if not target_dir:
                 target_dir = os.path.join(
                     E_MAIL_DIRECTORY, 'sent', str(email_obj.pk))
@@ -112,7 +112,7 @@ def copy_attachment_rows(new_email, attachments, excluded_ids) -> None:
         Attachment.objects.create(
             email=new_email,
             filename=att.filename,
-            file_path=att.file_path,
+            file_path=att.resolved_path,
             size=att.size,
             content_type=att.content_type,
         )

@@ -1,0 +1,65 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_totals %}
+{% block content %}
+<div class="container-fluid py-3" style="max-width:1100px;">
+  <h3>Создать задачи из позиций сметы</h3>
+  <p class="text-muted">
+    Создаются только позиции без акта и без задач. По умолчанию — плоские
+    корневые задачи (проект/подрядчик — из договора, здание/раздел — из
+    позиции, цена — из суммы). Опция ниже группирует позиции под
+    родительскую суммарную задачу договора (одна на договор,
+    переиспользуется при повторе; цена родителя = сумме позиций под ним).
+    Поле «основная задача» проставится только там, где пусто; все создания
+    фиксируются связками.
+  </p>
+  <form method="post">
+    {% csrf_token %}
+    {% for c in concepts %}
+    <input type="hidden" name="_selected_action" value="{{ c.pk }}">
+    {% endfor %}
+    <input type="hidden" name="action" value="{{ action }}">
+    <table class="table table-sm table-bordered">
+      <thead><tr>
+        <th>ID</th><th>Наименование</th><th>Здание</th><th>Раздел</th>
+        <th class="text-end">Сумма</th><th>Договор</th><th>Акт</th><th data-parent-col>Родитель</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for c in concepts %}
+        <tr {% if reasons|get_item:c.pk %}class="table-secondary"{% endif %}>
+          <td>{{ c.pk }}</td>
+          <td>{{ c.name|truncatechars:80 }}</td>
+          <td>{{ c.building_number|default:"—" }}</td>
+          <td>{{ c.design_chapter.short_name|default:"—" }}</td>
+          <td class="text-end">{{ c.amount|floatformat:2 }}</td>
+          <td>{{ c.estimate.contract|default:"—" }}</td>
+          <td>{% if c.act_id %}{{ c.act }}{% else %}—{% endif %}</td>
+          <td data-parent-col>{{ parents|get_item:c.pk }}</td>
+          <td>{% if reasons|get_item:c.pk %}<span class="badge badge-secondary">{{ reasons|get_item:c.pk }}</span>{% else %}<span class="badge badge-success">создать</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="form-check mb-2">
+      <input type="checkbox" class="form-check-input" id="group-by-contract"
+             name="group_by_contract" value="1">
+      <label class="form-check-label" for="group-by-contract">
+        Группировать под родительскую суммарную задачу договора
+      </label>
+    </div>
+    <button type="submit" name="apply" value="1" class="btn btn-primary">Создать задачи</button>
+    <a href="{% url 'admin:ProjectContract_estimateconcept_changelist' %}" class="btn btn-outline-secondary">Отмена</a>
+  </form>
+  <script>
+    (function () {
+      var box = document.getElementById('group-by-contract');
+      function sync() {
+        document.querySelectorAll('[data-parent-col]').forEach(function (el) {
+          el.style.display = box.checked ? '' : 'none';
+        });
+      }
+      box.addEventListener('change', sync);
+      sync();
+    })();
+  </script>
+</div>
+{% endblock %}

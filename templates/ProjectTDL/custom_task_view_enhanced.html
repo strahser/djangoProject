@@ -307,6 +307,30 @@
   body.dark-mode .tree-parent-name { color: #ffc107; }
   .tree-subtask-icon { color: var(--text-muted, #7b8494); font-size: 14px; }
   .tree-leaf-icon { color: var(--text-muted, #7b8494); font-size: 14px; }
+  /* Drag-and-drop дерева: ручка, подсветка цели, дроп-зона «в корень» */
+  #TaskTable .drag-handle { color: var(--text-muted, #6c757d);
+    font-size: 16px; margin-right: 6px; vertical-align: middle; }
+  #TaskTable td.drag-cell { cursor: grab; }
+  #TaskTable td.drag-cell:active { cursor: grabbing; }
+  .drag-ghost { position: fixed; left: 0; top: 0; z-index: 9999;
+    pointer-events: none; display: none; max-width: 420px;
+    background: #fff; border: 1px solid #0d6efd; border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.25); padding: 6px 10px;
+    font-size: 13px; }
+  .drag-ghost-name { font-weight: 600; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .drag-ghost-target { font-weight: 400; font-size: 12px; color: #0d6efd;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.is-dragging-tasks, body.is-dragging-tasks * { user-select: none !important; }
+  body.dark-mode .drag-ghost { background: #2d323e; color: #e0e0e0; }
+  #TaskTable tbody tr.dragging { opacity: .45; }
+  #TaskTable tbody tr.drop-target td { outline: 2px dashed #0d6efd; outline-offset: -2px; }
+  #rootDropZone { display: none; border: 2px dashed #0d6efd; border-radius: 8px;
+    background: rgba(13, 110, 253, .06); color: #0d6efd; font-weight: 600;
+    text-align: center; padding: 10px; margin-bottom: 8px; }
+  #rootDropZone.over { background: rgba(13, 110, 253, .16); }
+  #rootDropZone.armed { display: block; }
+  #TaskTable tbody tr.just-moved td { background: rgba(25, 135, 84, .18) !important; }
   body.dark-mode .tree-node-row.tree-parent {
     background: rgba(255, 193, 7, 0.08);
     border-left-color: #ffc107;
@@ -447,7 +471,9 @@
   </div>
 
   <div class="d-flex justify-content-between align-items-center mb-2">
-    <div class="text-muted small"><i class="bi bi-diagram-3 me-1"></i>Дерево задач</div>
+    <div class="text-muted small"><i class="bi bi-diagram-3 me-1"></i>Дерево задач
+      <span class="ms-2" title="Тяните строку за наименование: бросить на задачу — вложить, на синюю зону — открепить в корень"><i class="bi bi-grip-vertical"></i> тяните за наименование</span>
+    </div>
     <div class="text-muted small">
       Записей: <span id="filter-count" class="fw-bold">{{ tasks|length }}</span>
       &middot; Выбрано: <span id="selected-count" class="fw-bold text-primary">0</span>
@@ -461,6 +487,9 @@
     <a class="btn btn-sm btn-outline-info" id="act-email" href="#"><i class="bi bi-envelope me-1"></i>Письма</a>
     <a class="btn btn-sm btn-outline-danger" id="act-delete" href="#"><i class="bi bi-trash me-1"></i>Удалить</a>
     <a class="btn btn-sm btn-outline-warning" id="act-add-subtask" href="#"><i class="bi bi-diagram-2 me-1"></i>Подзадачу</a>
+    <a class="btn btn-sm btn-outline-secondary d-none" id="act-attach-pick" href="#" title="Выбранные станут дочерними задачи, по которой кликнете"><i class="bi bi-arrow-down-square me-1"></i>Вложить в…</a>
+    <a class="btn btn-sm btn-outline-secondary" id="act-indent" href="#" title="Понизить уровень: сделать дочерней предыдущей (как в MS Project)"><i class="bi bi-arrow-right-square me-1"></i>Понизить</a>
+    <a class="btn btn-sm btn-outline-secondary" id="act-outdent" href="#" title="Повысить уровень: на уровень родителя (как в MS Project)"><i class="bi bi-arrow-left-square me-1"></i>Повысить</a>
     <a class="btn btn-sm btn-outline-primary" id="act-report" href="#" target="_blank" title="Сформировать HTML отчет по выбранным задачам"><i class="bi bi-file-earmark-text me-1"></i>Отчет</a>
   </div>
 
@@ -469,6 +498,13 @@
   <div id="flat-view-container" class="view-container">
     <form id="main-table-form">
       {% csrf_token %}
+      <div id="rootDropZone">Отпустите сюда, чтобы сделать задачу самостоятельной (в корень)</div>
+      <div id="pickParentBar" class="alert alert-info py-2 my-2 d-none" role="alert">
+        <span id="pickParentText">Кликните по строке родительской задачи</span>
+        <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="pickParentRoot">В корень</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ms-1" id="pickParentCancel">Отмена</button>
+      </div>
+      <div id="move-toast" class="alert alert-success d-none py-2 my-2" role="alert"></div>
       <div class="table-responsive rounded shadow-sm" id="table-wrapper">
         {% render_table table %}
       </div>
@@ -557,8 +593,8 @@
         <label class="form-label small text-muted mb-1">Цена</label>
         <input type="number" step="0.01" name="price" class="form-control form-control-sm bulk-field" placeholder="0">
       </div>
-      <div class="col-12 col-md-1">
-        <button type="button" id="clear-selection" class="btn btn-outline-secondary btn-sm w-100"><i class="bi bi-x-lg"></i></button>
+      <div class="col-12 col-md-auto">
+        <button type="button" id="clear-selection" class="btn btn-outline-secondary btn-sm w-100 text-nowrap" title="Снять выбор и закрыть панель"><i class="bi bi-x-lg"></i> Закрыть</button>
       </div>
     </div>
   </div>
@@ -758,6 +794,9 @@
   <a class="ctx-item" data-action="clone" href="#"><i class="bi bi-copy me-2"></i>Клонировать</a>
   <hr class="my-1">
   <a class="ctx-item" data-action="subtask" href="#"><i class="bi bi-diagram-2 me-2"></i>Создать подзадачу</a>
+  <a class="ctx-item" data-action="indent" href="#"><i class="bi bi-arrow-right-square me-2"></i>Понизить уровень</a>
+  <a class="ctx-item" data-action="outdent" href="#"><i class="bi bi-arrow-left-square me-2"></i>Повысить уровень</a>
+  <a class="ctx-item" data-action="detach" href="#"><i class="bi bi-box-arrow-up-right me-2"></i>Открепить (в корень)</a>
   <a class="ctx-item ctx-danger" data-action="delete" href="#"><i class="bi bi-trash me-2"></i>Удалить</a>
 </div>
 <div id="colWidthPopup" class="col-width-popup d-none">
@@ -789,6 +828,7 @@ const BULK_DELETE_URL = '{% url "bulk_delete_tasks" %}';
 const MANAGE_REF_URL = '{% url "manage_reference" %}';
 const QUICK_CREATE_URL = '{% url "quick_create_task" %}';
 const QUICK_CREATE_SUBTASK_URL = '{% url "quick_create_subtask" %}';
+const TASK_MOVE_URL = '{% url "task_move" %}';
 const CASCADE_URL = '{% url "cascade_filter_options" %}';
 const SAVE_SETTINGS_URL = '{% url "save_user_settings" %}';
 const SAVE_FILTER_STATE_URL = '{% url "save_filter_state" %}';
@@ -1499,9 +1539,11 @@ $(document).ready(function() {
         // Одиночный выбор: карточка, клонирование, письма, подзадача
         const single = count === 1;
         const multi = count > 1;
-        $('#act-open, #act-clone, #act-email, #act-add-subtask').toggleClass('d-none', !single);
+        $('#act-open, #act-clone, #act-email, #act-add-subtask, #act-indent, #act-outdent').toggleClass('d-none', !single);
         // При массовом выборе доступны только «Отчет» и «Удалить»
         $('#act-delete').toggleClass('d-none', count === 0);
+        // «Вложить в…» — при любом непустом выборе (одна или несколько)
+        $('#act-attach-pick').toggleClass('d-none', count === 0);
 
         if (count >= 1) {
             const base = window.location.origin;
@@ -1558,6 +1600,21 @@ $(document).ready(function() {
         display('data-status-id', 'status');
         display('data-category-id', 'category');
         display('data-contractor-id', 'contractor');
+        display('data-design-chapter-id', 'design_chapter');
+    }
+
+    // Нейтральное состояние панели: никаких «хвостов» от прошлого выбора
+    function resetPanel() {
+        $('.bulk-field').each(function() {
+            const $f = $(this);
+            $f.data('just-saved', null);
+            if ($f.is('select')) {
+                $f.val('');
+                $f.find('option:first').text('Не менять');
+            } else {
+                $f.val('').attr('placeholder', '');
+            }
+        });
     }
 
     function toggleOne(id) {
@@ -1606,6 +1663,7 @@ $(document).ready(function() {
     }
 
     $(document).on('click', '#TaskTable tbody tr', function(e) {
+        if (window.__pickParentMode) { pickParentRow($(this).attr('data-id'), e); return; }
         if ($(e.target).is('input, select, button, a, label, .btn, .form-check-input, a *')) return;
         const id = $(this).attr('data-id');
         if (!id) return;
@@ -1616,6 +1674,7 @@ $(document).ready(function() {
     });
 
     $(document).on('click', '.tree-node-row', function(e) {
+        if (window.__pickParentMode) { pickParentRow($(this).attr('data-id'), e); return; }
         if ($(e.target).is('input, select, button, a, label, .btn, .form-check-input, .bi-chevron-right, a *')) return;
         const id = $(this).attr('data-id');
         if (!id) return;
@@ -1663,7 +1722,17 @@ $(document).ready(function() {
     });
 
     $('#clear-selection').on('click', function() {
-        selectedTasks.clear(); syncCheckboxes();
+        selectedTasks.clear(); syncCheckboxes(); resetPanel();
+    });
+
+    // Понизить/повысить уровень выбранной задачи (как в MS Project)
+    $(document).on('click', '#act-indent', function(e) {
+        e.preventDefault();
+        moveSelected('indent');
+    });
+    $(document).on('click', '#act-outdent', function(e) {
+        e.preventDefault();
+        moveSelected('outdent');
     });
 
     // Массовое удаление выбранных задач
@@ -1796,7 +1865,324 @@ $(document).ready(function() {
             }
             if (parentId) { row.style.display = 'none'; }
         });
+        try { initDragHandles(); } catch (e) { console.error('[taskTable] dnd:', e); }
     }
+
+    // ==== Drag-and-drop дерева: ручка в первой ячейке; drop на строку —
+    // сделать дочерней, drop на синюю зону — открепить в корень ====
+    // ==== Перетаскивание дерева указателем (без HTML5-DnD: dataTransfer
+    // капризен — в части браузеров drop приходит пустым). mousedown на
+    // ячейке имени → движение за порогом → призрак следует за курсором →
+    // mouseup на строке = вложить, на синей зоне = открепить в корень.
+    // Клик без движения работает как раньше (чекбокс/ссылка/стрелка).
+    const DRAG_THRESHOLD = 6;
+    let dragState = null;
+
+    function initDragHandles() {
+        // col-name расставляет markNameColumn (при первом init он бежит
+        // позже) — дёргаем явно: функция чистая и дешёвая.
+        try { markNameColumn(); } catch (e) {}
+        document.querySelectorAll('#TaskTable tbody tr[data-id]').forEach(function(row) {
+            // Зона захвата — ячейка «Наименование» (столбец чекбокса
+            // перегружен: выбор + контекстное меню). col-name устойчив
+            // к перестановке колонок (markNameColumn); fallback — первая.
+            const nameCell = row.querySelector('td.col-name') || row.querySelector('td');
+            if (!nameCell) return;
+            nameCell.classList.add('drag-cell');
+            nameCell.setAttribute('title', 'Тяните: на задачу — вложить, на синюю зону — открепить');
+            // Гасим нативный drag вложенной ссылки (иначе тянется URL);
+            // клик по ссылке продолжает открывать карточку.
+            nameCell.querySelectorAll('a').forEach(function(a) {
+                a.setAttribute('draggable', 'false');
+                if (!a.__pickBound) {
+                    a.__pickBound = true;
+                    // Прямой хендлер (не делегирование): у ссылки inline
+                    // onclick=stopPropagation — до document клик не долетает.
+                    a.addEventListener('click', function(e) {
+                        if (!window.__pickParentMode) return;
+                        const tr = a.closest('tr[data-id]');
+                        if (!tr) return;
+                        e.preventDefault();
+                        pickParentRow(tr.getAttribute('data-id'), e);
+                    });
+                }
+            });
+            if (!nameCell.querySelector('.drag-handle')) {
+                const grip = document.createElement('span');
+                grip.className = 'drag-handle bi bi-grip-vertical';
+                grip.setAttribute('aria-hidden', 'true');
+                nameCell.insertBefore(grip, nameCell.firstChild);
+            }
+        });
+        // После перемещения (reload) раскрыть затронутого родителя и
+        // подсветить задачу — иначе attach выглядит как «не сработал».
+        try {
+            const pending = sessionStorage.getItem('expandAfterMove');
+            if (pending) {
+                sessionStorage.removeItem('expandAfterMove');
+                const parts = pending.split(':');
+                if (parts[0] === 'root') {
+                    flashRow(parts[1]);
+                } else if (parts[0] === 'parent' && parts[1]) {
+                    expandRow(parts[1]);
+                    flashRow(parts[2] || '');
+                }
+            }
+        } catch (e) {}
+        try { showMoveToast(); } catch (e) {}
+    }
+
+    function dragGhostHtml(row) {
+        const nameCell = row.querySelector('td.col-name');
+        const text = ((nameCell && nameCell.textContent) || row.textContent || '').trim().slice(0, 80);
+        const ghost = document.createElement('div');
+        ghost.className = 'drag-ghost';
+        ghost.innerHTML = '';
+        const nameSpan = document.createElement('div');
+        nameSpan.className = 'drag-ghost-name';
+        nameSpan.textContent = text;
+        const targetSpan = document.createElement('div');
+        targetSpan.className = 'drag-ghost-target';
+        targetSpan.textContent = '— наведите на задачу или синюю зону —';
+        ghost.appendChild(nameSpan);
+        ghost.appendChild(targetSpan);
+        document.body.appendChild(ghost);
+        return ghost;
+    }
+
+    function dragGhostTarget(ghost, label) {
+        if (!ghost) return;
+        const el = ghost.querySelector('.drag-ghost-target');
+        if (el) el.textContent = label;
+    }
+
+    function rowShortName(tr) {
+        const cell = tr.querySelector('td.col-name');
+        return ((cell && cell.textContent) || tr.textContent || '').trim().slice(0, 60);
+    }
+
+    function dragTargetFromPoint(x, y, sourceId) {
+        const el = document.elementFromPoint(x, y);
+        if (!el) return { type: 'none' };
+        const zone = el.closest ? el.closest('#rootDropZone.armed') : null;
+        if (zone) return { type: 'root' };
+        const tr = el.closest ? el.closest('#TaskTable tbody tr[data-id]') : null;
+        if (tr && tr.getAttribute('data-id') !== String(sourceId)) {
+            return { type: 'row', id: tr.getAttribute('data-id'), el: tr };
+        }
+        return { type: 'none' };
+    }
+
+    $(document).on('mousedown', '#TaskTable td.drag-cell', function(e) {
+        if (e.button !== 0) return; // только левая кнопка
+        const row = $(this).closest('tr[data-id]');
+        const id = row.attr('data-id');
+        if (!id || !/^\d+$/.test(id)) return;
+        dragState = { id: String(id), x0: e.clientX, y0: e.clientY,
+                      active: false, ghost: null, row: row[0] };
+    });
+
+    $(document).on('mousemove', function(e) {
+        if (!dragState) return;
+        if (!dragState.active) {
+            if (Math.abs(e.clientX - dragState.x0) + Math.abs(e.clientY - dragState.y0) < DRAG_THRESHOLD) return;
+            dragState.active = true;
+            dragState.ghost = dragGhostHtml(dragState.row);
+            $(dragState.row).addClass('dragging');
+            $('#rootDropZone').addClass('armed');
+            document.body.classList.add('is-dragging-tasks');
+        }
+        const g = dragState.ghost;
+        g.style.transform = 'translate(' + (e.clientX + 12) + 'px,' + (e.clientY + 12) + 'px)';
+        g.style.display = 'block';
+        document.querySelectorAll('#TaskTable tbody tr.drop-target').forEach(function(r) {
+            r.classList.remove('drop-target');
+        });
+        $('#rootDropZone').removeClass('over');
+        const t = dragTargetFromPoint(e.clientX, e.clientY, dragState.id);
+        dragState.target = t;
+        if (t.type === 'row') {
+            t.el.classList.add('drop-target');
+            dragGhostTarget(g, '→ вложить в: ' + rowShortName(t.el));
+        } else if (t.type === 'root') {
+            $('#rootDropZone').addClass('over');
+            dragGhostTarget(g, '→ открепить в корень');
+        } else {
+            dragGhostTarget(g, '— наведите на задачу или синюю зону —');
+        }
+    });
+
+    function endTaskDrag(e, cancelled) {
+        if (!dragState) return;
+        const st = dragState;
+        dragState = null;
+        document.body.classList.remove('is-dragging-tasks');
+        if (st.ghost && st.ghost.parentNode) st.ghost.parentNode.removeChild(st.ghost);
+        $('#TaskTable tbody tr').removeClass('dragging drop-target');
+        $('#rootDropZone').removeClass('armed over');
+        if (!st.active || cancelled) return;
+        const t = (e && typeof e.clientX === 'number')
+            ? dragTargetFromPoint(e.clientX, e.clientY, st.id)
+            : (st.target || { type: 'none' });
+        if (t.type === 'row') postTaskMove(st.id, t.id);
+        else if (t.type === 'root') postTaskMove(st.id, '');
+    }
+
+    $(document).on('mouseup', function(e) {
+        endTaskDrag(e, false);
+    });
+    $(document).on('keydown', function(e) {
+        if (e.key === 'Escape' && dragState && dragState.active) endTaskDrag(null, true);
+    });
+
+    function expandRow(id) {
+        const row = $('#TaskTable tbody tr[data-id="' + id + '"]');
+        if (!row.length) return;
+        row.attr('data-expanded', '1');
+        row.find('.tree-toggle').addClass('expanded');
+        $('#TaskTable tbody tr[data-parent-id="' + id + '"]').each(function() {
+            this.style.display = '';
+        });
+    }
+
+    function flashRow(id) {
+        if (!id) return;
+        const row = $('#TaskTable tbody tr[data-id="' + id + '"]');
+        if (!row.length) return;
+        row.addClass('just-moved');
+        setTimeout(function() { row.removeClass('just-moved'); }, 2500);
+    }
+
+    function showMoveToast() {
+        // Сообщение сервера о прошлом перемещении (см. postTaskMove).
+        let msg = null;
+        try {
+            msg = sessionStorage.getItem('moveMessage');
+            if (msg) sessionStorage.removeItem('moveMessage');
+        } catch (e) {}
+        if (!msg) return;
+        const box = $('#move-toast');
+        if (!box.length) return;
+        box.text(msg).removeClass('d-none');
+        setTimeout(function() { box.addClass('d-none'); }, 6000);
+    }
+
+    function postTaskMove(taskId, parentId, mode) {
+        if (!/^\d+$/.test(String(taskId || ''))) return; // мусор нативного DnD — игнор
+        const data = { task_id: taskId, mode: mode || 'attach', parent_id: parentId || '' };
+        $.ajax({
+            url: TASK_MOVE_URL, type: 'POST',
+            data: data,
+            headers: { 'X-CSRFToken': CSRF_TOKEN },
+            success: function(resp) {
+                if (resp && resp.status === 'ok') {
+                    // Запомнить что раскрыть после reload (см. initDragHandles)
+                    // + сообщение сервера показать тостом (куда реально упала).
+                    try {
+                        if (resp.parent_id) {
+                            sessionStorage.setItem(
+                                'expandAfterMove',
+                                'parent:' + resp.parent_id + ':' + (resp.task_id || taskId));
+                        } else {
+                            sessionStorage.setItem(
+                                'expandAfterMove', 'root:' + (resp.task_id || taskId));
+                        }
+                        if (resp.message) sessionStorage.setItem('moveMessage', resp.message);
+                    } catch (e) {}
+                    location.reload();
+                }
+                else { alert((resp && resp.message) || 'Не удалось переместить'); }
+            },
+            error: function() { alert('Ошибка перемещения'); }
+        });
+    }
+
+    function moveSelected(mode) {
+        if (selectedTasks.size !== 1) return;
+        postTaskMove(Array.from(selectedTasks)[0], '', mode);
+    }
+
+    // ==== Явный флоу «вложить в…»: чекбоксами выбрали задачи, кликнули
+    // родителя. Не зависит от точности хит-теста перетаскивания. ====
+    function startPickParent() {
+        if (selectedTasks.size === 0) return;
+        window.__pickParentMode = true;
+        const n = selectedTasks.size;
+        $('#pickParentText').text(
+            'Вложить ' + n + ' ' + (n === 1 ? 'задачу' : 'задач') +
+            ' дочерними: кликните по строке или названию родительской задачи');
+        $('#pickParentBar').removeClass('d-none');
+    }
+
+    function exitPickParent() {
+        window.__pickParentMode = false;
+        $('#pickParentBar').addClass('d-none');
+    }
+
+    function pickParentRow(parentId, e) {
+        if (!window.__pickParentMode) return;
+        // В режиме выбора клик по названию (ссылка) — тоже выбор родителя,
+        // а не переход в карточку. Живые контролы (чекбокс/стрелка/кнопки)
+        // продолжают работать как обычно.
+        if (e && $(e.target).is('input, select, button, label, .btn, .form-check-input, .tree-toggle, .tree-toggle *')) return;
+        if (e) e.preventDefault();
+        if (!parentId || !/^\d+$/.test(parentId)) return;
+        const ids = Array.from(selectedTasks);
+        if (ids.includes(String(parentId))) {
+            alert('Задача не может стать дочерней самой себя');
+            return;
+        }
+        exitPickParent();
+        postMultiMove(ids, parentId);
+    }
+
+    function postMultiMove(ids, parentId) {
+        // Последовательно (дерево маленькое), итог — одним reload.
+        let i = 0, errors = [];
+        function next() {
+            if (i >= ids.length) {
+                try {
+                    if (parentId) {
+                        sessionStorage.setItem('expandAfterMove', 'parent:' + parentId + ':' + ids[ids.length - 1]);
+                    }
+                    if (errors.length) sessionStorage.setItem('moveMessage', errors.join('; '));
+                } catch (e) {}
+                location.reload();
+                return;
+            }
+            const taskId = ids[i++];
+            $.ajax({
+                url: TASK_MOVE_URL, type: 'POST',
+                data: { task_id: taskId, mode: 'attach', parent_id: parentId || '' },
+                headers: { 'X-CSRFToken': CSRF_TOKEN },
+                success: function(resp) {
+                    if (!(resp && resp.status === 'ok')) {
+                        errors.push('Задача ' + taskId + ': ' + ((resp && resp.message) || 'ошибка'));
+                    }
+                    next();
+                },
+                error: function() { errors.push('Задача ' + taskId + ': ошибка сети'); next(); }
+            });
+        }
+        next();
+    }
+
+    $(document).on('click', '#act-attach-pick', function(e) {
+        e.preventDefault();
+        startPickParent();
+    });
+    $(document).on('click', '#pickParentCancel', function() {
+        exitPickParent();
+    });
+    $(document).on('click', '#pickParentRoot', function() {
+        // Все выбранные — в корень.
+        const ids = Array.from(selectedTasks);
+        exitPickParent();
+        postMultiMove(ids, '');
+    });
+
+    // (HTML5-DnD обработчики удалены: заменены pointer-реализацией выше —
+    // dataTransfer в части браузеров отдавал пустой drop.)
 
     $(document).on('click', '#TaskTable tbody .tree-toggle', function(e) {
         e.preventDefault();
@@ -1827,15 +2213,16 @@ $(document).ready(function() {
     };
     const FIELD_DATA_ATTR = {
         project_site: 'data-project-site-id', building_number: 'data-building-id',
-        design_chapter: null, contractor: 'data-contractor-id',
+        design_chapter: 'data-design-chapter-id', contractor: 'data-contractor-id',
         status: 'data-status-id', category: 'data-category-id',
         due_date: 'data-due-date', price: 'data-price'
     };
 
     function applyBulkField(name, value) {
         if (selectedTasks.size === 0) return;
+        if (!value) return; // «Не менять» / пустое поле — сохранять нечего
         const params = { task_ids: Array.from(selectedTasks) };
-        if (value) params[name] = value;
+        params[name] = value;
         $.ajax({
             url: BULK_UPDATE_URL, type: 'POST',
             data: $.param(params, true),
@@ -1843,7 +2230,9 @@ $(document).ready(function() {
             success: function(resp) {
                 if (resp.status !== 'ok') { alert(resp.message); return; }
                 refreshSelectedRows(name, value);
-                $('.bulk-field[name="' + name + '"]').val('');
+                // Перечитать панель из обновлённых строк: сохранённое значение
+                // остаётся в поле, а не сбрасывается в null/«Не менять».
+                updateCounters();
             },
             error: function() { alert('Ошибка применения'); }
         });
@@ -1872,7 +2261,23 @@ $(document).ready(function() {
     }
 
     $(document).on('change', '.bulk-field', function() {
-        applyBulkField($(this).attr('name'), $(this).val());
+        const $f = $(this);
+        const v = $f.val();
+        // Повторный change после Enter (blur) — уже сохранено, пропустить.
+        if ($f.data('just-saved') === String(v)) { $f.data('just-saved', null); return; }
+        $f.data('just-saved', null);
+        applyBulkField($f.attr('name'), v);
+    });
+
+    // Enter в поле панели (дата/цена) — сохранить сразу, не уходя с поля
+    $(document).on('keydown', 'input.bulk-field', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const $f = $(this);
+            $f.data('just-saved', String($f.val()));
+            applyBulkField($f.attr('name'), $f.val());
+            $f.blur();
+        }
     });
 
     if (activeProjectSite) {
@@ -2239,7 +2644,7 @@ $(document).ready(function() {
     });
 
     $(document).on('keydown', function(e) {
-        if (e.key === 'Escape') { hideCtxMenu(); hideColWidthPopup(true); }
+        if (e.key === 'Escape') { hideCtxMenu(); hideColWidthPopup(true); exitPickParent(); }
     });
 
     $(document).on('click', '#ctxMenu .ctx-item', function(e) {
@@ -2257,6 +2662,12 @@ $(document).ready(function() {
             window.location.href = base + '/TaskCloneView/' + id;
         } else if (action === 'delete') {
             window.location.href = base + '/TaskDeleteView/' + id;
+        } else if (action === 'detach') {
+            postTaskMove(id, '');
+        } else if (action === 'indent') {
+            postTaskMove(id, '', 'indent');
+        } else if (action === 'outdent') {
+            postTaskMove(id, '', 'outdent');
         } else if (action === 'subtask') {
             const name = prompt('Название подзадачи:');
             if (!name) return;

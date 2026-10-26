@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Блок 19: юниты сервисов email_ui (правила, контакты, треды)."""
+from unittest.mock import patch
+
 from django.contrib.auth.models import User
 from django.test import TestCase
 
@@ -7,6 +9,7 @@ from Emails.models import Email
 from email_ui.models import Contact, ContactEmail
 from email_ui.services.contact_service import ContactService
 from email_ui.services.rule_engine import RuleEvaluator
+from email_ui.services.rule_runner import run_rule_async, run_rule_over_all
 from email_ui.services.thread_service import ThreadService
 from StaticData.models import Category, Status
 
@@ -98,3 +101,42 @@ class ThreadIdTest(ServiceFixtureMixin, TestCase):
                 references='', in_reply_to='', message_id='<d>')), '<d>')
         self.assertIsNone(ThreadService.get_thread_id(self._email(
             references='', in_reply_to='', message_id='')))
+
+
+class RuleRunnerTest(ServiceFixtureMixin, TestCase):
+    """P2: фоновый прогон правил (было синхронно в запросе — таймаут)."""
+
+    def _rule(self):
+        from email_ui.models import EmailRule
+        return EmailRule.objects.create(
+            name='B57 metka',
+            conditions=[{'field': 'subject', 'operator': 'contains',
+                         'value': 'смета'}],
+            actions=[{'action': 'add_tag', 'params': {'tag_name': 'B57'}}],
+            priority=10,
+        )
+
+    def test_run_rule_over_all_applies_and_logs(self):
+        from email_ui.models import EmailAutomationLog
+        rule = self._rule()
+        match = self._email(subject='Смета №9')
+        self._email(subject='Привет')
+        count = run_rule_over_all(rule)
+        self.assertEqual(count, 2)  # обработаны все, сработало — на совпавшем
+        self.assertEqual(EmailAutomationLog.objects.count(), 1)
+        self.assertTrue(EmailAutomationLog.objects.first().success)
+        self.assertTrue(
+            match.email_tags.filter(tag__name='B57').exists(),
+            'метка должна висеть на совпавшем письме')
+
+    def test_run_rule_async_returns_live_thread(self):
+        # Как tests_seen_b30: в потоке мокаем ядро — тест не зависит от
+        # планировщика и не держит замок БД (TestCase живёт в транзакции).
+        from email_ui.services import rule_runner
+        rule = self._rule()
+        with patch.object(rule_runner, 'run_rule_over_all') as core:
+            thread = run_rule_async(rule)
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive())
+            core.assert_called_once_with(rule)
+        self.assertTrue(thread.daemon)

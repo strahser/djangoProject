@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% load static %}
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
@@ -201,7 +202,7 @@ body.dark-mode h4, body.dark-mode h5, body.dark-mode h6 { color: #e0e0e0; }
 .font-size-control { display: flex; align-items: center; gap: 4px; }
 .font-size-control input[type="range"] { width: 60px; height: 4px; }
 
-.letter-frame { border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; }
+.letter-frame { border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 8px rgba(0,0,0,.07); }
 .letter-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 14px; background: var(--bg-table-header); border-bottom: 1px solid var(--border-color); }
 .letter-toolbar-label { font-size: 13px; color: var(--text-muted); }
 .letter-toolbar-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -216,7 +217,8 @@ body.dark-mode h4, body.dark-mode h5, body.dark-mode h6 { color: #e0e0e0; }
 .letter-content { padding: 22px 24px; min-height: 200px; font-size: var(--letter-font-size, 16px); line-height: 1.65; overflow-wrap: break-word; }
 .letter-frame.letter-paper .letter-content { background: #fdfdfd; color: #222; }
 .letter-frame.letter-dark .letter-content { background: #171b22; color: #e8ebf0; }
-.letter-frame.letter-auto .letter-content { background: transparent; color: inherit; }
+.letter-frame.letter-auto .letter-content { background: #fff; color: #222; }
+/* «Оригинал» — как задумал автор (на белой бумаге), при любой теме страницы. */
 body.dark-mode .letter-frame.letter-paper .letter-content { background: #2a2f3a; color: #eceff4; }
 body.dark-mode .letter-frame.letter-dark .letter-content { background: #0d0f14; color: #e8ebf0; }
 .letter-content img { max-width: 100%; height: auto; border-radius: 6px; }
@@ -232,26 +234,76 @@ details.letter-section:not([open]) > summary.letter-section-title { border-botto
 .letter-footer .letter-section-body { color: var(--text-muted); }
 .letter-footer blockquote { border-left: 3px solid var(--border-color); margin: 8px 0; padding: 6px 12px; }
 .letter-signature { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-color); font-size: 0.85em; opacity: .95; }
+/* Управляемые режимы: нормализуем авторский винегрет шрифтов Outlook
+   (Times/Calibri/моноширинный в одном письме) системным стеком.
+   Инлайн-начертания Outlook сильнее таблицы стилей — поэтому !important.
+   pre/code не трогаем: моноширинный остаётся моноширинным.
+   «Оригинал» показывает как есть. */
+.letter-frame.letter-paper .letter-content,
+.letter-frame.letter-dark .letter-content,
+.letter-frame.letter-paper .letter-content div,
+.letter-frame.letter-paper .letter-content p,
+.letter-frame.letter-paper .letter-content span,
+.letter-frame.letter-paper .letter-content td,
+.letter-frame.letter-paper .letter-content th,
+.letter-frame.letter-paper .letter-content li,
+.letter-frame.letter-paper .letter-content font,
+.letter-frame.letter-paper .letter-content h1,
+.letter-frame.letter-paper .letter-content h2,
+.letter-frame.letter-paper .letter-content h3,
+.letter-frame.letter-paper .letter-content h4,
+.letter-frame.letter-dark .letter-content div,
+.letter-frame.letter-dark .letter-content p,
+.letter-frame.letter-dark .letter-content span,
+.letter-frame.letter-dark .letter-content td,
+.letter-frame.letter-dark .letter-content th,
+.letter-frame.letter-dark .letter-content li,
+.letter-frame.letter-dark .letter-content font,
+.letter-frame.letter-dark .letter-content h1,
+.letter-frame.letter-dark .letter-content h2,
+.letter-frame.letter-dark .letter-content h3,
+.letter-frame.letter-dark .letter-content h4 {
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif !important;
+}
+/* Широкие таблицы (сметы) — горизонтальный скролл вместо разрыва вёрстки. */
+.letter-section-body { overflow-x: auto; }
+.letter-frame.letter-paper .letter-content table { border-collapse: collapse; max-width: 100%; }
+.letter-frame.letter-paper .letter-content td,
+.letter-frame.letter-paper .letter-content th { border: 1px solid #d5d9e0; padding: 4px 8px; }
+/* Узкая колонка чтения для сообщения; таблицы/картинки скроллятся внутри. */
+.letter-body .letter-section-body { max-width: 78ch; }
+/* Блок ссылок Яндекс.Диска — отдельная карточка после рамки. */
+.letter-disk { margin: 0 24px 22px; }
+.letter-disk .letter-section-body a { display: inline-block; margin: 2px 14px 2px 0; }
+/* Печать письма: скрыть хром, раскрыть спойлеры (JS открывает details). */
+@media print {
+  .navbar, .sidebar, .letter-toolbar, .detail-toolbar, .btn, .btn-group,
+  .app-toast-container, #toast-container { display: none !important; }
+  .container-fluid, .p-4, .p-3 { padding: 0 !important; }
+  .card { border: none !important; }
+  .letter-frame { box-shadow: none; }
+  summary.letter-section-title { cursor: default; }
+}
 /* Тёмная тема: гасим белые подложки из Outlook (background-color:white) и читаем чёрный инлайн-текст.
    Белые пятна и font/color-атрибуты исходного HTML перекрываются, ссылки остаются синими. */
-body.dark-mode .letter-content *:not(img):not(video):not(canvas),
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content *:not(img):not(video):not(canvas),
 .letter-frame.letter-dark .letter-content *:not(img):not(video):not(canvas) {
   background-color: transparent !important;
   background-image: none !important;
   text-shadow: none !important;
 }
-body.dark-mode .letter-content,
-body.dark-mode .letter-content div,
-body.dark-mode .letter-content p,
-body.dark-mode .letter-content span,
-body.dark-mode .letter-content td,
-body.dark-mode .letter-content th,
-body.dark-mode .letter-content li,
-body.dark-mode .letter-content font,
-body.dark-mode .letter-content h1,
-body.dark-mode .letter-content h2,
-body.dark-mode .letter-content h3,
-body.dark-mode .letter-content h4,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content div,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content p,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content span,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content td,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content th,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content li,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content font,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content h1,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content h2,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content h3,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content h4,
 .letter-frame.letter-dark .letter-content,
 .letter-frame.letter-dark .letter-content div,
 .letter-frame.letter-dark .letter-content p,
@@ -267,25 +319,25 @@ body.dark-mode .letter-content h4,
   color: #e8ebf0 !important;
 }
 /* Служебные поля и подпись в тёмной теме — ярко, почти белым */
-body.dark-mode .letter-header .letter-section-body,
-body.dark-mode .letter-footer .letter-section-body,
-body.dark-mode .letter-signature,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-header .letter-section-body,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-footer .letter-section-body,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-signature,
 .letter-frame.letter-dark .letter-header .letter-section-body,
 .letter-frame.letter-dark .letter-footer .letter-section-body,
 .letter-frame.letter-dark .letter-signature {
   color: #f4f6fa !important;
 }
-body.dark-mode .letter-content a,
-body.dark-mode .letter-content a span,
-body.dark-mode .letter-content a u,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content a,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content a span,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content a u,
 .letter-frame.letter-dark .letter-content a,
 .letter-frame.letter-dark .letter-content a span,
 .letter-frame.letter-dark .letter-content a u {
   color: #8ab4ff !important;
 }
-body.dark-mode .letter-content table,
-body.dark-mode .letter-content td,
-body.dark-mode .letter-content th,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content table,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content td,
+body.dark-mode .letter-frame:not(.letter-auto) .letter-content th,
 .letter-frame.letter-dark .letter-content table,
 .letter-frame.letter-dark .letter-content td,
 .letter-frame.letter-dark .letter-content th {
@@ -307,6 +359,25 @@ body.dark-mode ::selection { background: #0d6efd; color: #fff; }
 body.dark-mode ::-moz-selection { background: #0d6efd; color: #fff; }
 .letter-content ::selection { background: #ffc107; color: #000; }
 .letter-content ::-moz-selection { background: #ffc107; color: #000; }
+/* Подсветка совпадений поиска в списке писем. */
+.email-row mark, .email-subject-preview mark { background: #ffe08a; color: inherit; border-radius: 2px; padding: 0 1px; }
+body.dark-mode .email-row mark, body.dark-mode .email-subject-preview mark { background: #7a5b00; color: #fff; }
+/* Drag-and-drop вложений в композере. */
+.compose-editor.drag-over { outline: 2px dashed var(--ya-yellow, #fc0); outline-offset: -2px; border-radius: 6px; }
+/* Панель просмотра рядом со списком писем. */
+#preview-pane-card { display: none; }
+#inbox-split.preview-on { display: flex; gap: 12px; align-items: flex-start; }
+/* Курсор клавиатурной навигации по списку. */
+.email-row.kb-cursor { outline: 2px solid #0d6efd; outline-offset: -2px; }
+#inbox-split.preview-on #email-list-card { flex: 1 1 45%; min-width: 0; }
+#inbox-split.preview-on #preview-pane-card { display: block; flex: 1 1 55%; min-width: 0; }
+.email-row.preview-active { outline: 2px solid var(--ya-yellow, #fc0); outline-offset: -2px; }
+#preview-pane .modal-header .ms-auto { display: none; }
+@media (max-width: 991px) {
+  #inbox-split.preview-on { flex-direction: column; }
+  #inbox-split.preview-on #email-list-card, #inbox-split.preview-on #preview-pane-card { flex-basis: auto; }
+}
+.compose-editor.drag-over { outline: 2px dashed var(--ya-yellow, #fc0); outline-offset: -2px; border-radius: 6px; }
 
 .navbar-custom {
     background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
@@ -369,15 +440,13 @@ body.dark-mode ::-moz-selection { background: #0d6efd; color: #fff; }
         </div>
     </div>
     <div class="d-flex align-items-center gap-2">
+        {% include 'snippets/theme_toggle.html' %}
         <div class="font-size-control text-white-50" style="font-size:12px;">
             <i class="bi bi-fonts me-1"></i>
             <input type="range" id="fontSizeSlider" min="12" max="18" value="14"
                    oninput="setTableFontSize(this.value)" title="Размер шрифта">
             <span id="fontSizeLabel" style="min-width:18px;">14</span>
         </div>
-        <button class="btn btn-sm nav-btn-custom" onclick="toggleNightMode()" title="Тема">
-            <i class="bi bi-moon-stars"></i>
-        </button>
         <button class="btn btn-sm nav-btn-custom" onclick="fetchEmails(this)" title="Получить почту">
             <i class="bi bi-arrow-down-circle"></i>
         </button>
@@ -436,7 +505,32 @@ body.dark-mode ::-moz-selection { background: #0d6efd; color: #fff; }
     <div class="modal-dialog"><div class="modal-content" id="dynamicModalContent"></div></div>
 </div>
 
+<div class="modal fade" id="keysHelpModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-keyboard me-1"></i>Горячие клавиши</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body py-2">
+                <table class="table table-sm table-borderless mb-0" style="font-size:13px;">
+                    <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td class="text-muted">следующее / предыдущее</td></tr>
+                    <tr><td><kbd>x</kbd></td><td class="text-muted">выбрать письмо</td></tr>
+                    <tr><td><kbd>Enter</kbd></td><td class="text-muted">открыть</td></tr>
+                    <tr><td><kbd>r</kbd> / <kbd>a</kbd> / <kbd>f</kbd></td><td class="text-muted">ответить / всем / переслать</td></tr>
+                    <tr><td><kbd>e</kbd></td><td class="text-muted">в архив</td></tr>
+                    <tr><td><kbd>s</kbd></td><td class="text-muted">звезда (важное)</td></tr>
+                    <tr><td><kbd>u</kbd></td><td class="text-muted">непрочитанное</td></tr>
+                    <tr><td><kbd>/</kbd></td><td class="text-muted">фильтры и поиск</td></tr>
+                    <tr><td><kbd>Ctrl+Enter</kbd></td><td class="text-muted">отправить из редактора</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{% static 'js/theme-toggle.js' %}"></script>
 <script>
 function setTableFontSize(size) {
     document.querySelectorAll('.table-email, .table-email td, .table-email th').forEach(el => {
@@ -447,15 +541,102 @@ function setTableFontSize(size) {
 }
 
 function toggleNightMode() {
-    document.body.classList.toggle('dark-mode');
-    const isDark = document.body.classList.contains('dark-mode');
-    localStorage.setItem('email-dark-mode', isDark ? '1' : '0');
-    const icon = document.querySelector('.nav-btn-custom i');
-    if (icon) icon.className = isDark ? 'bi bi-sun-fill' : 'bi bi-moon-stars';
+    window.toggleAppTheme();
 }
-if (localStorage.getItem('email-dark-mode') === '1') {
-    document.body.classList.add('dark-mode');
+
+/* Сворачивание секций (адреса/задачи/вложения/цепочки): единая версия,
+   раньше копипастилась в 4 шаблонах. */
+function toggleSection(header) {
+    header.classList.toggle('collapsed');
+    header.nextElementSibling.classList.toggle('show');
 }
+
+/* Горячие клавиши списка писем: j/k — курсор, x — выбрать, Enter — открыть,
+   e — в архив, s — звезда, u — непрочитанное, r/a/f — ответить/всем/переслать,
+   / — фильтры, ? — помощь. В полях ввода и открытых модалках молчат. */
+window.EmailKeys = (function() {
+    var cursor = -1;
+    function rows() {
+        return Array.from(document.querySelectorAll('#email-list-container tr.email-row'));
+    }
+    function setCursor(i) {
+        var rs = rows();
+        rs.forEach(function(r) { r.classList.remove('kb-cursor'); });
+        if (!rs.length) { cursor = -1; return null; }
+        cursor = Math.max(0, Math.min(i, rs.length - 1));
+        rs[cursor].classList.add('kb-cursor');
+        rs[cursor].scrollIntoView({block: 'nearest'});
+        return rs[cursor];
+    }
+    function current() {
+        var rs = rows();
+        return (cursor >= 0 && cursor < rs.length) ? rs[cursor] : null;
+    }
+    function folder() {
+        var el = document.getElementById('filter-folder-input');
+        return (el && el.value) || 'inbox';
+    }
+    function bulk(id, action, extra) {
+        var values = {selected_emails: String(id), action: action, folder: folder()};
+        if (extra) { for (var k in extra) values[k] = extra[k]; }
+        htmx.ajax('POST', '{% url "email_ui:bulk_action" %}',
+                  {target: '#email-list-container', swap: 'innerHTML', values: values});
+    }
+    function replyUrl(id, kind) {
+        return '{% url "email_ui:email_detail" 0 %}'.replace('/0/', '/' + id + '/') + 'reply/' + kind + '/';
+    }
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target && evt.detail.target.id === 'email-list-container') {
+            cursor = -1;
+        }
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        var t = e.target;
+        if (t && t.closest && t.closest('input,textarea,select,[contenteditable="true"]')) return;
+        if (document.querySelector('.modal.show')) return;
+        if (!document.getElementById('email-list-container')) return;
+        var k = e.key;
+        var row = current();
+        if (k === 'j') { e.preventDefault(); setCursor(cursor < 0 ? 0 : cursor + 1); }
+        else if (k === 'k') { e.preventDefault(); setCursor(cursor < 0 ? 0 : cursor - 1); }
+        else if (k === 'x' && row) {
+            var cb = row.querySelector('input[name="selected_emails"]');
+            if (cb) { cb.checked = !cb.checked; if (window.toggleBulkActionBar) toggleBulkActionBar(); }
+        }
+        else if (k === 'Enter' && row) {
+            e.preventDefault();
+            if (window.EmailPreview && EmailPreview.enabled()) EmailPreview.open(row.dataset.emailId, row);
+            else row.click();
+        }
+        else if (k === 'e' && row) { bulk(row.dataset.emailId, 'move', {move_to: 'archive'}); }
+        else if (k === 's' && row) {
+            var starred = !!row.querySelector('.bi-star-fill');
+            bulk(row.dataset.emailId, starred ? 'mark_unimportant' : 'mark_important');
+        }
+        else if (k === 'u' && row) { bulk(row.dataset.emailId, 'mark_unread'); }
+        else if ((k === 'r' || k === 'a' || k === 'f') && row) {
+            var kind = k === 'a' ? 'reply_all' : (k === 'f' ? 'forward' : 'reply');
+            EmailApp.openModal(replyUrl(row.dataset.emailId, kind));
+        }
+        else if (k === '/') {
+            var modalEl = document.getElementById('filterModal');
+            if (modalEl && window.bootstrap) {
+                e.preventDefault();
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+                setTimeout(function() {
+                    var s = document.getElementById('id_search');
+                    if (s) s.focus();
+                }, 300);
+            }
+        }
+        else if (k === '?') {
+            var helpEl = document.getElementById('keysHelpModal');
+            if (helpEl && window.bootstrap) bootstrap.Modal.getOrCreateInstance(helpEl).show();
+        }
+    });
+    return {reset: function() { cursor = -1; }};
+})();
 const savedSize = localStorage.getItem('email-font-size');
 if (savedSize) {
     document.getElementById('fontSizeSlider').value = savedSize;
@@ -497,12 +678,24 @@ function fetchEmails(btn) {
     }).catch(function() {
         btn.disabled = false;
         btn.innerHTML = original;
-        showToast('Не удалось получить почту', 'error');
+        showToast('Сервер недоступен — проверьте, что Django запущен, и повторите', 'error');
     });
 }
 
 document.body.addEventListener('htmx:configRequest', evt => {
     evt.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+});
+
+// Глобальное предупреждение, если Django упал/недоступен:
+// любой htmx-запрос с сетевой ошибкой или 5xx показывает тост.
+document.body.addEventListener('htmx:sendError', function() {
+    showToast('Сервер недоступен — проверьте, что Django запущен', 'error');
+});
+document.body.addEventListener('htmx:responseError', function(evt) {
+    var status = evt.detail && evt.detail.xhr ? evt.detail.xhr.status : 0;
+    if (status >= 500 || status === 0) {
+        showToast('Сервер недоступен (ошибка ' + status + ') — проверьте, что Django запущен', 'error');
+    }
 });
 
 function updateActiveSidebar() {
@@ -515,6 +708,27 @@ function updateActiveSidebar() {
 updateActiveSidebar();
 document.body.addEventListener('htmx:afterSwap', () => { updateSidebarCounters(); updateActiveSidebar(); });
 window.addEventListener('popstate', updateActiveSidebar);
+
+/* Присвоение тега письму (деталка и модалка просмотра): единая версия,
+   раньше дублировалась с расхождениями. markDetailDirty — только на деталке. */
+function assignTag(emailId, tagId, tagName, tagColor) {
+    fetch('{% url "email_ui:assign_tag" %}', {
+        method: 'POST',
+        headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'email_id=' + emailId + '&tag_id=' + tagId
+    }).then(r => r.json()).then(data => {
+        if (window.markDetailDirty) markDetailDirty();
+        var container = document.getElementById('email-tags-' + emailId);
+        if (container) {
+            var badge = document.createElement('span');
+            badge.className = 'badge rounded-pill bg-warning text-dark';
+            badge.style.backgroundColor = tagColor;
+            badge.innerHTML = tagName + ' <a href="#" class="text-white text-decoration-none ms-1">&times;</a>';
+            badge.querySelector('a').addEventListener('click', function(e) { e.preventDefault(); badge.remove(); });
+            container.appendChild(badge);
+        }
+    });
+}
 
 window.allFilteredCount = window.allFilteredCount || 0;
 window.toggleBulkActionBar = window.toggleBulkActionBar || function() {
@@ -624,6 +838,14 @@ window.initTinyMCE = function() {
             : "body{background:#fff;color:#333;font-size:14px;font-family:-apple-system,sans-serif;}",
         setup(editor) {
             editor.on('change', () => { editor.save(); if (window.EmailApp) EmailApp.markDirty(); });
+            editor.on('keydown', function(e) {
+                if ((e.ctrlKey || e.metaKey) && e.keyCode === 13) {
+                    e.preventDefault();
+                    editor.save();
+                    var form = document.getElementById('compose-form');
+                    if (form && form.requestSubmit) form.requestSubmit();
+                }
+            });
         }
     });
 };
@@ -736,6 +958,21 @@ function initLetterFrames(scope) {
     });
 }
 document.addEventListener('DOMContentLoaded', function() { initLetterFrames(document); });
+/* Печать: раскрыть все спойлеры письма, после печати — вернуть как было. */
+(function() {
+    var opened = [];
+    window.addEventListener('beforeprint', function() {
+        opened = [];
+        document.querySelectorAll('details.letter-section:not([open])').forEach(function(d) {
+            d.setAttribute('open', '');
+            opened.push(d);
+        });
+    });
+    window.addEventListener('afterprint', function() {
+        opened.forEach(function(d) { d.removeAttribute('open'); });
+        opened = [];
+    });
+})();
 document.body.addEventListener('htmx:afterSwap', function(evt) {
     if (evt.detail && evt.detail.target) initLetterFrames(evt.detail.target);
 });

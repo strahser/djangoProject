@@ -1,0 +1,9 @@
+{% extends "admin/change_form.html" %}
+{# Скрытые поля «вернуться к письму» и «привязать письмо» после сохранения.
+   Контекст задаёт TaskNodeAdmin.render_change_form (email_id/next_url).
+   Без этого шаблона add-форма задачи из письма теряла связь с письмом. #}
+{% block form_top %}
+  {{ block.super }}
+  {% if email_id %}<input type="hidden" name="_email_id" value="{{ email_id }}">{% endif %}
+  {% if next_url %}<input type="hidden" name="_next" value="{{ next_url }}">{% endif %}
+{% endblock %}

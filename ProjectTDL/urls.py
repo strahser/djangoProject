@@ -27,6 +27,7 @@ urlpatterns = [
     path('tree/', views.task_tree_view, name='task_tree_view'),
     path('bulk_update/', views.bulk_update_tasks, name='bulk_update_tasks'),
     path('bulk_delete/', views.bulk_delete_tasks, name='bulk_delete_tasks'),
+    path('task/move/', views.task_move, name='task_move'),
     path('save_settings/', views.save_user_settings, name='save_user_settings'),
     path('save_filter_state/', views.save_filter_state, name='save_filter_state'),
     path('filter_ajax/', views.filter_tasks_ajax, name='filter_tasks_ajax'),

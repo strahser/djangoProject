@@ -185,11 +185,6 @@ function removeDraftAttachment(btn, attId) {
     }
 }
 
-function toggleSection(header) {
-    header.classList.toggle('collapsed');
-    header.nextElementSibling.classList.toggle('show');
-}
-
 function saveDraftUpdate() {
     var form = document.getElementById('compose-form');
     if (!form) return;

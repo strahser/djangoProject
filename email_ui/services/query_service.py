@@ -82,6 +82,49 @@ def _query_tokens(raw):
     return tokens
 
 
+_TOKEN_SPLIT_RE = re.compile(r'(-?)"([^"]+)"|(-?)([^\s,;]+)')
+
+
+def _search_tokens(raw):
+    """Токены общего поиска: тройки (значение, это_адрес, исключить).
+
+    Расширение _query_tokens: `"точная фраза"` — один токен (пробелы внутри
+    сохраняются), `-минус` в начале — исключение. Кавычки в результат не
+    попадают (раньше `"смета"` искалась буквально с кавычками и не находилась).
+    """
+    out = []
+    for m in _TOKEN_SPLIT_RE.finditer(str(raw or '')):
+        neg, phrase, neg2, single = m.group(1), m.group(2), m.group(3), m.group(4)
+        text = (phrase if phrase is not None else single or '').strip()
+        if not text or text == '-':
+            continue
+        negate = bool(neg or neg2)
+        addresses = _token_addresses(text)
+        if addresses:
+            out.extend((addr, True, negate) for addr in addresses)
+        else:
+            out.append((text, False, negate))
+    return out
+
+
+def highlight_words(query, limit=10):
+    """Слова запроса для подсветки в списке: минус-токены пропускаем,
+    фразы разбиваем на слова. Длинные первые (для regex-альтернации)."""
+    words = []
+    for value, _is_address, negate in _search_tokens(query or ''):
+        if negate:
+            continue
+        words.extend(value.split())
+    seen = set()
+    uniq = []
+    for w in words:
+        w = (w or '').strip()
+        if len(w) >= 2 and w.lower() not in seen:
+            seen.add(w.lower())
+            uniq.append(w)
+    return sorted(uniq, key=len, reverse=True)[:limit]
+
+
 # Поля общего поиска («везде»): тема + все адресные поля + наименование.
 SEARCH_ANYWHERE_FIELDS = (
     'subject', 'sender', 'sender_name', 'receiver', 'cc', 'bcc', 'name',
@@ -110,17 +153,21 @@ def _q_field_variants(field, token):
     return q
 
 
-def _q_token_anywhere(token, include_body=False):
+def _q_token_anywhere(token, include_body=False, include_files=False):
     """Один токен общего поиска: любое поле из SEARCH_ANYWHERE_FIELDS (ИЛИ).
 
     include_body=True — дополнительно ищем в теле письма (body_text),
     т.е. режим «Тема + тело письма».
+    include_files=True — дополнительно ищем в тексте вложений
+    (attachments__text_content).
     """
     q = Q()
     for field in SEARCH_ANYWHERE_FIELDS:
         q |= _q_field_variants(field, token)
     if include_body:
         q |= _q_field_variants('body_text', token)
+    if include_files:
+        q |= _q_field_variants('attachments__text_content', token)
     return q
 
 
@@ -163,6 +210,8 @@ def filter_emails(queryset, cleaned_data):
         queryset = queryset.filter(email_tags__tag__in=cleaned_data['tags']).distinct()
     if cleaned_data.get('has_attachments'):
         queryset = queryset.filter(attachments__isnull=False).distinct()
+    if cleaned_data.get('has_disk_links'):
+        queryset = queryset.filter(has_disk_links=True)
     if cleaned_data.get('is_important'):
         queryset = queryset.filter(is_important=True)
     if cleaned_data.get('is_unread'):
@@ -191,11 +240,25 @@ def filter_emails(queryset, cleaned_data):
         # subject_body (везде + тело письма).
         # Адрес (есть '@') ищется по адресным полям при ЛЮБОЙ области: в теме
         # письма адресов не бывает, и «Только тема» молча не находил адресата.
+        # `"точная фраза"` — один токен; `-минус` в начале — исключение.
         scope = cleaned_data.get('search_scope') or ''
         include_body = scope == 'subject_body'
-        for tok, is_address in _query_tokens(query):
+        include_files = bool(cleaned_data.get('in_files'))
+        for tok, is_address, negate in _search_tokens(query):
             if scope == 'subject' and not is_address:
-                queryset = queryset.filter(_q_field_variants('subject', tok))
+                q = _q_field_variants('subject', tok)
             else:
-                queryset = queryset.filter(_q_token_anywhere(tok, include_body=include_body))
+                q = _q_token_anywhere(tok, include_body=include_body,
+                                      include_files=include_files)
+            queryset = queryset.exclude(q) if negate else queryset.filter(q)
+        if include_files:
+            queryset = queryset.distinct()
+    if cleaned_data.get('attachment_name'):
+        # Имя файла вложения: токены через запятую/точку с запятой (ИЛИ),
+        # пробелы внутри keep — имена файлов их содержат.
+        q = Q()
+        for t in _split_tokens(cleaned_data['attachment_name']):
+            q |= _q_field_variants('attachments__filename', t)
+        if q:
+            queryset = queryset.filter(q).distinct()
     return queryset

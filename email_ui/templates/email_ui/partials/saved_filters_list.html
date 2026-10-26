@@ -1,10 +1,26 @@
 <div class="list-group">
     {% for sf in filters %}
-    <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2">
-        <a href="{% url 'email_ui:apply_saved_filter' sf.id %}" class="text-decoration-none stretched-link">
+    <div class="list-group-item d-flex justify-content-between align-items-center py-2" data-sf-row="{{ sf.pk }}">
+        <a href="{% url 'email_ui:apply_saved_filter' sf.pk %}" class="text-decoration-none">
             <i class="bi bi-funnel"></i> {{ sf.name }}
         </a>
-        <small class="text-muted">{{ sf.folder }}</small>
+        <span class="d-flex align-items-center gap-1">
+            <small class="text-muted me-1">{{ sf.folder }}</small>
+            {% if sf.user_id == request.user.pk %}
+            <button type="button" class="btn btn-sm py-0 {% if sf.is_pinned %}btn-warning{% else %}btn-outline-secondary{% endif %}"
+                    title="{% if sf.is_pinned %}Открепить из сайдбара{% else %}Закрепить в сайдбаре{% endif %}"
+                    hx-post="{% url 'email_ui:toggle_pin_filter' sf.pk %}"
+                    hx-target="#emailModalContent" hx-swap="innerHTML" hx-push-url="false">
+                <i class="bi bi-bookmark-star{% if sf.is_pinned %}-fill{% endif %}"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-danger py-0" title="Удалить"
+                    hx-post="{% url 'email_ui:delete_saved_filter' sf.pk %}"
+                    hx-swap="none"
+                    hx-on::after-request="if(event.detail.successful){ this.closest('[data-sf-row]').remove(); showToast('Фильтр удалён','info'); }">
+                <i class="bi bi-trash"></i>
+            </button>
+            {% endif %}
+        </span>
     </div>
     {% empty %}
     <div class="text-muted text-center py-3">Нет сохранённых фильтров</div>

@@ -1,0 +1,267 @@
+{% extends 'base.html' %}
+{% block title %}ДДС — позиции смет{% endblock %}
+{% block content %}
+<style>
+  .dds-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dds-table tfoot td { font-weight: 700; border-top: 2px solid var(--border-color, #dee2e6); }
+  .dds-table td.name { max-width: 480px; }
+  .dds-filter .form-select { max-width: 240px; }
+  .msf-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: rgba(0, 0, 0, 0.5);
+    align-items: flex-start;
+    justify-content: center;
+    padding: 8vh 12px 12px;
+  }
+  .msf-overlay.open { display: flex; }
+  .msf-dialog {
+    background: var(--bg-card, #fff);
+    color: var(--text-color, #212529);
+    border-radius: 8px;
+    width: min(560px, 94vw);
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  }
+  .msf-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-color, #dee2e6);
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .msf-close {
+    border: none;
+    background: transparent;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--text-muted, #6c757d);
+    padding: 0 4px;
+  }
+  .msf-close:hover { opacity: 0.7; }
+  .msf-search-wrap { padding: 10px 14px 6px; }
+  .msf-list { overflow-y: auto; padding: 4px 14px; min-height: 120px; }
+  .msf-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    margin: 0;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .msf-item:hover { background: var(--bg-table-row-hover, #f0f4ff); }
+  .msf-item input[type="checkbox"] { flex-shrink: 0; margin: 0; cursor: pointer; }
+  .msf-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .msf-none .msf-label { color: var(--text-muted, #6c757d); }
+  .msf-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border-color, #dee2e6);
+  }
+</style>
+<div class="container-fluid py-3" style="max-width:1600px;">
+  <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+    <h3 class="mb-0">ДДС — позиции смет</h3>
+    <span class="text-muted small">Договор → Смета → Позиция → Акт</span>
+    <div class="ms-auto d-flex gap-2">
+      <a href="?{{ request.GET.urlencode }}&export=xlsx" class="btn btn-sm btn-outline-success">
+        <i class="bi bi-file-earmark-excel me-1"></i>Excel
+      </a>
+      <a href="{% url 'contract_dashboard' %}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Договоры
+      </a>
+    </div>
+  </div>
+
+  <form method="get" class="dds-filter d-flex align-items-end gap-2 mb-3 flex-wrap">
+    <div>
+      <label class="form-label small text-muted mb-1">Подрядчик</label>
+      <select name="contractor" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">Все</option>
+        {% for c in contractors %}
+        <option value="{{ c.pk }}" {% if sel.sel_contractor == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label small text-muted mb-1">Договор</label>
+      <select name="contract" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">Все</option>
+        {% for c in contracts %}
+        <option value="{{ c.pk }}" {% if sel.sel_contract == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label small text-muted mb-1">Здание</label>
+      <select name="building" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">Все</option>
+        {% for b in buildings %}
+        <option value="{{ b.pk }}" {% if sel.sel_building == b.pk|stringformat:"s" %}selected{% endif %}>{{ b }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label small text-muted mb-1">Раздел</label>
+      <select name="chapter" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">Все</option>
+        {% for d in chapters %}
+        <option value="{{ d.pk }}" {% if sel.sel_chapter == d.pk|stringformat:"s" %}selected{% endif %}>{{ d.short_name }} — {{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label small text-muted mb-1">Закрытие (акт)</label><br>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="actFilterBtn" style="max-width:260px;">
+        <span id="actFilterSummary" style="display:inline-block;vertical-align:bottom;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">{{ sel.act_summary }}</span>
+      </button>
+    </div>
+    <div>
+      <label class="form-label small text-muted mb-1">Задачи</label>
+      <select name="tasks" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">Все</option>
+        <option value="has" {% if sel.sel_tasks == 'has' %}selected{% endif %}>С задачами</option>
+        <option value="none" {% if sel.sel_tasks == 'none' %}selected{% endif %}>Без задач</option>
+      </select>
+    </div>
+    <a href="{% url 'dds_report' %}" class="btn btn-sm btn-outline-secondary">Сбросить</a>
+  </form>
+
+  <div class="msf-overlay" id="actModal" role="dialog" aria-modal="true" aria-label="Выбор актов">
+    <div class="msf-dialog">
+      <div class="msf-header">
+        <span>Закрытие (акт)</span>
+        <button type="button" class="msf-close" data-close title="Закрыть">&times;</button>
+      </div>
+      <div class="msf-search-wrap">
+        <input type="text" id="actSearch" class="form-control form-control-sm" placeholder="Поиск…" autocomplete="off">
+      </div>
+      <div class="msf-list" id="actList">
+        <label class="msf-item msf-none">
+          <input type="checkbox" class="msf-cb" value="__none__" {% if '__none__' in sel.sel_acts %}checked{% endif %}>
+          <span class="msf-label"><i>— Без акта (не закрытые) —</i></span>
+        </label>
+        {% for a in acts %}
+        <label class="msf-item">
+          <input type="checkbox" class="msf-cb" value="{{ a.pk }}" {% if a.pk|stringformat:"s" in sel.sel_acts %}checked{% endif %}>
+          <span class="msf-label">{{ a }}</span>
+        </label>
+        {% endfor %}
+        <div class="text-muted small py-2 d-none" id="actEmpty">Ничего не найдено</div>
+      </div>
+      <div class="msf-footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="actClear">Сбросить</button>
+        <div>
+          <button type="button" class="btn btn-sm btn-outline-secondary me-2" data-close>Отмена</button>
+          <button type="button" class="btn btn-sm btn-primary" id="actApply">Применить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function() {
+    var overlay = document.getElementById('actModal');
+    var search = document.getElementById('actSearch');
+    var items = overlay.querySelectorAll('.msf-item');
+    var empty = document.getElementById('actEmpty');
+    function open() {
+      overlay.classList.add('open');
+      search.value = '';
+      search.dispatchEvent(new Event('input'));
+      setTimeout(function() { search.focus(); }, 50);
+    }
+    function close() { overlay.classList.remove('open'); }
+    document.getElementById('actFilterBtn').addEventListener('click', function(e) { e.preventDefault(); open(); });
+    overlay.querySelectorAll('[data-close]').forEach(function(b) { b.addEventListener('click', close); });
+    overlay.addEventListener('mousedown', function(e) { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && overlay.classList.contains('open')) close(); });
+    search.addEventListener('input', function() {
+      var q = search.value.toLowerCase(), vis = 0;
+      items.forEach(function(item) {
+        var show = item.querySelector('.msf-label').textContent.toLowerCase().indexOf(q) !== -1;
+        item.style.display = show ? '' : 'none';
+        if (show) vis++;
+      });
+      empty.classList.toggle('d-none', vis > 0);
+    });
+    document.getElementById('actClear').addEventListener('click', function() {
+      overlay.querySelectorAll('.msf-cb').forEach(function(cb) { cb.checked = false; });
+    });
+    document.getElementById('actApply').addEventListener('click', function() {
+      var sp = new URLSearchParams(window.location.search);
+      sp.delete('act');
+      overlay.querySelectorAll('.msf-cb:checked').forEach(function(cb) { sp.append('act', cb.value); });
+      window.location.search = sp.toString();
+    });
+    search.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('actApply').click(); }
+    });
+  })();
+  </script>
+
+  <div class="table-responsive" style="background:var(--bg-card,#fff);border:1px solid var(--border-color,#e2e6ee);border-radius:12px;">
+    <table class="table align-middle mb-0 dds-table">
+      <thead><tr>
+        <th>Здание</th><th>Раздел</th><th>Наименование</th>
+        <th class="text-end">Стоимость</th><th>Договор</th>
+        <th>Закрытие</th><th>Дата</th><th>Задачи</th>
+      </tr></thead>
+      <tbody>
+        {% for c in rows %}
+        <tr>
+          <td>{{ c.building_number|default:"—" }}</td>
+          <td>{{ c.design_chapter.short_name|default:c.design_chapter|default:"—" }}</td>
+          <td class="name">
+            <a href="{% url 'admin:ProjectContract_estimateconcept_change' c.pk %}" title="Открыть позицию в админке">{{ c.name|truncatechars:120 }}</a>
+          </td>
+          <td class="num">{{ c.amount|floatformat:2 }}</td>
+          <td>
+            {% if c.estimate.contract %}
+            <a href="{% url 'contract_detail' c.estimate.contract.pk %}">{{ c.estimate.contract.name|truncatechars:40 }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if c.act %}
+            <a href="{% url 'admin:ProjectContract_act_change' c.act.pk %}">{{ c.act }}</a>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td>{{ c.act.act_date|date:"d.m.Y"|default:"—" }}</td>
+          <td>
+            {% for t in c.task_list|slice:":3" %}
+            <a href="{% url 'task_detail' t.pk %}" class="badge bg-info text-dark text-decoration-none me-1 mb-1" title="{{ t.name }}">{{ t.name|truncatechars:40 }}</a>
+            {% empty %}<span class="text-muted">—</span>
+            {% endfor %}
+            {% if c.task_list|length > 3 %}<span class="badge bg-secondary">+{{ c.task_list|length|add:"-3" }}</span>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="text-center text-muted py-4">Нет позиций по заданным фильтрам</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3">ИТОГО ({{ rows|length }} поз.)</td>
+          <td class="num">{{ total|floatformat:2 }}</td>
+          <td colspan="4"></td>
+        </tr>
+        <tr>
+          <td colspan="3">в т.ч. закрыто актами</td>
+          <td class="num">{{ closed_total|floatformat:2 }}</td>
+          <td colspan="4">открыто: {{ open_total|floatformat:2 }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endblock %}

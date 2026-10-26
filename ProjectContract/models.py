@@ -588,6 +588,34 @@ class ContractEstimate(BaseModel):
         return self.rollup_amount > (self.contract.price or Decimal('0'))
 
 
+class Act(BaseModel):
+    """Акт закрытия работ по договору (ДДС: колонки Закрытие/Дата).
+
+    Один акт покрывает много позиций сметы разных договоров нет —
+    номер уникален в пределах договора.
+    """
+    number = models.CharField(max_length=100, verbose_name='Номер акта')
+    act_date = models.DateField(null=True, blank=True, verbose_name='Дата акта')
+    contract = models.ForeignKey(
+        'ProjectContract.Contract',
+        on_delete=models.CASCADE,
+        related_name='acts',
+        verbose_name='Договор',
+    )
+    file = models.FileField(upload_to='acts/%Y/%m/', null=True, blank=True,
+                            verbose_name='Файл акта')
+
+    class Meta:
+        verbose_name = 'Акт'
+        verbose_name_plural = 'Акты'
+        ordering = ['contract_id', 'act_date', 'id']
+        unique_together = ('contract', 'number')
+
+    def __str__(self):
+        d = self.act_date.strftime('%d.%m.%Y') if self.act_date else 'без даты'
+        return f'Акт №{self.number} от {d} ({self.contract})'
+
+
 class EstimateConcept(BaseModel):
     """Позиция сметы: объём x цена = сумма (DMC-3).
 
@@ -628,6 +656,13 @@ class EstimateConcept(BaseModel):
         related_name='estimate_concepts',
         verbose_name='Задача (TaskNode)',
     )
+    act = models.ForeignKey(
+        'ProjectContract.Act',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='concepts',
+        verbose_name='Акт (закрытие)',
+    )
 
     class Meta:
         verbose_name = 'Позиция сметы'
@@ -652,6 +687,46 @@ class EstimateConcept(BaseModel):
         super().save(*args, **kwargs)
         if self.estimate_id:
             self.estimate.rollup()
+
+
+class EstimateTaskLink(BaseModel):
+    """Связь позиции сметы с задачами (позиция -> много задач).
+
+    Основное создание — экшен «Создать задачи из позиций» в админке
+    позиций (только незакрытые актом). Поле EstimateConcept.task_node
+    остаётся «основной задачей» (ставится при первом создании).
+    """
+    LINK_TYPES = [
+        ('created_from', 'Создана из позиции'),
+        ('related', 'Связано'),
+    ]
+    estimate_concept = models.ForeignKey(
+        'ProjectContract.EstimateConcept',
+        on_delete=models.CASCADE,
+        related_name='task_links',
+        verbose_name='Позиция сметы',
+    )
+    task_node = models.ForeignKey(
+        'ProjectTDL.TaskNode',
+        on_delete=models.CASCADE,
+        related_name='estimate_links',
+        verbose_name='Задача',
+    )
+    link_type = models.CharField(
+        max_length=20, choices=LINK_TYPES, default='created_from',
+        verbose_name='Тип связи')
+    note = models.TextField(blank=True, default='', verbose_name='Примечание')
+    created_by = models.ForeignKey(
+        'auth.User', null=True, blank=True, on_delete=models.SET_NULL,
+        verbose_name='Кто связал')
+
+    class Meta:
+        verbose_name = 'Связь позиции с задачей'
+        verbose_name_plural = 'Связи позиций с задачами'
+        unique_together = [['estimate_concept', 'task_node']]
+
+    def __str__(self):
+        return f'{self.estimate_concept} ↔ {self.task_node}'
 
 
 class TaskComment(BaseModel):

@@ -126,3 +126,54 @@
     </aside>
 {% endif %}
 {% endblock %}
+
+{% block extrajs %}
+{{ block.super }}
+<script>
+// Луна/солнце в админке: всегда первая кнопка справа в верхнем навбаре,
+// как в остальных окнах (Задачи / Почта / Отчёты).
+(function () {
+  function currentMode() {
+    try {
+      var saved = localStorage.getItem('jazzmin-theme-mode');
+      if (saved === 'dark' || saved === 'light') return saved;
+    } catch (e) {}
+    var attr = document.documentElement.getAttribute('data-bs-theme');
+    return attr === 'dark' ? 'dark' : 'light';
+  }
+  function renderIcon(mode) {
+    var icon = document.querySelector('#jazzmin-theme-toggle-icon');
+    if (icon) icon.className = mode === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+  }
+  window.toggleJazzminTheme = function () {
+    var next = currentMode() === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('jazzmin-theme-mode', next); } catch (e) {}
+    document.documentElement.setAttribute('data-bs-theme', next);
+    renderIcon(next);
+  };
+  function insertButton() {
+    var bar = document.querySelector('ul.navbar-nav.ms-auto');
+    if (!bar || document.getElementById('jazzmin-theme-toggle')) {
+      renderIcon(currentMode());
+      return;
+    }
+    var li = document.createElement('li');
+    li.className = 'nav-item';
+    li.innerHTML = '<a id="jazzmin-theme-toggle" class="nav-link btn" href="#" role="button"'
+      + ' title="Тёмная/светлая тема" aria-label="Переключить тему">'
+      + '<i id="jazzmin-theme-toggle-icon" class="fas fa-moon"></i></a>';
+    bar.insertBefore(li, bar.firstChild);
+    li.querySelector('#jazzmin-theme-toggle').addEventListener('click', function (e) {
+      e.preventDefault();
+      window.toggleJazzminTheme();
+    });
+    renderIcon(currentMode());
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', insertButton);
+  } else {
+    insertButton();
+  }
+})();
+</script>
+{% endblock %}

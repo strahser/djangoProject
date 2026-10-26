@@ -62,7 +62,7 @@ def intake(request, project):
         att = get_object_or_404(email.attachments.all(), pk=request.data['attachment_id'])
     else:
         att = next((a for a in atts if not a.is_inline), atts[0] if atts else None)
-    sha, size = _file_fingerprint(att.file_path if att else '')
+    sha, size = _file_fingerprint(att.resolved_path if att else '')
     rev = R['revision'].objects.create(
         entry=None, email=email, attachment=att, source='email',
         sha256=sha, size=size, status='received',
@@ -88,10 +88,10 @@ def validate(request, project, rev_id):
     rev.status = 'validating'
     rev.save(update_fields=['status'])
 
-    file_path = rev.attachment.file_path if rev.attachment else ''
+    file_path = rev.attachment.resolved_path if rev.attachment else ''
     prev = R['revision'].objects.filter(
         entry=rev.entry, rev_no__lt=rev.rev_no).exclude(entry=None).order_by('-rev_no').first()
-    prev_path = (prev.attachment.file_path if prev and prev.attachment else '') or ''
+    prev_path = (prev.attachment.resolved_path if prev and prev.attachment else '') or ''
     checks: dict = {}
     try:
         if file_path and prev_path and os.path.isfile(file_path) and os.path.isfile(prev_path):

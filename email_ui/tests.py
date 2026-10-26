@@ -1338,9 +1338,22 @@ class FilterParamsRobustnessTest(CategoryMixin, TestCase, ViewTestCaseMixin):
         self.assertIn('applyAndSubmit', html)
 
     def test_filter_panel_opens_when_filters_active(self):
-        """Панель фильтров раскрывается, если в URL есть активные фильтры."""
-        response = self.client.get(reverse('email_ui:inbox', args=['inbox']))
-        self.assertContains(response, 'expandPanelIfFiltersActive')
+        """Активные фильтры из URL видны без открытия модалки.
+
+        Исторически тест требовал JS expandPanelIfFiltersActive (авто-раскрытие
+        панели), которого нет ни в одном шаблоне — функция не была реализована.
+        Вместо авто-открытия (модалка при каждой загрузке с фильтрами мешает)
+        состояние показывают счётчик на кнопке и плашки саммари: пиним факт.
+        """
+        response = self.client.get(
+            reverse('email_ui:inbox', args=['inbox']),
+            {'search': 'смета', 'is_unread': '1'})
+        html = response.content.decode('utf-8')
+        # Счётчик на кнопке «Фильтры и поиск».
+        self.assertIn('badge bg-primary ms-1', html)
+        # Плашки саммари.
+        self.assertIn('Поиск: смета', html)
+        self.assertIn('Непрочитанные', html)
 
     def test_summary_refreshes_after_htmx_swap(self):
         """Плашки активных фильтров пересобираются после htmx-подмены списка."""
@@ -2262,7 +2275,7 @@ class BodyHeadTest(TestCase):
         self.assertEqual(email_body_head(email), '')
 
 
-class LetterStyleAndSegmentsTest(TestCase):
+class LetterStyleAndSegmentsTest(CategoryMixin, TestCase):
     """Авторские стили переписки сохраняются, письмо делится на 3 карточки."""
 
     def test_clean_preserves_author_styles(self):
@@ -2316,6 +2329,67 @@ class LetterStyleAndSegmentsTest(TestCase):
         self.assertIn('letter-body', out)
         self.assertNotIn('letter-header', out)
         self.assertNotIn('letter-footer', out)
+
+    def test_segment_single_wrapper_div(self):
+        """Тело в одном корневом div (Outlook) — цитата и подпись вычленяются."""
+        from email_ui.utils import segment_letter_html
+        html = (
+            '<div><div>Добрый день, смотрите смету.</div>'
+            '<div>----------------</div>'
+            '<blockquote><p>Исходный вопрос</p></blockquote>'
+            '<div>-- </div><div>С уважением, Босс</div></div>'
+        )
+        out = segment_letter_html(clean_email_html(html))
+        self.assertIn('letter-body', out)
+        self.assertIn('letter-footer', out)
+        self.assertIn('letter-signature', out)
+        self.assertIn('Исходный вопрос', out)
+        # Цитата — внутри спойлера переписки, а не в сообщении.
+        footer = out.split('letter-footer', 1)[1]
+        self.assertIn('Исходный вопрос', footer)
+
+    def test_segment_quote_and_signature_collapsed(self):
+        from email_ui.utils import segment_letter_html
+        out = segment_letter_html(
+            '<div>Текст</div><blockquote><p>Цитата</p></blockquote>'
+            '<div>-- </div><div>Подпись</div>')
+        self.assertIn('<details class="letter-section letter-footer">', out)
+        self.assertIn('<details class="letter-section letter-sig">', out)
+        self.assertNotIn('<details class="letter-section letter-footer" open', out)
+
+    def test_get_html_file_path_skips_disk_links(self):
+        """Файл ссылок Яндекс.Диска телом письма не считается."""
+        from email_ui.utils import DISK_LINKS_FILENAME
+        tmp_dir = tempfile.mkdtemp()
+        with open(os.path.join(tmp_dir, DISK_LINKS_FILENAME), 'w', encoding='utf-8') as f:
+            f.write('<a href="https://disk.yandex.ru/x">Файл</a>')
+        email = Email(link=tmp_dir)
+        self.assertIsNone(email.get_html_file_path())
+        with open(os.path.join(tmp_dir, 'body.html'), 'w', encoding='utf-8') as f:
+            f.write('<div>Тело</div>')
+        self.assertTrue(email.get_html_file_path().endswith('body.html'))
+
+    def test_email_body_renders_disk_links_separately(self):
+        """Диск-ссылки — отдельным блоком letter-disk, а не в хвосте контента."""
+        from email_ui.utils import DISK_LINKS_FILENAME
+        from django.contrib.auth.models import User as AuthUser
+        user = AuthUser.objects.create_user('diskuser', 'disk@test.com', 'password')
+        self.client.login(username='diskuser', password='password')
+        tmp_dir = tempfile.mkdtemp()
+        with open(os.path.join(tmp_dir, 'body.html'), 'w', encoding='utf-8') as f:
+            f.write('<div>Добрый день</div>')
+        with open(os.path.join(tmp_dir, DISK_LINKS_FILENAME), 'w', encoding='utf-8') as f:
+            f.write('<a href="https://disk.yandex.ru/x">Смета.pdf</a>')
+        email = Email.objects.create(
+            uid='disk-uid-1', email_type='IN',
+            sender='a@x.ru', receiver='b@x.ru', subject='Диск',
+            link=tmp_dir, folder='inbox')
+        response = self.client.get(reverse('email_ui:email_body', args=[email.pk]))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode('utf-8', 'replace')
+        self.assertIn('letter-disk', html)
+        self.assertIn('Смета.pdf', html)
+        self.assertGreater(html.find('letter-disk'), html.find('letter-content'))
 
     def test_segment_empty(self):
         from email_ui.utils import segment_letter_html

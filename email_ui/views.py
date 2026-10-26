@@ -26,28 +26,31 @@ from ProjectTDL.models import TaskNode
 from StaticData.models import BuildingType, Category, ProjectSite, Status
 
 from .forms import (
-    ComposeEmailForm, ComposeReplyForm, ContactEmailForm, ContactForm,
-    ContactGroupForm, EmailFilterForm, EmailMetadataForm, EmailRuleForm, EmailTagForm,
-    ExportForm, SavedFilterForm, TaskSearchForm,
+    ComposeEmailForm, ComposeReplyForm,
+    EmailFilterForm, EmailMetadataForm,
+    ExportForm,
 )
 from .models import (
-    Contact, ContactEmail, ContactGroup, EmailAutomationLog, EmailEmailTag, EmailRule,
-    EmailTag, EmailTaskLink, EmailTemplate, EmailViewSettings, SavedFilter, SMTPAccount,
+    EmailTag, EmailTaskLink, EmailTemplate, EmailViewSettings, SavedFilter,
 )
 from .services.email_sender import EmailSenderService
+from .services import email_tasks as email_tasks_service
 from .utils import (
-    clean_email_html, extract_email_address, extract_all_email_addresses, resolve_sender_to_email,
+    append_disk_links_html, clean_email_html, resolve_sender_to_email,
+    quote_body_html,
     resolve_inline_image_urls, sanitize_id, sanitize_id_list, segment_letter_html,
 )
 from .services.navigation import (
     ALLOWED_SORT_FIELDS, _build_back_url, _clean_query_string,
     _get_list_from_request, _safe_next, _sanitize_next_url, apply_sorting,
+    # ALLOWED_SORT_FIELDS/_safe_next — намеренные ре-экспорты:
+    # tests_views_b25 тянет их из views (контракт блока 25).
 )
 from .services.seen_sync import push_seen_async
 from .services.query_service import (
     SEARCH_ANYWHERE_FIELDS, _ci_variants, _field_tokens, _q_field_variants,
     _q_token_anywhere, _query_tokens, _split_tokens, _token_addresses,
-    filter_emails,
+    filter_emails, highlight_words,
 )
 from .services.compose_flow import (
     active_contacts, collect_reply_attachments,
@@ -238,8 +241,8 @@ def inbox_view(request, folder='inbox'):
     }
     # Счётчик для бейджа на кнопке «Фильтры и поиск»: пустые значения
     # (search=, search_scope= в поделившейся ссылке) фильтрами не считаем.
-    _count_keys = ('search', 'sender', 'receiver', 'cc', 'date_from', 'date_to',
-                   'sent_status', 'has_attachments', 'is_important', 'is_unread')
+    _count_keys = ('search', 'sender', 'receiver', 'cc', 'attachment_name', 'date_from', 'date_to',
+                   'sent_status', 'has_attachments', 'has_disk_links', 'is_important', 'is_unread', 'in_files')
     active_filter_count = sum(
         1 for k in _count_keys if (request.GET.get(k) or '').strip()
     ) + sum(
@@ -251,8 +254,7 @@ def inbox_view(request, folder='inbox'):
         'folder': folder,
         'page_obj': page_obj,
         'filter_form': filter_form,
-        'total_count': paginator.count,
-        'current_sort': current_sort,
+        'total_count': paginator.count,        'current_sort': current_sort,
         'current_order': current_order,
         'selected_project_sites': selected_project_sites,
         'selected_contractors': selected_contractors,
@@ -267,6 +269,10 @@ def inbox_view(request, folder='inbox'):
         'email_list_back_url': _build_back_url(request, folder),
         'active_filters': active_filters,
         'active_filter_count': active_filter_count,
+        'hl_tokens': highlight_words(request.GET.get('search', '')),
+        'pinned_filters': SavedFilter.objects.filter(
+            Q(user=request.user) | Q(is_shared=True),
+            is_pinned=True).order_by('name'),
         'email_view_settings': _get_email_view_settings(request),
     }
     return render(request, 'email_ui/inbox.html', context)
@@ -306,6 +312,7 @@ def email_list_partial(request):
             'clean_params': _clean_query_string(request),
             'email_list_back_url': _build_back_url(request, folder),
             'active_filters': active_filters,
+            'hl_tokens': highlight_words(request.GET.get('search', '')),
             'email_view_settings': _get_email_view_settings(request),
         }
         return render(request, 'email_ui/partials/email_rows.html', context)
@@ -319,6 +326,7 @@ def email_list_partial(request):
         'clean_params': _clean_query_string(request),
         'email_list_back_url': _build_back_url(request, folder),
         'active_filters': active_filters,
+        'hl_tokens': highlight_words(request.GET.get('search', '')),
         'email_view_settings': _get_email_view_settings(request),
         'oob_sync': True,
     }
@@ -430,7 +438,7 @@ def email_body(request, pk):
     email = get_object_or_404(Email, pk=pk)
     html_path = email.get_html_file_path()
 
-    def _frame(inner: str) -> str:
+    def _frame(inner: str, disk: str = '') -> str:
         return (
             f'<div class="letter-frame letter-paper" id="letter-frame-{pk}">'
             f'<div class="letter-toolbar">'
@@ -447,18 +455,40 @@ def email_body(request, pk):
             f'<button type="button" data-mode="letter-dark" onclick="setLetterMode({pk},\'letter-dark\',this)">Тёмное</button>'
             f'<button type="button" data-mode="letter-auto" onclick="setLetterMode({pk},\'letter-auto\',this)">Оригинал</button>'
             f'</div></div></div>'
-            f'<div class="letter-content">{inner}</div></div>'
+            f'<div class="letter-content">{inner}</div>{disk}</div>'
+        )
+
+    def _disk_block() -> str:
+        # Ссылки Яндекс.Диска — отдельным блоком после рамки, а не в хвосте
+        # контента (там они тонули в зоне цитат). Показываем, даже если
+        # самого тела нет: файл ссылок живёт отдельно.
+        # Заодно самолечение флага has_disk_links (для фильтра): правим,
+        # только если в БД другое значение.
+        disk = clean_email_html(append_disk_links_html(email, ''))
+        has = bool(disk.strip())
+        if email.has_disk_links != has:
+            try:
+                email.has_disk_links = has
+                email.save(update_fields=['has_disk_links'])
+            except Exception:
+                pass
+        if not has:
+            return ''
+        return (
+            '<div class="letter-section letter-disk">'
+            '<div class="letter-section-title"><i class="bi bi-cloud-arrow-down me-1"></i>Файлы на Яндекс.Диске</div>'
+            f'<div class="letter-section-body">{disk}</div></div>'
         )
 
     if not html_path or not os.path.exists(html_path):
-        return HttpResponse(_frame('<p class="text-muted">Файл письма не найден</p>'))
+        return HttpResponse(_frame('<p class="text-muted">Файл письма не найден</p>', _disk_block()))
     try:
         with open(html_path, 'r', encoding='utf-8') as f:
             raw_html = f.read()
         resolved = resolve_inline_image_urls(email, raw_html)
         cleaned = clean_email_html(resolved)
         segmented = segment_letter_html(cleaned)
-        return HttpResponse(_frame(segmented))
+        return HttpResponse(_frame(segmented, _disk_block()))
     except Exception as e:
         return HttpResponse(_frame(f'<p>Ошибка загрузки: {e}</p>'))
 
@@ -467,12 +497,13 @@ def email_body(request, pk):
 def serve_inline_attachment(request, att_id):
     """Отдаёт вложение inline — для картинок, встроенных в тело письма."""
     att = get_object_or_404(Attachment, pk=att_id)
-    if not os.path.exists(att.file_path):
+    path = att.resolved_path
+    if not os.path.exists(path):
         raise Http404("Файл не найден")
     content_type, encoding = mimetypes.guess_type(att.filename)
     if not content_type:
         content_type = att.content_type or 'application/octet-stream'
-    response = FileResponse(open(att.file_path, 'rb'), content_type=content_type)
+    response = FileResponse(open(path, 'rb'), content_type=content_type)
     response['Content-Disposition'] = f'inline; filename="{att.filename}"'
     return response
 
@@ -481,12 +512,13 @@ def serve_inline_attachment(request, att_id):
 def download_attachment(request, att_id):
     """Скачивание вложения."""
     att = get_object_or_404(Attachment, pk=att_id)
-    if not os.path.exists(att.file_path):
+    path = att.resolved_path
+    if not os.path.exists(path):
         raise Http404("Файл не найден")
     content_type, encoding = mimetypes.guess_type(att.filename)
     if not content_type:
         content_type = 'application/octet-stream'
-    response = FileResponse(open(att.file_path, 'rb'), content_type=content_type)
+    response = FileResponse(open(path, 'rb'), content_type=content_type)
     response['Content-Disposition'] = f'attachment; filename="{att.filename}"'
     return response
 
@@ -528,14 +560,22 @@ def add_attachment(request, pk):
             size=uploaded_file.size or 0,
             content_type=uploaded_file.content_type or '',
         )
-        os.makedirs(os.path.dirname(email.link or ''), exist_ok=True)
-        if email.link:
-            file_path = os.path.join(email.link, uploaded_file.name)
+        os.makedirs(os.path.dirname(email.resolved_link or ''), exist_ok=True)
+        link_dir = email.resolved_link
+        if link_dir:
+            file_path = os.path.join(link_dir, uploaded_file.name)
             with open(file_path, 'wb+') as dest:
                 for chunk in uploaded_file.chunks():
                     dest.write(chunk)
             att.file_path = file_path
             att.save(update_fields=['file_path'])
+            try:
+                from .services.file_text import index_attachment
+                index_attachment(att)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
         messages.success(request, f'Файл "{uploaded_file.name}" добавлен')
         detail_url = reverse('email_ui:email_detail', args=[pk])
         raw_next = request.POST.get('next') or request.GET.get('next')
@@ -579,7 +619,7 @@ def toggle_important(request, pk):
         btn_class = 'btn-warning' if email.is_important else 'btn-outline-secondary'
         icon_class = 'bi-star-fill' if email.is_important else 'bi-star'
         return HttpResponse(
-            f'<button class="btn btn-sm {btn_class}" hx-post="{reverse("email_ui:toggle_important", args=[pk])}" '
+            f'<button class="btn btn-sm {btn_class}" id="star-btn" hx-post="{reverse("email_ui:toggle_important", args=[pk])}" '
             f'hx-target="this" hx-swap="outerHTML" title="Важно">'
             f'<i class="bi {icon_class}"></i>'
             f'</button>'
@@ -717,8 +757,12 @@ def detach_task(request, pk, task_id):
     email = get_object_or_404(Email, pk=pk)
     task = get_object_or_404(TaskNode, pk=task_id)
     email.tasks.remove(task)
+    # Синхронизируем вторую связь (EmailTaskLink), иначе в админском inline
+    # письмо оставалось привязанным к задаче после отвязки.
+    EmailTaskLink.objects.filter(email=email, task_node=task).delete()
+    message = f'Задача «{task.name[:40]}» отвязана от письма'
     return HttpResponse(
-        f'<script>showToast("Задача «{task.name[:40]}» отвязана от письма","info")</script>'
+        f'<script>showToast({json.dumps(message)}, "info")</script>'
     )
 
 
@@ -793,6 +837,7 @@ def bulk_action(request):
             'current_order': current_order,
             'clean_params': _clean_query_string(request),
             'email_list_back_url': _build_back_url(request, folder),
+            'hl_tokens': highlight_words(filter_qd.get('search', '') if filter_params else ''),
             'oob_sync': True,
         }
         return render(request, 'email_ui/partials/email_list.html', context)
@@ -976,7 +1021,7 @@ def attachments_modal(request, pk):
 def open_attachment_folder(request, pk):
     """Открывает папку с вложениями письма в проводнике."""
     email = get_object_or_404(Email, pk=pk)
-    folder_path = email.link
+    folder_path = email.resolved_link
     if not folder_path or not os.path.exists(folder_path):
         return JsonResponse({'success': False, 'error': 'Папка не найдена'})
     try:
@@ -992,6 +1037,28 @@ def open_attachment_folder(request, pk):
 
 
 # ==================== Phase 2: Compose & Send ====================
+
+@login_required
+@require_http_methods(['GET'])
+def template_list(request):
+    """Список шаблонов быстрых ответов для композера (id+name)."""
+    items = list(EmailTemplate.objects.order_by('name').values('id', 'name'))
+    return JsonResponse({'templates': items})
+
+
+@login_required
+@require_http_methods(['GET'])
+def template_render(request, pk):
+    """Рендер шаблона для вставки в композер: переменные — значениями
+    по умолчанию (незаполненные Django гасит в '')."""
+    tpl = get_object_or_404(EmailTemplate, pk=pk)
+    from django.template import Context, Template
+    ctx = Context({v.name: v.default_value for v in tpl.variables.all()})
+    return JsonResponse({
+        'subject': Template(tpl.subject_template).render(ctx),
+        'body': Template(tpl.body_template).render(ctx),
+    })
+
 
 @login_required
 def compose_modal(request):
@@ -1020,7 +1087,9 @@ def reply_modal(request, pk, reply_type='reply'):
         'forward': f'Fwd: {email.subject}',
     }
 
-    # Подгружаем тело исходного письма для цитирования
+    # Подгружаем тело исходного письма для цитирования: чистим (сырой HTML
+    # со стилями/скриптами в редактор нельзя) и обрезаем до сути
+    # (без шапок, старых цитат и подписей) с заголовком «автор, дата».
     body_text = ''
     load_original = reply_type in ('reply', 'reply_all', 'forward')
     if load_original:
@@ -1029,7 +1098,14 @@ def reply_modal(request, pk, reply_type='reply'):
             try:
                 with open(html_path, 'r', encoding='utf-8') as f:
                     orig = f.read()
-                    body_text = f'<br><hr><blockquote>{orig}</blockquote>'
+                    quoted = quote_body_html(clean_email_html(orig))
+                    if quoted.strip():
+                        from django.utils.html import escape as _escape
+                        stamp = (email.email_stamp.strftime('%d.%m.%Y %H:%M')
+                                 if getattr(email, 'email_stamp', None) else '')
+                        head = f'{stamp} {email.sender or ""} писал:'.strip()
+                        body_text = (f'<br><hr><p><em>{_escape(head)}</em></p>'
+                                     f'<blockquote>{quoted}</blockquote>')
             except Exception:
                 pass
 
@@ -1427,6 +1503,58 @@ def save_draft(request):
 
 @login_required
 @require_http_methods(['POST'])
+def autosave_draft(request):
+    """Тихое автосохранение черновика из композера (create-or-update, JSON).
+
+    Первый вызов без draft_id создаёт черновик и возвращает его id —
+    дальше клиент шлёт draft_id и черновик обновляется, а не множится.
+    Пустое содержимое (нечего терять) — пропуск без создания.
+    """
+    draft = None
+    draft_id = (request.POST.get('draft_id') or '').strip()
+    if draft_id.isdigit():
+        draft = Email.objects.filter(pk=int(draft_id), folder='drafts').first()
+    to_val = request.POST.get('to', '')
+    cc_val = request.POST.get('cc', '')
+    bcc_val = request.POST.get('bcc', '')
+    subject_val = request.POST.get('subject', '')
+    body_val = request.POST.get('body', '')
+    if draft is None and not any((v or '').strip() for v in (to_val, subject_val, body_val)):
+        return JsonResponse({'id': None, 'skipped': True})
+    if draft is None:
+        from .services.compose_flow import prepare_draft_dir as _prepare_draft_dir
+        draft = Email.objects.create(
+            email_type='OUT',
+            subject=subject_val,
+            sender='',
+            receiver=to_val,
+            cc=cc_val,
+            bcc=bcc_val,
+            body_text=body_val,
+            link=_prepare_draft_dir(subject_val, body_val),
+            folder='drafts',
+            sent_status='draft',
+        )
+    else:
+        draft.receiver = to_val
+        draft.cc = cc_val
+        draft.bcc = bcc_val
+        draft.subject = subject_val
+        draft.body_text = body_val
+        draft.save(update_fields=['receiver', 'cc', 'bcc', 'subject', 'body_text'])
+        html_path = draft.get_html_file_path()
+        if html_path:
+            try:
+                os.makedirs(os.path.dirname(html_path), exist_ok=True)
+                with open(html_path, 'w', encoding='utf-8') as f:
+                    f.write(body_val or '')
+            except OSError:
+                pass
+    return JsonResponse({'id': draft.pk})
+
+
+@login_required
+@require_http_methods(['POST'])
 def draft_update(request, pk):
     """Обновить существующий черновик (без отправки)."""
     draft = get_object_or_404(Email, pk=pk, folder='drafts')
@@ -1490,9 +1618,9 @@ def copy_to_draft(request, pk):
         email_dir = os.path.join(draft_dir, f'{ts}_{safe_subject}')
         os.makedirs(email_dir, exist_ok=True)
 
-        if email.link and os.path.exists(email.link):
+        if email.resolved_link and os.path.exists(email.resolved_link):
             from shutil import copytree
-            copytree(email.link, email_dir, dirs_exist_ok=True)
+            copytree(email.resolved_link, email_dir, dirs_exist_ok=True)
 
         html_path = email.get_html_file_path()
         if html_path and os.path.exists(html_path):
@@ -1522,7 +1650,7 @@ def copy_to_draft(request, pk):
         for att in email.attachments.all():
             Attachment.objects.create(
                 email=new_email,
-                file_path=att.file_path,
+                file_path=att.resolved_path,
                 filename=att.filename,
                 size=att.size,
                 content_type=att.content_type,
@@ -1534,400 +1662,6 @@ def copy_to_draft(request, pk):
         messages.error(request, f'Ошибка сохранения черновика: {e}')
 
     return redirect(next_url)
-
-
-# ==================== Phase 7: Contact Management ====================
-
-@login_required
-def contact_list(request):
-    """Список контактов."""
-    query = request.GET.get('q', '')
-    contacts = Contact.objects.filter(is_active=True)
-    if query:
-        contacts = contacts.filter(
-            Q(name__icontains=query) | Q(emails__email__icontains=query)
-        ).distinct()
-    contacts = contacts.order_by('name')
-    return render(request, 'email_ui/contacts/list.html', {
-        'contacts': contacts,
-        'query': query,
-    })
-
-
-@login_required
-def contact_detail(request, pk):
-    """Детальный просмотр контакта со всеми письмами."""
-    contact = get_object_or_404(Contact, pk=pk)
-    emails = Email.objects.filter(contact=contact).order_by('-email_stamp')[:50]
-    return render(request, 'email_ui/contacts/detail.html', {
-        'contact': contact,
-        'emails': emails,
-    })
-
-
-@login_required
-def contact_create_modal(request):
-    """Модальное окно создания контакта."""
-    form = ContactForm()
-    email_form = ContactEmailForm()
-    return render(request, 'email_ui/partials/contact_modal.html', {
-        'form': form,
-        'email_form': email_form,
-        'mode': 'create',
-    })
-
-
-@login_required
-@require_http_methods(['POST'])
-def contact_create(request):
-    """Создание контакта (AJAX)."""
-    form = ContactForm(request.POST)
-    email_form = ContactEmailForm(request.POST)
-    if form.is_valid() and email_form.is_valid():
-        contact = form.save()
-        ContactEmail.objects.create(
-            contact=contact,
-            email=email_form.cleaned_data['email'],
-            label=email_form.cleaned_data.get('label', 'work'),
-            is_primary=True,
-        )
-        messages.success(request, f'Контакт "{contact.name}" создан')
-        return HttpResponse(status=204)
-    return render(request, 'email_ui/partials/contact_modal.html', {
-        'form': form,
-        'email_form': email_form,
-        'mode': 'create',
-    }, status=400)
-
-
-@login_required
-def contact_edit_modal(request, pk):
-    """Модальное окно редактирования контакта."""
-    contact = get_object_or_404(Contact, pk=pk)
-    form = ContactForm(instance=contact)
-    return render(request, 'email_ui/partials/contact_modal.html', {
-        'form': form,
-        'contact': contact,
-        'mode': 'edit',
-    })
-
-
-@login_required
-@require_http_methods(['POST'])
-def contact_edit(request, pk):
-    """Редактирование контакта (AJAX)."""
-    contact = get_object_or_404(Contact, pk=pk)
-    form = ContactForm(request.POST, instance=contact)
-    return _save_modal_form(
-        request, form, template='email_ui/partials/contact_modal.html',
-        mode='edit', message='Контакт обновлён',
-        extra={'contact': contact})
-
-
-@login_required
-@require_http_methods(['POST'])
-def contact_delete(request, pk):
-    """Удаление контакта."""
-    contact = get_object_or_404(Contact, pk=pk)
-    contact.delete()
-    messages.success(request, 'Контакт удалён')
-    return redirect('email_ui:contact_list')
-
-
-@login_required
-def contact_search(request):
-    """Поиск контактов для автодополнения (AJAX)."""
-    query = request.GET.get('q', '')
-    contacts = list(Contact.objects.filter(
-        Q(name__icontains=query) | Q(emails__email__icontains=query)
-    ).distinct().select_related('company').prefetch_related('emails')[:10])
-    if query and any(ord(c) > 127 for c in query):
-        # SQLite LIKE регистронезависим только для ASCII: кириллицу
-        # добираем casefold-сравнением в Python (кап 500 кандидатов).
-        qfold = query.casefold()
-        seen = {c.pk for c in contacts}
-        extra = Contact.objects.exclude(pk__in=seen).select_related(
-            'company').prefetch_related('emails')[:500]
-        for c in extra:
-            cached = list(c.emails.all())
-            if qfold in c.name.casefold() or any(
-                    qfold in e.email.casefold() for e in cached):
-                contacts.append(c)
-                if len(contacts) >= 10:
-                    break
-    data = []
-    for c in contacts:
-        # Блок 10: адреса из prefetch-кэша, без запросов на строку.
-        cached = list(c.emails.all())
-        primary = next((e for e in cached if e.is_primary), None)
-        data.append({
-            'id': c.id,
-            'name': c.name,
-            'email': primary.email if primary else (cached[0].email if cached else ''),
-            'company': c.company.name if c.company else '',
-        })
-    return JsonResponse(data, safe=False)
-
-
-def _save_modal_form(request, form, *, template, mode, message, extra=None, save=None):
-    """Единый финал modal create/edit: save + 204 или 400 с формой.
-
-    message — строка или callable(obj)->строка; save — колбэк вместо
-    form.save() (commit=False + дозаполнение). contact_create с двумя
-    формами оставлен как есть.
-    """
-    if form.is_valid():
-        obj = save() if save is not None else form.save()
-        if message:
-            messages.success(
-                request, message(obj) if callable(message) else message)
-        return HttpResponse(status=204)
-    ctx = {'form': form, 'mode': mode}
-    if extra:
-        ctx.update(extra)
-    return render(request, template, ctx, status=400)
-
-
-# ==================== Contact Groups ====================
-
-
-@login_required
-def group_list(request):
-    """Список групп адресатов."""
-    query = request.GET.get('q', '')
-    groups = ContactGroup.objects.filter(is_active=True)
-    if query:
-        groups = groups.filter(
-            Q(name__icontains=query)
-            | Q(contacts__name__icontains=query)
-            | Q(contacts__emails__email__icontains=query)
-        ).distinct()
-    return render(request, 'email_ui/groups/list.html', {
-        'groups': groups.order_by('name'),
-        'query': query,
-    })
-
-
-@login_required
-def group_detail(request, pk):
-    """Карточка группы: состав, вложенность, итоговые адреса."""
-    group = get_object_or_404(ContactGroup, pk=pk)
-    return render(request, 'email_ui/groups/detail.html', {
-        'group': group,
-        'all_emails': group.all_emails(),
-        'free_contacts': Contact.objects.filter(is_active=True).order_by('name'),
-        'free_groups': ContactGroup.objects.filter(
-            is_active=True,
-        ).exclude(pk=group.pk).order_by('name'),
-        'next': request.GET.get('next', ''),
-    })
-
-
-@login_required
-def group_create_modal(request):
-    """Модальное окно создания группы."""
-    return render(request, 'email_ui/partials/group_modal.html', {
-        'form': ContactGroupForm(),
-        'mode': 'create',
-    })
-
-
-@login_required
-@require_http_methods(['POST'])
-def group_create(request):
-    """Создание группы (AJAX)."""
-    form = ContactGroupForm(request.POST)
-    return _save_modal_form(
-        request, form, template='email_ui/partials/group_modal.html',
-        mode='create',
-        message=lambda group: f'Группа "{group.name}" создана')
-
-
-@login_required
-def group_edit_modal(request, pk):
-    """Модальное окно переименования группы."""
-    group = get_object_or_404(ContactGroup, pk=pk)
-    return render(request, 'email_ui/partials/group_modal.html', {
-        'form': ContactGroupForm(instance=group),
-        'group': group,
-        'mode': 'edit',
-    })
-
-
-@login_required
-@require_http_methods(['POST'])
-def group_edit(request, pk):
-    """Переименование группы (AJAX)."""
-    group = get_object_or_404(ContactGroup, pk=pk)
-    form = ContactGroupForm(request.POST, instance=group)
-    return _save_modal_form(
-        request, form, template='email_ui/partials/group_modal.html',
-        mode='edit', message='Группа обновлена',
-        extra={'group': group})
-
-
-@login_required
-@require_http_methods(['POST'])
-def group_delete(request, pk):
-    """Удаление группы (сами контакты не трогает)."""
-    group = get_object_or_404(ContactGroup, pk=pk)
-    group.delete()
-    messages.success(request, 'Группа удалена')
-    return _safe_next(request, 'email_ui:group_list')
-
-
-@login_required
-@require_http_methods(['POST'])
-def group_add_contact(request, pk):
-    """Добавить контакт в группу."""
-    group = get_object_or_404(ContactGroup, pk=pk)
-    contact = get_object_or_404(Contact, pk=request.POST.get('contact_id'))
-    group.contacts.add(contact)
-    messages.success(request, f'{contact.name} добавлен в группу')
-    return redirect('email_ui:group_detail', pk=group.pk)
-
-
-@login_required
-@require_http_methods(['POST'])
-def group_remove_contact(request, pk):
-    """Убрать контакт из группы."""
-    group = get_object_or_404(ContactGroup, pk=pk)
-    contact = get_object_or_404(Contact, pk=request.POST.get('contact_id'))
-    group.contacts.remove(contact)
-    messages.success(request, f'{contact.name} убран из группы')
-    return redirect('email_ui:group_detail', pk=group.pk)
-
-
-@login_required
-@require_http_methods(['POST'])
-def group_add_subgroup(request, pk):
-    """Вложить группу в группу (с защитой от циклов)."""
-    group = get_object_or_404(ContactGroup, pk=pk)
-    sub = get_object_or_404(ContactGroup, pk=request.POST.get('subgroup_id'))
-    if group.would_cycle(sub):
-        messages.error(request, f'Нельзя вложить "{sub.name}": циклическая вложенность')
-    else:
-        group.subgroups.add(sub)
-        messages.success(request, f'Группа "{sub.name}" вложена')
-    return redirect('email_ui:group_detail', pk=group.pk)
-
-
-@login_required
-@require_http_methods(['POST'])
-def group_remove_subgroup(request, pk):
-    """Убрать вложенную группу."""
-    group = get_object_or_404(ContactGroup, pk=pk)
-    sub = get_object_or_404(ContactGroup, pk=request.POST.get('subgroup_id'))
-    group.subgroups.remove(sub)
-    messages.success(request, f'Группа "{sub.name}" убрана')
-    return redirect('email_ui:group_detail', pk=group.pk)
-
-
-# ==================== Phase 3: Tags ====================
-
-@login_required
-def tag_list(request):
-    """Список всех тегов."""
-    tags = EmailTag.objects.all()
-    return render(request, 'email_ui/partials/tag_list.html', {'tags': tags})
-
-
-@login_required
-def tag_create_modal(request):
-    """Модальное окно создания тега."""
-    form = EmailTagForm()
-    return render(request, 'email_ui/partials/tag_modal.html', {
-        'form': form, 'mode': 'create',
-    })
-
-
-@login_required
-@require_http_methods(['POST'])
-def tag_create(request):
-    """Создание тега (AJAX)."""
-    form = EmailTagForm(request.POST)
-    return _save_modal_form(
-        request, form, template='email_ui/partials/tag_modal.html',
-        mode='create',
-        message=lambda tag: f'Тег "{tag.name}" создан')
-
-
-@login_required
-@require_http_methods(['POST'])
-def tag_delete(request, pk):
-    """Удаление тега."""
-    tag = get_object_or_404(EmailTag, pk=pk)
-    tag.delete()
-    messages.success(request, f'Тег удалён')
-    return HttpResponse(status=204)
-
-
-@login_required
-@require_http_methods(['POST'])
-def assign_tag(request):
-    """Назначить тег письму (AJAX)."""
-    try:
-        email_id = sanitize_id(request.POST.get('email_id'))
-    except (ValueError, TypeError):
-        return HttpResponseBadRequest('Некорректный ID письма')
-    tag_id = request.POST.get('tag_id')
-    tag_name = request.POST.get('tag_name')
-
-    email = get_object_or_404(Email, pk=email_id)
-
-    if tag_id:
-        tag = get_object_or_404(EmailTag, pk=tag_id)
-    elif tag_name:
-        tag, _ = EmailTag.objects.get_or_create(name=tag_name)
-    else:
-        return HttpResponseBadRequest('Не указан тег')
-
-    link, created = EmailEmailTag.objects.get_or_create(
-        email=email, tag=tag,
-        defaults={'added_by': request.user},
-    )
-
-    return JsonResponse({
-        'success': True,
-        'created': created,
-        'tag_name': tag.name,
-        'tag_color': tag.color,
-    })
-
-
-@login_required
-@require_http_methods(['POST'])
-def remove_tag(request, email_id, tag_id):
-    """Удалить тег с письма."""
-    EmailEmailTag.objects.filter(email_id=email_id, tag_id=tag_id).delete()
-    return HttpResponse(status=204)
-
-
-@login_required
-@require_http_methods(['POST'])
-def bulk_assign_tag(request):
-    """Массовое назначение тега письмам."""
-    raw_ids = request.POST.getlist('email_ids')
-    email_ids = sanitize_id_list(raw_ids)
-    tag_id = request.POST.get('tag_id')
-
-    if not email_ids or not tag_id:
-        return HttpResponseBadRequest('Не указаны письма или тег')
-
-    tag = get_object_or_404(EmailTag, pk=sanitize_id(tag_id))
-    emails = Email.objects.filter(id__in=email_ids)
-
-    # Блок 10: пачка вместо get_or_create в цикле (гонки + N запросов).
-    existing = set(EmailEmailTag.objects.filter(
-        email_id__in=email_ids, tag=tag).values_list('email_id', flat=True))
-    EmailEmailTag.objects.bulk_create(
-        [EmailEmailTag(email_id=eid, tag=tag, added_by=request.user)
-         for eid in email_ids if eid not in existing],
-        ignore_conflicts=True,
-    )
-
-    messages.success(request, f'Тег "{tag.name}" назначен {emails.count()} письмам')
-    return HttpResponse(status=204)
 
 
 # ==================== Phase 4: Email ↔ Task ====================
@@ -1994,8 +1728,8 @@ def copy_email(request, pk):
             f'{today}_{folder_name}',
         )
         os.makedirs(_directory, exist_ok=True)
-        if email.link and os.path.exists(email.link):
-            copytree(email.link, _directory, dirs_exist_ok=True)
+        if email.resolved_link and os.path.exists(email.resolved_link):
+            copytree(email.resolved_link, _directory, dirs_exist_ok=True)
         if os.path.exists(_directory):
             try:
                 import win32clipboard
@@ -2014,38 +1748,60 @@ def copy_email(request, pk):
     return redirect(next_url)
 
 
-@login_required
-def create_task_from_email(request, pk):
-    """Создать задачу (TaskNode) из письма."""
-    email = get_object_or_404(Email, pk=pk)
-    if request.method == 'POST':
-        from ProjectTDL.forms import TaskForm
-        form = TaskForm(request.POST)
-        if form.is_valid():
-            task = form.save(commit=False)
-            task.owner = request.user
-            task.node_type = 'task'
-            task.save()
-            EmailTaskLink.objects.create(
-                email=email,
-                task_node=task,
-                link_type='created_from',
-                created_by=request.user,
-            )
-            messages.success(request, f'Задача "{task.name}" создана из письма')
-            next_url = request.POST.get('next', reverse('email_ui:email_detail', args=[pk]))
-            return redirect(next_url)
-    else:
-        from ProjectTDL.forms import TaskForm
-        initial = {
-            'name': f'По письму: {email.subject}',
-        }
-        form = TaskForm(initial=initial)
+def _email_tasks_htmx(request, email, message=None, level='success'):
+    """Ответ для HTMX: обновлённый блок «Задачи письма» + тост."""
+    from django.template.loader import render_to_string
+    email = Email.objects.prefetch_related('tasks').get(pk=email.pk)
+    html = render_to_string(
+        'email_ui/partials/email_tasks_body.html',
+        {'email': email}, request=request,
+    )
+    # Счётчик в заголовке секции (если он есть на странице) — OOB-свап.
+    html = (f'<span id="email-tasks-count-{email.pk}" hx-swap-oob="true">'
+            f'{email.tasks.count()}</span>' + html)
+    if message:
+        html += (f'<script>showToast({json.dumps(message)}, '
+                 f'"{level}")</script>')
+    return HttpResponse(html)
 
-    return render(request, 'email_ui/partials/create_task_form.html', {
-        'form': form,
-        'email': email,
-    })
+
+@login_required
+@require_http_methods(['POST'])
+def create_task_from_email(request, pk):
+    """Превратить письмо в задачу: создать TaskNode и сразу прикрепить письмо.
+
+    Раньше кнопка вела в админку на полную форму TaskNode: связь письма
+    терялась (шаблон не выводил _email_id), а задача не появлялась в блоке
+    «Задачи письма» (он читает email.tasks, а не EmailTaskLink). Теперь одно
+    действие: задача + email.tasks.add + EmailTaskLink. Общая логика с
+    действием правил create_task — email_ui/services/email_tasks.py.
+    """
+    email = get_object_or_404(Email, pk=pk)
+    is_htmx = request.headers.get('HX-Request') == 'true'
+
+    try:
+        task, created = email_tasks_service.create_task_from_email(
+            email, request.user)
+    except ValueError as exc:
+        message = f'Нельзя создать задачу: {exc}.'
+        if is_htmx:
+            return _email_tasks_htmx(request, email, message, 'error')
+        messages.warning(request, message)
+        return _safe_next(request, 'email_ui:email_detail', pk=pk)
+
+    if created:
+        message = f'Письмо превращено в задачу «{task.name}»'
+    else:
+        message = f'Задача «{task.name}» уже создана из этого письма'
+
+    if is_htmx:
+        return _email_tasks_htmx(
+            request, email, message, 'success' if created else 'info')
+    if created:
+        messages.success(request, message)
+    else:
+        messages.info(request, message)
+    return _safe_next(request, 'email_ui:email_detail', pk=pk)
 
 
 # ==================== Phase 6: Export ====================
@@ -2083,139 +1839,6 @@ def do_export(request):
 
     messages.success(request, f'Экспортировано: {results["exported"]}, ошибок: {results["failed"]}')
     return redirect(reverse('email_ui:inbox_default'))
-
-
-# ==================== Phase 3: Saved Filters ====================
-
-@login_required
-def saved_filters_list(request):
-    """Список сохранённых фильтров."""
-    filters = SavedFilter.objects.filter(Q(user=request.user) | Q(is_shared=True))
-    return render(request, 'email_ui/partials/saved_filters_list.html', {'filters': filters})
-
-
-@login_required
-@require_http_methods(['POST'])
-def save_current_filter(request):
-    """Сохранить текущий фильтр."""
-    form = SavedFilterForm(request.POST)
-    def _save_filter():
-        sf = form.save(commit=False)
-        sf.user = request.user
-        # Store the current GET parameters as the filter
-        sf.filters = dict(request.GET.lists())
-        sf.save()
-        return sf
-    return _save_modal_form(
-        request, form, template='email_ui/partials/saved_filter_form.html',
-        mode='save',
-        message=lambda sf: f'Фильтр "{sf.name}" сохранён',
-        save=_save_filter)
-
-
-@login_required
-@require_http_methods(['POST'])
-def apply_saved_filter(request, pk):
-    """Применить сохранённый фильтр."""
-    sf = get_object_or_404(SavedFilter, pk=pk, user=request.user)
-    # Build URL with filter params
-    from urllib.parse import urlencode
-    params = {}
-    for key, values in sf.filters.items():
-        if len(values) == 1:
-            params[key] = values[0]
-        else:
-            params[key] = values
-    url = f"{reverse('email_ui:inbox_default')}?{urlencode(params, doseq=True)}"
-    return redirect(url)
-
-
-@login_required
-@require_http_methods(['POST'])
-def delete_saved_filter(request, pk):
-    """Удалить сохранённый фильтр."""
-    sf = get_object_or_404(SavedFilter, pk=pk, user=request.user)
-    sf.delete()
-    return HttpResponse(status=204)
-
-
-# ==================== Phase 8: Automation Rules ====================
-
-@login_required
-def rules_list(request):
-    """Список правил автоматизации."""
-    rules = EmailRule.objects.all().order_by('-priority')
-    return render(request, 'email_ui/partials/rules_list.html', {'rules': rules})
-
-
-@login_required
-def rule_create_modal(request):
-    """Модальное окно создания правила."""
-    form = EmailRuleForm()
-    return render(request, 'email_ui/partials/rule_modal.html', {
-        'form': form, 'mode': 'create',
-    })
-
-
-@login_required
-@require_http_methods(['POST'])
-def rule_create(request):
-    """Создание правила (AJAX)."""
-    form = EmailRuleForm(request.POST)
-    def _save_rule():
-        rule = form.save(commit=False)
-        rule.created_by = request.user
-        rule.save()
-        return rule
-    return _save_modal_form(
-        request, form, template='email_ui/partials/rule_modal.html',
-        mode='create',
-        message=lambda rule: f'Правило "{rule.name}" создано',
-        save=_save_rule)
-
-
-@login_required
-def rule_edit_modal(request, pk):
-    """Модальное окно редактирования правила."""
-    rule = get_object_or_404(EmailRule, pk=pk)
-    form = EmailRuleForm(instance=rule)
-    return render(request, 'email_ui/partials/rule_modal.html', {
-        'form': form, 'rule': rule, 'mode': 'edit',
-    })
-
-
-@login_required
-@require_http_methods(['POST'])
-def rule_edit(request, pk):
-    """Редактирование правила (AJAX)."""
-    rule = get_object_or_404(EmailRule, pk=pk)
-    form = EmailRuleForm(request.POST, instance=rule)
-    return _save_modal_form(
-        request, form, template='email_ui/partials/rule_modal.html',
-        mode='edit', message='Правило обновлено',
-        extra={'rule': rule})
-
-
-@login_required
-@require_http_methods(['POST'])
-def rule_toggle(request, pk):
-    """Включить/выключить правило."""
-    rule = get_object_or_404(EmailRule, pk=pk)
-    rule.is_active = not rule.is_active
-    rule.save(update_fields=['is_active'])
-    return JsonResponse({'is_active': rule.is_active})
-
-
-@login_required
-@require_http_methods(['POST'])
-def rule_run_now(request, pk):
-    """Запустить правило для всех писем."""
-    rule = get_object_or_404(EmailRule, pk=pk)
-    from .services.rule_engine import RuleEngine
-    engine = RuleEngine()
-    count = engine.process_emails(Email.objects.all())
-    messages.success(request, f'Правило "{rule.name}" применено к {count} письмам')
-    return HttpResponse(status=204)
 
 
 # ==================== Threading ====================

@@ -52,7 +52,7 @@ class EmailAdmin(ImportExportModelAdmin):
                                           year, f'{today}_{folder_name}\\'
                                           )
                 os.makedirs(_directory, exist_ok=True)
-                copytree(obj.link, _directory)
+                copytree(obj.resolved_link, _directory)
                 if os.path.exists(_directory):
                     copy_to_clipboard(_directory)
                     messages.success(request, f"файлы скопированы в папку {_directory}")

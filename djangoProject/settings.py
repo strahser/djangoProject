@@ -49,6 +49,20 @@ def _env_flag(name, default=True):
     """Флаг из окружения: 'True'/'False', иначе default (блок 9)."""
     return os.environ.get(name, str(default)) == 'True'
 
+
+# .env грузим ДО чтения любых настроек, иначе его переопределения
+# (MEDIA_ROOT, DEBUG, почта) не доходят до переменных ниже.
+_env_path = os.path.join(BASE_DIR, '.env')
+if os.path.exists(_env_path):
+    with open(_env_path, 'r', encoding='utf-8') as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith('#') and '=' in _line:
+                _key, _val = _line.split('=', 1)
+                _key, _val = _key.strip(), _val.strip()
+                if _key and _val:
+                    os.environ.setdefault(_key, _val)
+
 # SECURITY WARNING: keep the secret key used in production secret!
 # Локальный dev-ключ уже в истории git — для продакшена задай DJANGO_SECRET_KEY
 # в окружении и СМЕНИ ключ (смена разлогинит всех пользователей).
@@ -111,8 +125,13 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 AUTOSAVE_PERIOD =1440 #minutes (1 раз в сутки)
 
 EMAIL_FETCH_INTERVAL_MINUTES = 30  # minutes (автозагрузка почты каждые 30 минут)
+# Автозагрузка почты при старте сервера. На локальной машине можно
+# отключить: EMAIL_AUTO_FETCH_ENABLED=0 в .env — тогда сервер не ломится
+# в IMAP Яндекса при запуске (и в логе нет ошибок входа).
+EMAIL_AUTO_FETCH_ENABLED = os.environ.get(
+    'EMAIL_AUTO_FETCH_ENABLED', '1').strip().lower() not in ('0', 'false', 'no', 'off', '')
 BACKUP_KEEP_VERSIONS = 2
-MEDIA_ROOT = os.environ.get('DJANGO_MEDIA_ROOT', r"e:\Проекты Симрус\Переписка")
+MEDIA_ROOT = os.environ.get('DJANGO_MEDIA_ROOT', r"d:\Проекты Симрус\Переписка")
 MEDIA_URL = '/media/'
 BACKUP_PATH = os.environ.get('BACKUP_PATH', r'c:\Users\Strakhov\Yandex.Disk\djangoDb')
 
@@ -296,29 +315,8 @@ YA_HOST = os.environ.get('YA_HOST', 'imap.yandex.ru')
 YA_PORT = int(os.environ.get('YA_PORT', 993))
 YA_USER = os.environ.get('YA_USER', '')
 YA_PASSWORD = os.environ.get('YA_PASSWORD', '')
-E_MAIL_DIRECTORY = os.environ.get('E_MAIL_DIRECTORY', os.path.join('e:\\', 'Проекты Симрус', 'Переписка', 'Bitrix 24'))
+E_MAIL_DIRECTORY = os.environ.get('E_MAIL_DIRECTORY', os.path.join('d:\\', 'Проекты Симрус', 'Переписка', 'Bitrix 24'))
 TELEGRAM_CONTENT_DIR = os.path.join(DB_DIR, 'telegram_content')
-
-_env_path = os.path.join(BASE_DIR, '.env')
-if os.path.exists(_env_path):
-    with open(_env_path, 'r', encoding='utf-8') as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if _line and not _line.startswith('#') and '=' in _line:
-                _key, _val = _line.split('=', 1)
-                _key, _val = _key.strip(), _val.strip()
-                if _key and _val:
-                    os.environ.setdefault(_key, _val)
-    if not TELEGRAM_API_ID:
-        TELEGRAM_API_ID = int(os.environ.get('TELEGRAM_API_ID', 0))
-    if not TELEGRAM_API_HASH:
-        TELEGRAM_API_HASH = os.environ.get('TELEGRAM_API_HASH', '')
-    if not YA_USER:
-        YA_USER = os.environ.get('YA_USER', '')
-    if not YA_PASSWORD:
-        YA_PASSWORD = os.environ.get('YA_PASSWORD', '')
-    if not E_MAIL_DIRECTORY or E_MAIL_DIRECTORY == os.path.join('e:\\', 'Проекты Симрус', 'Переписка', 'Bitrix 24'):
-        E_MAIL_DIRECTORY = os.environ.get('E_MAIL_DIRECTORY', E_MAIL_DIRECTORY)
 
 DRAFT_DIRECTORY = os.path.join(E_MAIL_DIRECTORY, 'drafts')
 

@@ -1,25 +1,15 @@
-import os
-from pprint import pprint
 import pandas as pd
 import datetime
 import django_tables2 as tables
 from django.db.models import Case, IntegerField, When
-from django.db.models import QuerySet
-from django.http import HttpResponse
-from django.urls import reverse_lazy, reverse
+from django.urls import reverse
 from django.utils.html import strip_tags
 from django.utils.safestring import mark_safe
-from django_tables2 import LazyPaginator
-from pretty_html_table import pretty_html_table
 
-from AdminUtils import get_standard_display_list
-from ProjectContract.models import Contractor
 from ProjectTDL.models import TaskNode
-from StaticData.models import Status
 from services.DataFrameRender.RenderDfFromModel import (
     ButtonData, HTML_DF_PROPERTY, create_df_from_model,
     create_group_button, renamed_dict)
-from services.Downloads.ExcelDownload import df_to_excel_in_memory, result_to_excel_add_table
 import re
 
 
@@ -348,6 +338,7 @@ class TaskNodeTable(tables.Table):
             "data-category-name": lambda record: record.category.name if record.category else '',
             "data-contractor-id": lambda record: record.contractor_id or '',
             "data-contractor-name": lambda record: record.contractor.name if record.contractor else '',
+            "data-design-chapter-id": lambda record: record.design_chapter_id or '',
             "data-due-date": lambda record: record.due_date.strftime('%Y-%m-%d') if record.due_date else '',
             "data-price": lambda record: str(record.price) if record.price else '',
         }

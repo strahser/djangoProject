@@ -38,6 +38,14 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" title="Вставить подпись" onclick="insertSignature()">
                 <i class="bi bi-person-badge"></i>
             </button>
+            <div class="dropdown d-inline-block">
+                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle py-0" data-bs-toggle="dropdown" title="Шаблон быстрого ответа">
+                    <i class="bi bi-file-text"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end" id="reply-templates-list">
+                    <li><span class="dropdown-item-text text-muted small">Загрузка...</span></li>
+                </ul>
+            </div>
             <button type="button" class="btn btn-sm btn-outline-success" title="Сохранить черновик"
                     onclick="saveDraft()">
                 <i class="bi bi-save"></i>
@@ -160,6 +168,7 @@
     <div class="modal-footer">
         <div class="d-flex align-items-center gap-2 flex-wrap w-100">
             <div id="file-list-compose" class="d-flex align-items-center gap-1 flex-wrap"></div>
+            <span id="autosave-note" class="small text-muted ms-2"></span>
             {% if mode == 'compose' %}
             <div class="form-check form-check-inline mb-0 ms-auto">
                 <input type="checkbox" name="use_outlook" class="form-check-input" id="use-outlook">
@@ -227,6 +236,37 @@ function removeAttachment(el) {
     input.files = dt.files;
     updateFileList(input);
 }
+
+// Drag-and-drop файлов на редактор: докидывает в input вложений.
+(function() {
+    var form = document.getElementById('compose-form');
+    var zone = form ? form.querySelector('.compose-editor') : null;
+    var input = form ? form.querySelector('input[name="attachment_files"]') : null;
+    if (!form || !zone || !input) return;
+    ['dragenter', 'dragover'].forEach(function(ev) {
+        zone.addEventListener(ev, function(e) {
+            e.preventDefault();
+            zone.classList.add('drag-over');
+        });
+    });
+    ['dragleave', 'drop'].forEach(function(ev) {
+        zone.addEventListener(ev, function(e) {
+            e.preventDefault();
+            if (ev === 'dragleave' && zone.contains(e.relatedTarget)) return;
+            zone.classList.remove('drag-over');
+        });
+    });
+    zone.addEventListener('drop', function(e) {
+        var files = (e.dataTransfer && e.dataTransfer.files) || [];
+        if (!files.length) return;
+        var dt = new DataTransfer();
+        Array.from(input.files || []).forEach(function(f) { dt.items.add(f); });
+        Array.from(files).forEach(function(f) { dt.items.add(f); });
+        try { input.files = dt.files; } catch (err) { return; }
+        updateFileList(input);
+        if (window.EmailApp) EmailApp.markDirty();
+    });
+})();
 
 function saveDraft() {
     if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
@@ -312,13 +352,58 @@ function removeDraftAttachment(btn, attId) {
     }
 }
 
-function toggleSection(header) {
-    header.classList.toggle('collapsed');
-    var body = header.nextElementSibling;
-    body.classList.toggle('show');
-}
-
 document.querySelectorAll('#compose-form textarea').forEach(function(ta) { autoResize(ta); });
+
+// Ctrl+Enter — отправить (в TinyMCE — через его setup в base.html).
+(function() {
+    var form = document.getElementById('compose-form');
+    if (form) form.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (typeof tinymce !== 'undefined' && tinymce.activeEditor) tinymce.activeEditor.save();
+            if (form.requestSubmit) form.requestSubmit();
+        }
+    });
+})();
+
+// Тихое автосохранение черновика каждые 20 c — только при изменениях
+// и непустом содержимом. Первый вызов создаёт черновик (id возвращается
+// JSON), дальше — обновляет его же: спама черновиками нет.
+(function() {
+    var AUTOSAVE_MS = 20000;
+    var draftId = {% if mode == 'edit_draft' and draft_email %}{{ draft_email.pk|unlocalize }}{% else %}null{% endif %};
+    function hasContent(form) {
+        return ['to', 'cc', 'bcc', 'subject', 'body'].some(function(n) {
+            var el = form.elements[n];
+            return el && (el.value || '').trim();
+        });
+    }
+    function tick() {
+        var form = document.getElementById('compose-form');
+        if (!form) { clearInterval(timer); return; }
+        if (!window.EmailApp || !EmailApp.isDirty || !hasContent(form)) return;
+        if (typeof tinymce !== 'undefined' && tinymce.activeEditor) tinymce.activeEditor.save();
+        var params = new URLSearchParams();
+        ['to', 'cc', 'bcc', 'subject', 'body', 'mode'].forEach(function(n) {
+            var el = form.elements[n];
+            if (el) params.append(n, el.value);
+        });
+        if (draftId) params.append('draft_id', draftId);
+        fetch('{% url "email_ui:autosave_draft" %}', {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+            body: params
+        }).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) {
+            if (data && data.id) {
+                draftId = data.id;
+                EmailApp.clearDirty();
+                var note = document.getElementById('autosave-note');
+                if (note) note.textContent = 'Черновик сохранён ' + new Date().toLocaleTimeString();
+            }
+        }).catch(function() {});
+    }
+    var timer = setInterval(tick, AUTOSAVE_MS);
+})();
 
 function insertSignature() {
     var sig = `<br><br><div style="font-family: Arial, sans-serif; font-size: 13px; color: #333; margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
@@ -339,5 +424,56 @@ Website: <a href="http://www.cimrus.com">http://www.cimrus.com</a>
         }
     }
     if (window.EmailApp) EmailApp.markDirty();
+}
+
+// Шаблоны быстрых ответов: список — с сервера, вставка — в курсор
+// (тема — только если пустая). Переменные подставлены значениями
+// по умолчанию; создать/править шаблоны — в админке.
+(function() {
+    var listUrl = '{% url "email_ui:template_list" %}';
+    var renderUrl = '{% url "email_ui:template_render" 0 %}';
+    var box = document.getElementById('reply-templates-list');
+    if (!box) return;
+    fetch(listUrl).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) {
+        var items = (data && data.templates) || [];
+        box.innerHTML = '';
+        if (!items.length) {
+            box.innerHTML = '<li><span class="dropdown-item-text text-muted small">Нет шаблонов — создать в админке</span></li>';
+            return;
+        }
+        items.forEach(function(t) {
+            var li = document.createElement('li');
+            var a = document.createElement('a');
+            a.href = '#'; a.className = 'dropdown-item small';
+            a.textContent = t.name;
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                insertReplyTemplate(t.id);
+            });
+            li.appendChild(a);
+            box.appendChild(li);
+        });
+    }).catch(function() {
+        box.innerHTML = '<li><span class="dropdown-item-text text-muted small">Не загрузились</span></li>';
+    });
+})();
+
+function insertReplyTemplate(tplId) {
+    var renderUrl = '{% url "email_ui:template_render" 0 %}'.replace('/0/', '/' + tplId + '/');
+    fetch(renderUrl).then(function(r) { return r.ok ? r.json() : null; }).then(function(data) {
+        if (!data) return;
+        var form = document.getElementById('compose-form');
+        if (form) {
+            var subj = form.elements['subject'];
+            if (subj && !subj.value.trim() && data.subject) subj.value = data.subject;
+        }
+        if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {
+            tinymce.activeEditor.insertContent(data.body || '');
+        } else {
+            var bodyEl = document.querySelector('textarea[name="body"]');
+            if (bodyEl) { bodyEl.value += data.body || ''; autoResize(bodyEl); }
+        }
+        if (window.EmailApp) EmailApp.markDirty();
+    }).catch(function() {});
 }
 </script>

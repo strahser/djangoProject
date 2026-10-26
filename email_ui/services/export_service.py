@@ -45,8 +45,9 @@ class EmailExportService:
             msg.attach(MIMEText(body_html, 'html', 'utf-8'))
 
         for att in email.attachments.all():
-            if os.path.exists(att.file_path):
-                with open(att.file_path, 'rb') as f:
+            att_path = att.resolved_path
+            if os.path.exists(att_path):
+                with open(att_path, 'rb') as f:
                     part = MIMEApplication(f.read(), Name=att.filename)
                 part['Content-Disposition'] = f'attachment; filename="{att.filename}"'
                 msg.attach(part)
@@ -116,8 +117,9 @@ class EmailExportService:
         # Copy attachments
         if copy_attachments:
             for att in email.attachments.all():
-                if os.path.exists(att.file_path):
-                    shutil.copy2(att.file_path, os.path.join(email_folder, att.filename))
+                att_path = att.resolved_path
+                if os.path.exists(att_path):
+                    shutil.copy2(att_path, os.path.join(email_folder, att.filename))
 
         # Save metadata
         metadata_path = os.path.join(email_folder, 'metadata.txt')

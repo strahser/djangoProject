@@ -8,15 +8,19 @@
         <input type="hidden" id="filter-folder-input" name="folder" value="{{ folder }}">
 
         <div class="border rounded p-2 mb-2">
-            <div class="small text-muted mb-2"><i class="bi bi-envelope me-1"></i>Почта: общий поиск — «везде», «только тема» или «тема + тело письма»; адрес (со знаком @) ищется по адресным полям при любой области, а скобки, кавычки и точки вокруг скопированного адреса не мешают поиску; остальные поля — строго в своём поле (комбинируются через И)</div>
+            <div class="small text-muted mb-2"><i class="bi bi-envelope me-1"></i>Почта: общий поиск — «везде», «только тема» или «тема + тело письма»; адрес (со знаком @) ищется по адресным полям при любой области, а скобки, кавычки и точки вокруг скопированного адреса не мешают поиску; остальные поля — строго в своём поле (комбинируются через И). <code>"точная фраза"</code> — искать слитно, <code>-минус</code> в начале слова — исключить.</div>
             <div class="row g-2 mb-2">
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <label class="form-label small text-muted mb-0" for="{{ filter_form.search.id_for_label }}" title="Ищет везде: тема, отправитель, получатель, копия (в т.ч. скрытая)">Общий поиск</label>
                     {{ filter_form.search }}
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <label class="form-label small text-muted mb-0" for="{{ filter_form.search_scope.id_for_label }}" title="Где искать введённое: везде, только в теме, или в теме + теле письма">Область поиска</label>
                     {{ filter_form.search_scope }}
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small text-muted mb-0" for="{{ filter_form.attachment_name.id_for_label }}" title="Ищет по имени файла вложения. Несколько — через запятую (ИЛИ)">Имя вложения</label>
+                    {{ filter_form.attachment_name }}
                 </div>
             </div>
 
@@ -87,6 +91,12 @@
                     </label>
                 </div>
                 <div class="form-check">
+                    {{ filter_form.has_disk_links }}
+                    <label class="form-check-label small" for="{{ filter_form.has_disk_links.id_for_label }}" title="Письма со ссылками на Яндекс.Диск">
+                        <i class="bi bi-cloud-arrow-down"></i> С Диском
+                    </label>
+                </div>
+                <div class="form-check">
                     {{ filter_form.is_important }}
                     <label class="form-check-label small" for="{{ filter_form.is_important.id_for_label }}">
                         <i class="bi bi-star"></i> Важные
@@ -96,6 +106,12 @@
                     {{ filter_form.is_unread }}
                     <label class="form-check-label small" for="{{ filter_form.is_unread.id_for_label }}">
                         <i class="bi bi-envelope"></i> Непрочитанные
+                    </label>
+                </div>
+                <div class="form-check">
+                    {{ filter_form.in_files }}
+                    <label class="form-check-label small" for="{{ filter_form.in_files.id_for_label }}" title="Общий поиск ищет и в тексте вложений (pdf/docx/xlsx/txt)">
+                        <i class="bi bi-file-earmark-text"></i> В файлах
                     </label>
                 </div>
             </div>
@@ -190,6 +206,7 @@ function updateSummary() {
     function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
     var search = val('id_search'), sender = val('id_sender'),
         receiver = val('id_receiver'), cc = val('id_cc'),
+        attName = val('id_attachment_name'),
         dFrom = val('id_date_from'), dTo = val('id_date_to');
     var scopeLabels = {'subject': ' · только тема', 'subject_body': ' · тема + тело'};
     var scopeLabel = scopeLabels[val('id_search_scope')] || '';
@@ -197,7 +214,18 @@ function updateSummary() {
     if (sender) html += '<span class="badge bg-info text-dark me-1 mb-1">От кого: ' + sender.replace(/</g, '&lt;') + '</span>';
     if (receiver) html += '<span class="badge bg-info text-dark me-1 mb-1">Кому: ' + receiver.replace(/</g, '&lt;') + '</span>';
     if (cc) html += '<span class="badge bg-info text-dark me-1 mb-1">Копия: ' + cc.replace(/</g, '&lt;') + '</span>';
+    if (attName) html += '<span class="badge bg-info text-dark me-1 mb-1">Вложение: ' + attName.replace(/</g, '&lt;') + '</span>';
     if (dFrom || dTo) html += '<span class="badge bg-info text-dark me-1 mb-1">Даты: ' + (dFrom || '…') + ' — ' + (dTo || '…') + '</span>';
+    // Флаги-чекбоксы — иначе быстрые фильтры из сайдбара «невидимы» в саммари.
+    function flag(name, label) {
+        var el = document.querySelector('#filter-form input[name="' + name + '"]');
+        if (el && el.checked) html += '<span class="badge bg-info text-dark me-1 mb-1">' + label + '</span>';
+    }
+    flag('has_attachments', 'С вложениями');
+    flag('has_disk_links', 'С Диском');
+    flag('in_files', 'В файлах');
+    flag('is_important', 'Важные');
+    flag('is_unread', 'Непрочитанные');
     var fields = ['project_site','contractor','building_type','category','info'];
     var labels = {'project_site':'Проекты','contractor':'Подрядчики','building_type':'Здания','category':'Категории','info':'Тип информации'};
     fields.forEach(function(field) {
@@ -209,8 +237,16 @@ function updateSummary() {
         }
     });
     container.innerHTML = html || '<span class="text-muted small">Фильтры не выбраны</span>';
+    syncQuickNav();
 }
-document.addEventListener('DOMContentLoaded', updateSummary);
+/* Подсветка быстрых фильтров сайдбара по состоянию чекбоксов формы. */
+function syncQuickNav() {
+    document.querySelectorAll('[data-quick-filter]').forEach(function(link) {
+        var box = document.querySelector('#filter-form input[name="' + link.getAttribute('data-quick-filter') + '"]');
+        link.classList.toggle('active', !!(box && box.checked));
+    });
+}
+document.addEventListener('DOMContentLoaded', function() { updateSummary(); syncQuickNav(); });
 /* htmx подменяет только #email-list-container, поэтому плашки активных
    фильтров нужно пересобирать вручную — иначе они «залипают» от прошлого
    запроса. */
@@ -220,6 +256,20 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
 });
 /* Фильтры живут в модальном окне: после применения закрываем его, отражаем
    параметры в адресе (ссылкой можно делиться) и обновляем счётчик на кнопке. */
+function updateFilterBadge(count) {
+    var btn = document.querySelector('[data-bs-target="#filterModal"]');
+    if (!btn) return;
+    var badge = btn.querySelector('.badge');
+    if (count > 0) {
+        if (badge) { badge.textContent = count; }
+        else {
+            badge = document.createElement('span');
+            badge.className = 'badge bg-primary ms-1';
+            badge.textContent = count;
+            btn.appendChild(badge);
+        }
+    } else if (badge) { badge.remove(); }
+}
 function syncFilterModalState() {
     var modalEl = document.getElementById('filterModal');
     if (modalEl && window.bootstrap && bootstrap.Modal) {
@@ -239,21 +289,51 @@ function syncFilterModalState() {
             if (k === 'folder' || k === 'page' || k === 'sort' || k === 'order') return;
             if (String(v).trim() !== '') count++;
         });
-        var btn = document.querySelector('[data-bs-target="#filterModal"]');
-        if (btn) {
-            var badge = btn.querySelector('.badge');
-            if (count > 0) {
-                if (badge) { badge.textContent = count; }
-                else {
-                    badge = document.createElement('span');
-                    badge.className = 'badge bg-primary ms-1';
-                    badge.textContent = count;
-                    btn.appendChild(badge);
-                }
-            } else if (badge) { badge.remove(); }
-        }
+        updateFilterBadge(count);
     }
 }
+/* Единая точка правды — #filter-form. Сайдбар только выставляет/сбрасывает
+   её состояние, список/бейдж/URL пересобираются существующими механизмами. */
+window.EmailFilterNav = (function() {
+    var FLAGS = ['is_important', 'has_attachments', 'is_unread'];
+    var MULTI = ['project_site', 'contractor', 'building_type', 'category', 'info', 'tags'];
+    var TAG_BADGES = ['project_site_tags', 'contractor_tags', 'building_type_tags', 'category_tags', 'info_tags'];
+    return {
+        /* Быстрый фильтр: выставить один флаг (повторный клик — снять),
+           остальные флаги снять, текстовые/мульти-фильтры не трогать. */
+        applyQuickFilter: function(name) {
+            var form = document.getElementById('filter-form');
+            if (!form) return false;
+            var target = form.querySelector('input[name="' + name + '"]');
+            var turnOn = !(target && target.checked);
+            FLAGS.forEach(function(f) {
+                var el = form.querySelector('input[name="' + f + '"]');
+                if (el) el.checked = (f === name) ? turnOn : false;
+            });
+            updateSummary();
+            form.requestSubmit();
+            return false;
+        },
+        /* Смена папки: полностью сбросить форму, иначе залипают бейдж «1»,
+           чекбоксы и скрытые мульти-значения от прошлого фильтра. */
+        resetForFolder: function() {
+            var form = document.getElementById('filter-form');
+            if (!form) return;
+            form.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"])').forEach(function(el) { el.value = ''; });
+            form.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach(function(el) { el.checked = false; });
+            form.querySelectorAll('select').forEach(function(sel) { sel.selectedIndex = 0; });
+            MULTI.forEach(function(n) {
+                form.querySelectorAll('input[type="hidden"][name="' + n + '"]').forEach(function(el) { el.remove(); });
+            });
+            TAG_BADGES.forEach(function(id) {
+                var s = document.getElementById(id);
+                if (s) s.textContent = '0';
+            });
+            updateFilterBadge(0);
+            updateSummary();
+        }
+    };
+})();
 document.body.addEventListener('htmx:afterRequest', function(evt) {
     var elt = evt.detail && evt.detail.elt;
     if (elt && elt.id === 'filter-form') syncFilterModalState();

@@ -5,6 +5,8 @@ from django.utils.safestring import mark_safe
 from enum import Enum
 from urllib.parse import quote
 
+from Emails.paths import resolve_email_path
+
 
 def html_body_to_text(html_content: str) -> str:
     """Извлекает читаемый текст из HTML-тела письма для тела поиска.
@@ -109,6 +111,9 @@ class Email(models.Model):
     )
 
     link = models.CharField(max_length=300, null=True, blank=True, verbose_name='Ссылка')
+    has_disk_links = models.BooleanField(
+        default=False, verbose_name='Есть ссылки на Яндекс.Диск',
+        help_text='Файл narod_attachment_links.html в каталоге письма')
     subject = models.CharField(max_length=300, null=True, blank=True, verbose_name='Тема письма')
     sender = models.CharField(max_length=300, null=True, blank=True, verbose_name='Отправитель')
     receiver = models.CharField(max_length=300, null=True, blank=True, verbose_name='Получатель')
@@ -184,22 +189,40 @@ class Email(models.Model):
         return self.email_tags.all()
 
     @property
+    def resolved_link(self):
+        """Путь к каталогу письма с учётом текущего корня архива.
+
+        В БД могут остаться пути старого диска (e:\\...); при чтении они
+        перебазируются на E_MAIL_DIRECTORY, поэтому переезд архива не
+        требует правки базы.
+        """
+        return resolve_email_path(self.link)
+
+    @property
     def create_admin_link(self):
-        return mark_safe(f'<a href="file:///{self.link}">Ссылка</a>')
+        return mark_safe(f'<a href="file:///{self.resolved_link}">Ссылка</a>')
 
     create_admin_link.fget.short_description = 'e-mail Данные'
 
     def get_html_file_path(self):
         """Возвращает полный путь к HTML-файлу письма.
         Сначала ищет subject-based .html файл, затем legacy custom_table_view.html,
-        затем любой .html файл в директории."""
-        if not self.link:
+        затем любой .html файл в директории. Файл ссылок Яндекс.Диска
+        (narod_attachment_links.html) телом не считается — иначе при
+        неудачном порядке os.listdir вместо письма показывались бы ссылки.
+        """
+        link = self.resolved_link
+        if not link:
             return None
-        if not os.path.isdir(self.link):
-            return os.path.join(self.link, 'custom_table_view.html')
-        for fname in os.listdir(self.link):
-            if fname.endswith('.html'):
-                return os.path.join(self.link, fname)
+        if not os.path.isdir(link):
+            return os.path.join(link, 'custom_table_view.html')
+        from email_ui.utils import DISK_LINKS_FILENAME
+        candidates = sorted(
+            fname for fname in os.listdir(link)
+            if fname.endswith('.html') and fname != DISK_LINKS_FILENAME
+        )
+        if candidates:
+            return os.path.join(link, candidates[0])
 
     def extract_body_text(self) -> str:
         """Читает HTML-файл письма и возвращает текст тела для поиска ('' если нет файла).
@@ -242,26 +265,33 @@ class Attachment(models.Model):
     filename = models.CharField(max_length=255, verbose_name='Имя файла')
     size = models.IntegerField(verbose_name='Размер (байт)')
     content_type = models.CharField(max_length=100, blank=True, verbose_name='Тип содержимого')
+    text_content = models.TextField(blank=True, default='', verbose_name='Текст файла (поиск)')
+    text_indexed = models.BooleanField(default=False, verbose_name='Текст проиндексирован')
     uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата загрузки')
     is_inline = models.BooleanField(default=False, verbose_name='Inline')
     content_id = models.CharField(max_length=200, blank=True, verbose_name='Content-ID')
 
     @property
+    def resolved_path(self):
+        """Фактический путь к файлу с учётом текущего корня архива."""
+        return resolve_email_path(self.file_path)
+
+    @property
     def file_path_js(self):
         """Возвращает путь, экранированный для использования в JavaScript."""
-        return self.file_path.replace('\\', '\\\\').replace("'", "\\'")
+        return self.resolved_path.replace('\\', '\\\\').replace("'", "\\'")
 
     @property
     def file_url(self):
         """Возвращает file:// URL (может не работать в браузере)."""
-        path = self.file_path.replace('\\', '/')
+        path = self.resolved_path.replace('\\', '/')
         encoded = quote(path, safe=':/')
         return f'file://{encoded}'
 
     @property
     def folder_path(self):
         """Возвращает путь к папке, содержащей файл."""
-        return os.path.dirname(self.file_path)
+        return os.path.dirname(self.resolved_path)
 
     @property
     def folder_url(self):

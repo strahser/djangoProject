@@ -4,10 +4,11 @@
         <div>
             <span>{{ att.filename }}</span>
             <small class="text-muted">({{ att.size|filesizeformat }})</small>
+            {% if att.text_indexed %}<i class="bi bi-file-earmark-text text-success ms-1" title="Текст файла проиндексирован — ищется поиском «В файлах»"></i>{% endif %}
         </div>
         <div>
             <button class="btn btn-sm btn-outline-secondary copy-path-btn"
-                    data-path="{{ att.file_path }}"
+                    data-path="{{ att.resolved_path }}"
                     title="Копировать путь к файлу">
                 📋 Копировать путь
             </button>

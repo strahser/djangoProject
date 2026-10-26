@@ -2,7 +2,6 @@ from datetime import datetime
 import json
 from urllib.parse import urlparse
 
-import pandas as pd
 from django.contrib import messages
 from django.db.models import Q
 from django.contrib.auth.decorators import login_required
@@ -11,57 +10,19 @@ from django.shortcuts import render, redirect, HttpResponse, get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import UpdateView, DeleteView
-from django_tables2 import RequestConfig
 
-from AdminUtils import get_standard_display_list
 from ProjectContract.models import Contractor
 from ProjectContract.services import log_change
-from ProjectTDL.Tables import TaskNodeTable, create_filter_qs, data_filter_qs, StaticFilterSettings, \
-    order_qs_hierarchical, subtask_actions_html
-from ProjectTDL.forms import TaskUpdateValuesForm, TaskFilterForm, TaskUpdateForm, TaskNodeQuickForm
+from ProjectTDL.Tables import create_filter_qs, data_filter_qs, StaticFilterSettings, \
+    subtask_actions_html
+from ProjectTDL.forms import TaskUpdateForm, TaskNodeQuickForm
 from ProjectTDL.models import TaskNode, UserSettings, TaskFilterState
 from ProjectTDL.reports import ReportGenerator
 from StaticData.models import Status, Category, ProjectSite, BuildingNumber, BuildingType, DesignChapter
-from services.DataFrameRender.RenderDfFromModel import renamed_dict, CloneRecord, create_df_from_model, ButtonData, \
-    create_group_button, HTML_DF_PROPERTY, create_pivot_table
+from services.DataFrameRender.RenderDfFromModel import CloneRecord
 
 
 FILTER_FIELDS = ('project_site', 'building_number', 'status', 'category', 'contractor', 'due_date')
-
-
-def task_action(request):
-    if request.method == "POST":
-        pks = request.POST.getlist("selection")
-        if pks: request.session['pks'] = pks
-        _form = TaskUpdateValuesForm(request.POST or None)
-        if request.session.get('pks', None):
-            all_fields = [f.name for f in TaskNode._meta.fields]
-            update_dict = {}
-            for k, v in _form.data.items():
-                if k in all_fields and v:
-                    update_dict[k] = v
-            if update_dict:
-                try:
-                    from ProjectTDL.services.task_mutations import apply_bulk_update
-                    result = apply_bulk_update(
-                        request.session.get('pks'), update_dict, request.user)
-                    request.session['pks'] = None
-                    for data in TaskNode.objects.filter(
-                            pk__in=result['ids']):
-                        messages.success(request, data)
-                    return redirect('custom_task_view')
-                except Exception as e:
-                    messages.error(request, e)
-                    return redirect('custom_task_view')
-            else:
-                _form = TaskUpdateValuesForm()
-                return render(request, 'ProjectTDL/Universal_update_form.html', {'form': _form})
-        else:
-            messages.error(request, 'Не выбраны данные')
-            return redirect('custom_task_view')
-    else:
-        messages.error(request, 'Не выбраны данные')
-        return redirect('custom_task_view')
 
 
 def _inherit_filter_q(filter_dict, date_filter):
@@ -141,7 +102,7 @@ class TaskDeleteView(DeleteView):
     template_name = 'ProjectTDL/Delete_Form.html'
 
     def get_context_data(self, **kwargs):
-        context = super(DeleteView, self).get_context_data(**kwargs)
+        context = super().get_context_data(**kwargs)
         context['Name'] = "Обновление полей модели "
         next_url = (
             self.request.POST.get('__next__')
@@ -164,7 +125,7 @@ class TaskUpdateView(UpdateView):
 
     def get_context_data(self, **kwargs):
         c_object = self.get_object()
-        context = super(TaskUpdateView, self).get_context_data(**kwargs)
+        context = super().get_context_data(**kwargs)
         context['i__next__'] = self.request.POST.get('__next__') or reverse('custom_task_view')
         context['data'] = subtask_actions_html(c_object)
         return context
@@ -491,6 +452,42 @@ def bulk_update_tasks(request):
 
 @login_required
 @require_POST
+def task_move(request):
+    """Перемещение задачи в дереве: mode=attach (parent_id; пустой —
+    открепить в корень), indent (понизить уровень, как в MS Project),
+    outdent (повысить уровень). Права — как в update_task_field:
+    только владелец задачи."""
+    from ProjectTDL.services.task_mutations import (
+        indent_task, move_task, outdent_task,
+    )
+    try:
+        task = get_object_or_404(TaskNode, pk=int(request.POST.get('task_id')))
+    except (ValueError, TypeError):
+        return JsonResponse({'status': 'error', 'message': 'Некорректный ID задачи'})
+    if not request.user.is_authenticated \
+            or task.owner_id != request.user.pk:
+        return JsonResponse({'status': 'error', 'message': 'Нет прав на задачу'})
+    mode = (request.POST.get('mode') or 'attach').strip()
+    if mode == 'indent':
+        result = indent_task(task)
+    elif mode == 'outdent':
+        result = outdent_task(task)
+    else:
+        raw_parent = (request.POST.get('parent_id') or '').strip()
+        try:
+            parent = get_object_or_404(TaskNode, pk=int(raw_parent)) if raw_parent else None
+        except (ValueError, TypeError):
+            return JsonResponse({'status': 'error', 'message': 'Некорректный ID родителя'})
+        result = move_task(task, parent)
+    if not result['ok']:
+        return JsonResponse({'status': 'error', 'message': result['message']})
+    task.refresh_from_db()
+    return JsonResponse({'status': 'ok', 'message': result['message'],
+                         'task_id': task.pk, 'parent_id': task.parent_id})
+
+
+@login_required
+@require_POST
 def save_user_settings(request):
     settings, _ = UserSettings.objects.get_or_create(user=request.user)
 
@@ -654,7 +651,7 @@ class SubTaskUpdateView(UpdateView):
     fields = '__all__'
 
     def get_context_data(self, **kwargs):
-        context = super(UpdateView, self).get_context_data(**kwargs)
+        context = super().get_context_data(**kwargs)
         context['Name'] = "Обновление полей модели "
         # __next__: из POST (save), из GET-параметра, иначе fallback на карточку задачи
         next_url = (

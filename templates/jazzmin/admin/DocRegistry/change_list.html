@@ -1,0 +1,48 @@
+{% extends "jazzmin/admin/change_list.html" %}
+{% load i18n admin_urls admin_list %}
+
+{% comment %}
+Селектор «записей на страницу» для чейнджлистов реестров (DocRegistry).
+Базовый путь: admin/DocRegistry/<model>/ — попадаем только на m1entry/k1entry
+и справочники реестров. ?per_page=25|50|100|all (обрабатывает
+_EntryAdminBase.changelist_view).
+{% endcomment %}
+
+{% block page_actions %}
+    <div class="d-flex align-items-center gap-2 me-auto">
+        <form method="get" class="d-flex align-items-center gap-2">
+            <label class="small quiet mb-0" for="per-page-select">{% trans 'Записей на страницу' %}:</label>
+            <select id="per-page-select" class="form-select form-select-sm" style="width:auto"
+                    onchange="document.cookie='registry_per_page='+this.value+';path=/';location.reload()">
+                {% with current=cl.model_admin.list_per_page %}
+                {% for opt in '25 50 100 all'|split %}
+                    <option value="{{ opt }}" {% if opt == 'all' and current >= 100000 or opt != 'all' and current == opt|add:0 %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+                {% endwith %}
+            </select>
+            {% for k, v in request.GET.items %}{% if k != 'per_page' and k != 'p' %}
+                <input type="hidden" name="{{ k }}" value="{{ v }}">
+            {% endif %}{% endfor %}
+        </form>
+    </div>
+    {{ block.super }}
+{% endblock %}
+
+{% block extrajs %}
+    {{ block.super }}
+    {% if not cl.is_popup and cl.result_count > cl.list_per_page %}
+        <script>
+            // Плашка «Выбрать все N записей» рядом с пагинацией — напоминание о
+            // select_across (галочка в шапке таблицы действует на всю выборку).
+            document.addEventListener('DOMContentLoaded', function () {
+                var pag = document.querySelector('.paginator');
+                if (!pag || document.getElementById('select-across-hint')) return;
+                var hint = document.createElement('span');
+                hint.id = 'select-across-hint';
+                hint.className = 'small quiet ms-3';
+                hint.textContent = '{% blocktrans count counter=cl.full_result_count %}Всего {{ counter }} запись — галочка в шапке таблицы выделяет все{% plural %}Всего {{ counter }} записей — галочка в шапке таблицы выделяет все{% endblocktrans %}';
+                pag.appendChild(hint);
+            });
+        </script>
+    {% endif %}
+{% endblock %}

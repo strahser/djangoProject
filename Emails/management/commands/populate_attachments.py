@@ -29,7 +29,7 @@ class Command(BaseCommand):
         total_skipped = 0
 
         for email in emails:
-            folder = email.link
+            folder = email.resolved_link
             if not os.path.isdir(folder):
                 self.stdout.write(f"Папка не существует: {folder}")
                 continue

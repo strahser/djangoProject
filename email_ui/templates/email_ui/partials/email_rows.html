@@ -2,6 +2,7 @@
 {% for email in page_obj %}
 {% with back_url=email_list_back_url|default:"/" %}
 <tr class="email-row{% if not email.is_read %} unread{% endif %}"
+    data-email-id="{{ email.pk|unlocalize }}"
     onclick="location.href='{% if folder == 'drafts' %}{% url 'email_ui:draft_edit' email.pk %}?next={{ back_url|urlencode }}{% else %}{% url 'email_ui:email_detail' email.pk %}?next={{ back_url|urlencode }}{% endif %}'; return false;">
     <td onclick="event.stopPropagation()">
         <input type="checkbox" name="selected_emails" value="{{ email.pk|unlocalize }}" form="bulk-form"
@@ -20,15 +21,15 @@
     </td>
     <td>
         {% if folder == 'sent' or folder == 'drafts' %}
-            {{ email.receiver|canon_emails|default:"—"|truncatechars:28 }}
+            {{ email.receiver|canon_emails|default:"—"|truncatechars:28|hl:hl_tokens }}
         {% else %}
-            {{ email.sender|canon_email|truncatechars:28|default:"Неизвестно" }}
+            {{ email.sender|canon_email|truncatechars:28|default:"Неизвестно"|hl:hl_tokens }}
         {% endif %}
     </td>
     <td>
             <div>
                 <a href="{% url 'email_ui:email_detail' email.pk %}?next={{ back_url|urlencode }}"
-                   class="text-decoration-none text-dark">{{ email.subject|truncatechars:70|default:"Без темы" }}</a>
+                   class="text-decoration-none text-dark">{{ email.subject|truncatechars:70|default:"Без темы"|hl:hl_tokens }}</a>
                 {% if email.is_important %}<i class="bi bi-star-fill text-warning ms-1" style="font-size:12px;"></i>{% endif %}
             </div>
             {% if email_view_settings.show_body_preview and email.body_text %}

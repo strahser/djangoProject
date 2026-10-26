@@ -1,0 +1,13 @@
+<div class="modal-header py-2">
+    <h6 class="modal-title"><i class="bi bi-bookmark-star me-1"></i>Сохранённые фильтры</h6>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+<div class="modal-body">
+    <button type="button" class="btn btn-outline-primary btn-sm mb-3"
+            hx-get="{% url 'email_ui:save_filter_modal' %}"
+            hx-vals='js:{folder: (document.getElementById("filter-folder-input")||{value:"inbox"}).value, filter_params: new URLSearchParams(new FormData(document.getElementById("filter-form"))).toString()}'
+            hx-target="#emailModalContent" hx-swap="innerHTML" hx-push-url="false">
+        <i class="bi bi-plus-lg"></i> Сохранить текущий
+    </button>
+    {% include "email_ui/partials/saved_filters_list.html" %}
+</div>

@@ -23,10 +23,14 @@ static/css/*
 !static/css/fonts
 
 # Logs and temp files
+logs/
 *.log
 *.tmp
 *.swp
 *.swo
+
+# Local agent state
+.opencode/
 
 # OS files
 .DS_Store
